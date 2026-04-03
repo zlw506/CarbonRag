@@ -18,6 +18,7 @@ venv/
 backend/.venv/
 backend/.conda/
 backend/.pytest_cache/
+backend/local_provider_config.json
 
 # Node and frontend tooling
 node_modules/

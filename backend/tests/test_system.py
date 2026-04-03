@@ -14,5 +14,6 @@ def test_system_info() -> None:
     assert payload["version"] == "v0.0.2"
     assert payload["env"] == "development"
     assert payload["api_prefix"] == "/api/v1"
-    assert payload["model_provider_mode"] == "cloud_api_stub"
+    assert payload["model_provider_mode"] in {"cloud_api_stub", "openai_compatible"}
+    assert payload["model_name"] == "gpt-5.4"
     assert "timestamp" in payload

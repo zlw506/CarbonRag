@@ -4,6 +4,8 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+BACKEND_DIR = REPO_ROOT / "backend"
+LOCAL_PROVIDER_CONFIG_PATH = BACKEND_DIR / "local_provider_config.json"
 
 
 class Settings(BaseSettings):
@@ -17,7 +19,7 @@ class Settings(BaseSettings):
 
     model_api_base_url: str = "https://api.example.com/v1"
     model_api_key: str = "replace-with-model-api-key"
-    model_name: str = "replace-with-chat-model"
+    model_name: str = "gpt-5.4"
     model_temperature: float = 0.2
     model_max_tokens: int = 4096
 

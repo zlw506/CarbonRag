@@ -6,6 +6,7 @@ from dataclasses import dataclass
 class ProviderDescriptor:
     name: str
     mode: str
+    default_model: str | None = None
 
 
 class BaseProvider(ABC):

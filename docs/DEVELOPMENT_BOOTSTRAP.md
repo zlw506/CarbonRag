@@ -96,6 +96,8 @@ conda create -p .conda python=3.11 -y
 - `PRIVATE_SAMPLE_DIR`
 - `FACTOR_DATA_DIR`
 
+当前后端默认模型名为 `gpt-5.4`。如需切换，可修改根目录 `.env` 的 `MODEL_NAME`，或调整本机未纳入版本控制的 provider 本地配置。
+
 ### `frontend/.env`
 
 只允许浏览器可见配置：
