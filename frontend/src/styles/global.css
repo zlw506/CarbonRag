@@ -1,0 +1,46 @@
+:root {
+    color: #14213d;
+    background: #f4f7fb;
+    font-family: "Segoe UI", "PingFang SC", sans-serif;
+}
+
+body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top left, rgba(0, 119, 182, 0.14), transparent 30%),
+        linear-gradient(180deg, #f8fbff 0%, #eef3f8 100%);
+}
+
+#root {
+    min-height: 100vh;
+}
+
+.app-shell {
+    min-height: 100vh;
+}
+
+.app-shell__sider {
+    background: #0f172a !important;
+    padding: 20px 16px;
+}
+
+.app-shell__brand {
+    color: #f8fafc;
+    margin-bottom: 24px;
+}
+
+.app-shell__brand .ant-typography,
+.app-shell__header .ant-typography {
+    color: inherit;
+}
+
+.app-shell__header {
+    background: transparent;
+    padding: 24px 24px 0;
+}
+
+.app-shell__content {
+    padding: 0 24px 24px;
+}

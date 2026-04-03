@@ -15,10 +15,15 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+backend/.venv/
+backend/.conda/
+backend/.pytest_cache/
 
 # Node and frontend tooling
 node_modules/
+frontend/node_modules/
 dist/
+frontend/dist/
 build/
 coverage/
 .vite/
@@ -27,6 +32,7 @@ coverage/
 .env
 .env.*
 !.env.example
+!frontend/.env.example
 
 # Logs
 *.log

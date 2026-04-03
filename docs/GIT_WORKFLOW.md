@@ -1,5 +1,5 @@
 # Git 工作流
-版本：v0.0.1
+版本：v0.0.2
 
 ## 分支
 - main：稳定演示
@@ -13,6 +13,7 @@
 - 不在脏工作树上叠改
 - 不把 key 和敏感数据提交进仓库
 - hotfix 不顺手重构
+- 稳定配置轮统一在 `feature/stable-bootstrap` 完成，不重复新建 `dev`
 
 ## 提交格式
 - checkpoint: before v0.x.x
