@@ -37,7 +37,6 @@ class AIRuntimeOrchestrator:
         if request.mode == "ask":
             enforce_ask_request_constraints(request)
 
-        context_bundle = build_context_bundle(request, mode)
         guard_snapshot = enforce_tool_whitelist(
             mode,
             self.registry,
@@ -49,21 +48,30 @@ class AIRuntimeOrchestrator:
                 name=tool_name,
                 arguments={
                     "mode": request.mode,
+                    "question": request.user_input,
                     "user_input": request.user_input,
+                    "top_k": request.payload.get("top_k", 5),
+                    "knowledge_scope": request.payload.get("knowledge_scope_effective", "public"),
                     "payload": request.payload,
                 },
             )
             for tool_name in mode.default_stub_tool_sequence
         ]
+        tool_context = {
+            "mode": request.mode,
+            "trace_id": request.trace_id,
+            "payload_keys": sorted(request.payload.keys()),
+        }
         tool_results = [
             self.registry.invoke(
                 call.name,
                 arguments=call.arguments,
-                context=context_bundle,
+                context=tool_context,
                 trace_id=request.trace_id,
             )
             for call in tool_calls
         ]
+        context_bundle = build_context_bundle(request, mode, tool_results=tool_results)
 
         provider_descriptor = self.chat_provider.describe()
         embedding_descriptor = self.embedding_provider.describe()

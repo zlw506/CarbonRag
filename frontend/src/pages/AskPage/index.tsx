@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Card, Descriptions, Input, Space, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Input, List, Space, Tag, Typography } from "antd";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
 import { submitAskRequest } from "../../services/ask";
 import type { AskResponse } from "../../types/ask";
@@ -38,7 +38,7 @@ export function AskPage() {
             <Card>
                 <Typography.Title level={2}>问答页</Typography.Title>
                 <Typography.Paragraph>
-                    v0.1.5B 已联通 `POST /api/v1/ask`。当前只支持单轮通用双碳问答，不接 RAG、不接企业私有数据，`citations` 暂为空数组占位。
+                    v0.1.6 已把 `POST /api/v1/ask` 升级为带公共政策样本 grounding 的单轮问答链路。当前 citations 来自本地公共政策样本语料，仍未接入企业私有数据与完整知识库。
                 </Typography.Paragraph>
             </Card>
             <SystemInfoPanel />
@@ -53,7 +53,7 @@ export function AskPage() {
             <Card title="问题输入区">
                 <Space direction="vertical" size={16} style={{ width: "100%" }}>
                     <Typography.Paragraph>
-                        当前固定使用 `knowledge_scope=public` 与 `top_k=5`，仅验证首条 ask-mode 真实链路。
+                        当前固定使用 `knowledge_scope=public` 与 `top_k=5`，仅验证公共政策样本检索 grounding 链路。
                     </Typography.Paragraph>
                     <Input.TextArea
                         value={question}
@@ -87,14 +87,45 @@ export function AskPage() {
                         <Card size="small" title="Citations">
                             {result.citations.length === 0 ? (
                                 <Typography.Paragraph style={{ marginBottom: 0 }}>
-                                    当前未接入 RAG 与真实引用生成，`citations` 为空数组占位。
+                                    当前公共政策样本中没有检索到足够依据，系统已返回受限回答。本轮 citations 仅来自本地公共政策样本语料，不代表完整知识库覆盖。
                                 </Typography.Paragraph>
-                            ) : null}
+                            ) : (
+                                <List
+                                    dataSource={result.citations}
+                                    renderItem={(citation) => (
+                                        <List.Item key={citation.chunk_id}>
+                                            <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                                <Space size={8} wrap>
+                                                    <Typography.Text strong>{citation.title}</Typography.Text>
+                                                    <Tag>{citation.source}</Tag>
+                                                    <Typography.Text type="secondary">
+                                                        {citation.chunk_id}
+                                                    </Typography.Text>
+                                                </Space>
+                                                <Typography.Paragraph
+                                                    style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}
+                                                >
+                                                    {citation.snippet}
+                                                </Typography.Paragraph>
+                                                {citation.source_url ? (
+                                                    <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
+                                                        查看来源
+                                                    </Typography.Link>
+                                                ) : (
+                                                    <Typography.Text type="secondary">
+                                                        来源标识：{citation.doc_id}
+                                                    </Typography.Text>
+                                                )}
+                                            </Space>
+                                        </List.Item>
+                                    )}
+                                />
+                            )}
                         </Card>
                     </Space>
                 ) : (
                     <Typography.Paragraph style={{ marginBottom: 0 }}>
-                        提交一次问题后，这里会展示后端 ask mode 返回的答案、状态和 trace_id。
+                        提交一次问题后，这里会展示后端 ask mode 返回的答案、状态、trace_id 和公共政策 citations。
                     </Typography.Paragraph>
                 )}
             </Card>

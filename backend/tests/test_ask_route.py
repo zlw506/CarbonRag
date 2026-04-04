@@ -34,7 +34,7 @@ def test_ask_route_returns_200_for_success(monkeypatch) -> None:
     assert payload["mode"] == "ask"
     assert payload["status"] == "ok"
     assert payload["answer"].startswith("双碳目标")
-    assert payload["citations"] == []
+    assert payload["citations"]
     assert payload["trace_id"].startswith("trace-")
 
 
@@ -61,6 +61,23 @@ def test_ask_route_returns_422_for_private_sample_scope() -> None:
         json={
             "question": "解释什么是双碳目标",
             "knowledge_scope": "private_sample",
+            "top_k": 5,
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 422
+    assert payload["mode"] == "ask"
+    assert payload["status"] == "invalid_input"
+    assert payload["trace_id"].startswith("trace-")
+
+
+def test_ask_route_returns_422_for_mixed_scope() -> None:
+    response = client.post(
+        "/api/v1/ask",
+        json={
+            "question": "解释什么是双碳目标",
+            "knowledge_scope": "mixed",
             "top_k": 5,
         },
     )

@@ -8,9 +8,12 @@ AskStatus = Literal["ok", "provider_error", "invalid_input"]
 
 
 class AskCitation(BaseModel):
-    source_id: str
+    doc_id: str
     title: str
+    source: str
+    source_url: str
     snippet: str
+    chunk_id: str
 
 
 class AskRequest(BaseModel):

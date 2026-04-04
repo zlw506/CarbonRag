@@ -1,6 +1,6 @@
 # API Boundary Draft
-版本：v0.1.5B
-状态：ask controlled-linked / implemented-minimal
+版本：v0.1.6
+状态：ask controlled-linked / public-policy-grounded
 
 ## 已开放的最小接口
 
@@ -31,7 +31,7 @@
 ```json
 {
   "app_name": "CarbonRag",
-  "version": "v0.1.5B",
+  "version": "v0.1.6",
   "env": "development",
   "api_prefix": "/api/v1",
   "model_provider_mode": "openai_compatible",
@@ -43,7 +43,7 @@
 
 ### `POST /api/v1/ask`
 
-状态：`controlled-linked / implemented-minimal`
+状态：`controlled-linked / public-policy-grounded`
 
 鉴权：暂定否
 
@@ -73,9 +73,12 @@
   "status": "ok | provider_error | invalid_input",
   "citations": [
     {
-      "source_id": "string",
+      "doc_id": "string",
       "title": "string",
-      "snippet": "string"
+      "source": "string",
+      "source_url": "string",
+      "snippet": "string",
+      "chunk_id": "string"
     }
   ],
   "trace_id": "string"
@@ -85,12 +88,12 @@
 当前实现约束：
 
 - 当前只支持单轮问答
-- 当前前端固定发送 `knowledge_scope=public`
-- `mixed` 当前在后端降级为 `public`
-- `private_sample` 当前返回 `422`
-- `citations` 当前允许为空数组
-- 当前不承诺检索依据
-- 当前未接入 RAG
+- 当前 ask 只支持 `knowledge_scope=public`
+- `mixed` 与 `private_sample` 当前都返回 `422`
+- 当前 citations 来源于本地公共政策样本语料
+- 当前 ask 已固定先走 `policy_retrieve`，再进入 provider 回答
+- 当前不是完整 RAG 平台，只是第一条 public-policy grounding 链路
+- 当检索为空时，系统会返回受限回答，`citations` 允许为空
 
 ### `POST /api/v1/calc-carbon`
 
@@ -172,7 +175,8 @@
 - 未来 ask / calc-carbon / generate-report 都只通过 `app.ai_runtime.runtime.orchestrator.run()` 进入 AI Runtime
 - provider 访问必须经 `app.ai_runtime.providers.factory`
 - 当前模式只冻结为 `ask`、`carbon`、`report`
-- 当前工具只允许双碳业务 stub：`policy_retrieve`、`enterprise_retrieve`、`carbon_factor_lookup`、`carbon_calc`、`report_draft`
+- 当前 ask 已固定接入 `policy_retrieve`
+- 其他工具仍保持双碳业务 stub：`enterprise_retrieve`、`carbon_factor_lookup`、`carbon_calc`、`report_draft`
 
 ## 错误码占位
 

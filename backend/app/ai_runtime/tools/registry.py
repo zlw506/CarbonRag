@@ -2,7 +2,7 @@ from app.ai_runtime.tools.base import BaseTool
 from app.ai_runtime.tools.carbon_calc_stub import CarbonCalcStubTool
 from app.ai_runtime.tools.carbon_factor_lookup_stub import CarbonFactorLookupStubTool
 from app.ai_runtime.tools.enterprise_retrieve_stub import EnterpriseRetrieveStubTool
-from app.ai_runtime.tools.policy_retrieve_stub import PolicyRetrieveStubTool
+from app.ai_runtime.tools.policy_retrieve import PolicyRetrieveTool
 from app.ai_runtime.tools.report_draft_stub import ReportDraftStubTool
 
 
@@ -33,7 +33,7 @@ class ToolRegistry:
 def build_default_registry() -> ToolRegistry:
     registry = ToolRegistry()
     for tool in (
-        PolicyRetrieveStubTool(),
+        PolicyRetrieveTool(),
         EnterpriseRetrieveStubTool(),
         CarbonFactorLookupStubTool(),
         CarbonCalcStubTool(),

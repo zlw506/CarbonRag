@@ -1,6 +1,6 @@
 import pytest
 
-from app.ai_runtime.tools.policy_retrieve_stub import PolicyRetrieveStubTool
+from app.ai_runtime.tools.policy_retrieve import PolicyRetrieveTool
 from app.ai_runtime.tools.registry import ToolRegistry, build_default_registry
 
 
@@ -18,10 +18,10 @@ def test_default_registry_contains_all_stub_tools() -> None:
 
 def test_registry_rejects_duplicate_registration() -> None:
     registry = ToolRegistry()
-    registry.register(PolicyRetrieveStubTool())
+    registry.register(PolicyRetrieveTool())
 
     with pytest.raises(ValueError, match="Tool already registered"):
-        registry.register(PolicyRetrieveStubTool())
+        registry.register(PolicyRetrieveTool())
 
 
 def test_registry_raises_for_unknown_tool() -> None:

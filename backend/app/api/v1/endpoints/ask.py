@@ -23,7 +23,7 @@ def build_error_response(*, status_code: int, answer: str, trace_id: str) -> JSO
 @router.post("/ask", response_model=AskResponse)
 def ask_question(payload: AskRequest) -> AskResponse | JSONResponse:
     requested_scope = payload.knowledge_scope
-    effective_scope = "public" if requested_scope in {"public", "mixed"} else requested_scope
+    effective_scope = requested_scope
     chat_request = ChatRequest(
         mode="ask",
         user_input=payload.question,
@@ -47,10 +47,10 @@ def ask_question(payload: AskRequest) -> AskResponse | JSONResponse:
             answer=f"问题长度不能超过 {config.ask_max_question_length} 个字符。",
             trace_id=chat_request.trace_id,
         )
-    if requested_scope == "private_sample":
+    if requested_scope != "public":
         return build_error_response(
             status_code=422,
-            answer="v0.1.5B 当前不支持 private_sample 问答范围。",
+            answer="v0.1.6 当前只支持 public 公共政策问答范围。",
             trace_id=chat_request.trace_id,
         )
 
@@ -67,7 +67,7 @@ def ask_question(payload: AskRequest) -> AskResponse | JSONResponse:
         answer=result.response.answer,
         mode="ask",
         status=result.status,
-        citations=[],
+        citations=result.citations,
         trace_id=result.trace_id,
     )
     if result.status == "provider_error":

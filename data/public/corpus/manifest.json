@@ -1,0 +1,52 @@
+[
+    {
+        "doc_id": "policy_001",
+        "title": "国务院关于印发2030年前碳达峰行动方案的通知",
+        "source": "国务院",
+        "source_url": "https://www.gov.cn/zhengce/content/2021-10/26/content_5644984.htm",
+        "issued_at": "2021-10-26",
+        "region": "national",
+        "doc_type": "policy",
+        "filepath": "docs/policy_001.md"
+    },
+    {
+        "doc_id": "policy_002",
+        "title": "关于加快建立统一规范的碳排放统计核算体系实施方案",
+        "source": "国家发展改革委、国家统计局、生态环境部",
+        "source_url": "https://www.gov.cn/xinwen/2022-08/19/content_5706071.htm",
+        "issued_at": "2022-08-19",
+        "region": "national",
+        "doc_type": "guideline",
+        "filepath": "docs/policy_002.md"
+    },
+    {
+        "doc_id": "policy_003",
+        "title": "建立健全碳达峰碳中和标准计量体系实施方案",
+        "source": "市场监管总局等九部门",
+        "source_url": "https://www.gov.cn/xinwen/2022-11/01/content_5723065.htm",
+        "issued_at": "2022-11-01",
+        "region": "national",
+        "doc_type": "guideline",
+        "filepath": "docs/policy_003.md"
+    },
+    {
+        "doc_id": "policy_004",
+        "title": "关于进一步强化碳达峰碳中和标准计量体系建设行动方案（2024—2025年）的通知",
+        "source": "国家发展改革委等部门",
+        "source_url": "https://www.gov.cn/zhengce/zhengceku/202408/content_6967197.htm",
+        "issued_at": "2024-08-08",
+        "region": "national",
+        "doc_type": "guideline",
+        "filepath": "docs/policy_004.md"
+    },
+    {
+        "doc_id": "policy_005",
+        "title": "北京市人民政府关于印发《北京市碳达峰实施方案》的通知",
+        "source": "北京市人民政府",
+        "source_url": "https://www.beijing.gov.cn/zhengce/gfxwj/202210/t20221014_2836026.html",
+        "issued_at": "2022-10-14",
+        "region": "beijing",
+        "doc_type": "policy",
+        "filepath": "docs/policy_005.md"
+    }
+]

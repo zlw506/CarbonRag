@@ -23,7 +23,7 @@ export function AppShell() {
                 <div className="app-shell__brand">
                     <Typography.Title level={4}>{env.appTitle}</Typography.Title>
                     <Typography.Paragraph>
-                        v0.1.5B ask-mode 首个受控联通轮，当前只开放问答链路。
+                        v0.1.6 public-policy 首个受控检索接入轮，当前问答已展示公共政策依据。
                     </Typography.Paragraph>
                 </div>
                 <Menu
@@ -39,7 +39,7 @@ export function AppShell() {
             </Sider>
             <Layout>
                 <Header className="app-shell__header">
-                    <Typography.Title level={3}>CarbonRag Ask Mode Controlled Link</Typography.Title>
+                    <Typography.Title level={3}>CarbonRag Public Policy Grounded Ask</Typography.Title>
                 </Header>
                 <Content className="app-shell__content">
                     <Outlet />
