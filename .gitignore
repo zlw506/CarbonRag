@@ -41,3 +41,7 @@ coverage/
 # Runtime outputs
 data/outputs/*
 !data/outputs/.gitkeep
+
+# Local third-party study assets
+/3rdparty/*
+!/3rdparty/.gitkeep
