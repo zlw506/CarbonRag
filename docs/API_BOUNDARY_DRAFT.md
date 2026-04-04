@@ -1,6 +1,6 @@
 # API Boundary Draft
-版本：v0.1.4
-状态：stub-ready / not implemented
+版本：v0.1.5B
+状态：ask controlled-linked / implemented-minimal
 
 ## 已开放的最小接口
 
@@ -31,7 +31,7 @@
 ```json
 {
   "app_name": "CarbonRag",
-  "version": "v0.1.4",
+  "version": "v0.1.5B",
   "env": "development",
   "api_prefix": "/api/v1",
   "model_provider_mode": "openai_compatible",
@@ -39,19 +39,15 @@
 }
 ```
 
----
-
-## 草案接口
-
-以下接口仅冻结边界，不在 v0.1.4 实现。
+## 业务接口草案与当前状态
 
 ### `POST /api/v1/ask`
 
-状态：`stub-ready / not implemented`
+状态：`controlled-linked / implemented-minimal`
 
 鉴权：暂定否
 
-内部驱动：未来由 `ai_runtime` 的 `ask` mode 驱动
+内部驱动：当前已由 `ai_runtime` 的 `ask` mode 驱动
 
 内部最小 schema 映射：
 
@@ -74,7 +70,7 @@
 {
   "answer": "string",
   "mode": "ask",
-  "status": "stub_ready",
+  "status": "ok | provider_error | invalid_input",
   "citations": [
     {
       "source_id": "string",
@@ -85,6 +81,16 @@
   "trace_id": "string"
 }
 ```
+
+当前实现约束：
+
+- 当前只支持单轮问答
+- 当前前端固定发送 `knowledge_scope=public`
+- `mixed` 当前在后端降级为 `public`
+- `private_sample` 当前返回 `422`
+- `citations` 当前允许为空数组
+- 当前不承诺检索依据
+- 当前未接入 RAG
 
 ### `POST /api/v1/calc-carbon`
 

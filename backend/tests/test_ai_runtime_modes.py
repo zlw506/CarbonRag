@@ -5,8 +5,8 @@ from app.ai_runtime.schemas.result import RuntimeResult
 def test_ask_mode_contract() -> None:
     mode = resolve_mode("ask")
 
-    assert mode.allowed_tools == ("policy_retrieve", "enterprise_retrieve")
-    assert mode.default_stub_tool_sequence == ("policy_retrieve", "enterprise_retrieve")
+    assert mode.allowed_tools == ()
+    assert mode.default_stub_tool_sequence == ()
     assert mode.response_schema is RuntimeResult
 
 

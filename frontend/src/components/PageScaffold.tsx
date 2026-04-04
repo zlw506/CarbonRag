@@ -20,14 +20,14 @@ export function PageScaffold({ title, description, formTitle, resultTitle }: Pag
                 <Col xs={24} xl={12}>
                     <Card title={formTitle}>
                         <Typography.Paragraph>
-                            本区域仅用于固定未来输入表单的位置。v0.0.2 不实现真实业务字段与提交逻辑。
+                            本区域仍处于占位状态，本轮不实现真实业务字段与提交逻辑。
                         </Typography.Paragraph>
                     </Card>
                 </Col>
                 <Col xs={24} xl={12}>
                     <Card title={resultTitle}>
                         <Typography.Paragraph>
-                            本区域仅用于固定未来结果展示的位置。v0.0.2 不展示真实问答、核算或报告内容。
+                            本区域仍处于占位状态，本轮不展示真实核算或报告内容。
                         </Typography.Paragraph>
                     </Card>
                 </Col>

@@ -14,7 +14,8 @@ def get_chat_provider() -> BaseChatProvider:
         api_key=config.api_key,
         model_name=config.model_name,
         temperature=config.temperature,
-        max_tokens=config.max_tokens
+        max_tokens=config.max_tokens,
+        timeout_seconds=config.timeout_seconds,
     )
 
 

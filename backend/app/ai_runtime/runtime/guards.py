@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from typing import Iterable
 
+from app.ai_runtime.config import get_ai_runtime_config
 from app.ai_runtime.modes import ModeSpec
+from app.ai_runtime.schemas.chat import ChatRequest
 from app.ai_runtime.tools.registry import ToolRegistry
 
 FORBIDDEN_CAPABILITIES = (
@@ -46,3 +48,17 @@ def enforce_tool_whitelist(
         allowed_tools=mode.allowed_tools,
         forbidden_capabilities=FORBIDDEN_CAPABILITIES
     )
+
+
+def enforce_ask_request_constraints(request: ChatRequest) -> None:
+    config = get_ai_runtime_config()
+    question = request.user_input.strip()
+    if request.mode != "ask":
+        raise ValueError("当前 ask 入口只允许 ask mode。")
+    if not question:
+        raise ValueError("问题不能为空。")
+    if len(question) > config.ask_max_question_length:
+        raise ValueError(f"问题长度不能超过 {config.ask_max_question_length} 个字符。")
+    effective_scope = request.payload.get("knowledge_scope_effective", "public")
+    if effective_scope != "public":
+        raise ValueError("v0.1.5B 当前只支持 public 生效范围。")

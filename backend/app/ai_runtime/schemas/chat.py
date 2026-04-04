@@ -13,7 +13,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     mode: str
-    status: Literal["stub_ready", "not_implemented", "blocked"]
+    status: Literal["ok", "provider_error", "invalid_input", "stub_ready", "not_implemented", "blocked"]
     answer: str
     trace_id: str
     provider_name: str

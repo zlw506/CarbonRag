@@ -23,7 +23,7 @@ export function AppShell() {
                 <div className="app-shell__brand">
                     <Typography.Title level={4}>{env.appTitle}</Typography.Title>
                     <Typography.Paragraph>
-                        v0.0.2 稳定配置轮，仅提供工程壳与最小联通能力。
+                        v0.1.5B ask-mode 首个受控联通轮，当前只开放问答链路。
                     </Typography.Paragraph>
                 </div>
                 <Menu
@@ -39,7 +39,7 @@ export function AppShell() {
             </Sider>
             <Layout>
                 <Header className="app-shell__header">
-                    <Typography.Title level={3}>CarbonRag Stable Bootstrap</Typography.Title>
+                    <Typography.Title level={3}>CarbonRag Ask Mode Controlled Link</Typography.Title>
                 </Header>
                 <Content className="app-shell__content">
                     <Outlet />

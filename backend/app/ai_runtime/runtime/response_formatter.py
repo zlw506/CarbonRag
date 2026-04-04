@@ -14,30 +14,48 @@ def format_runtime_result(
     context_bundle: dict,
     provider_result: ChatCompletionResult,
     tool_calls: list[ToolCall],
-    tool_results: list[ToolResult]
+    tool_results: list[ToolResult],
+    status: str,
+    answer: str,
 ) -> RuntimeResult:
+    context_summary = {
+        "payload_keys": context_bundle.get("payload_keys", []),
+        "memory_reserved": not context_bundle.get("memory_slot", {}).get("implemented", False),
+        "tool_count": len(tool_calls),
+    }
+    if request.mode == "ask":
+        context_summary.update(
+            {
+                "knowledge_scope_requested": context_bundle.get("knowledge_scope_requested"),
+                "knowledge_scope_effective": context_bundle.get("knowledge_scope_effective"),
+                "single_turn_only": True,
+            }
+        )
+    else:
+        context_summary.update(
+            {
+                "policy_ready": context_bundle.get("policy_context", {}).get("ready"),
+                "enterprise_ready": context_bundle.get("enterprise_context", {}).get("ready"),
+                "carbon_ready": context_bundle.get("carbon_context", {}).get("ready"),
+                "report_ready": context_bundle.get("report_context", {}).get("ready"),
+            }
+        )
+
     response = ChatResponse(
         mode=request.mode,
-        status="stub_ready",
-        answer=provider_result.content,
+        status=status,
+        answer=answer,
         trace_id=request.trace_id,
         provider_name=provider_descriptor.name,
         provider_mode=provider_descriptor.mode,
-        model_name=provider_descriptor.default_model
+        model_name=provider_descriptor.default_model,
     )
 
     return RuntimeResult(
         mode=request.mode,
-        status="stub_ready",
+        status=status,
         trace_id=request.trace_id,
-        context_summary={
-            "policy_ready": context_bundle["policy_context"]["ready"],
-            "enterprise_ready": context_bundle["enterprise_context"]["ready"],
-            "carbon_ready": context_bundle["carbon_context"]["ready"],
-            "report_ready": context_bundle["report_context"]["ready"],
-            "memory_reserved": not context_bundle["memory_slot"]["implemented"],
-            "payload_keys": context_bundle["payload_keys"],
-        },
+        context_summary=context_summary,
         tool_calls=tool_calls,
         tool_results=tool_results,
         response=response,
@@ -45,6 +63,6 @@ def format_runtime_result(
             "chat_provider": provider_descriptor.name,
             "embedding_provider": embedding_descriptor.name,
             "forbidden_capabilities": list(guard_snapshot.forbidden_capabilities),
-            "provider_stub_metadata": provider_result.metadata,
-        }
+            "provider_metadata": provider_result.metadata,
+        },
     )

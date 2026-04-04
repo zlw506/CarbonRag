@@ -12,6 +12,7 @@ class ChatProviderConfig:
     model_name: str
     temperature: float
     max_tokens: int
+    timeout_seconds: float
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class AIRuntimeConfig:
     app_version: str
     default_mode: str
     allowed_modes: tuple[str, ...]
+    ask_max_question_length: int
     chat_provider: ChatProviderConfig
     embedding_provider: EmbeddingProviderConfig
     public_data_dir: str
@@ -63,7 +65,8 @@ def get_ai_runtime_config() -> AIRuntimeConfig:
         api_key=local_override.api_key if local_override else settings.model_api_key,
         model_name=local_override.model_name if local_override else settings.model_name,
         temperature=settings.model_temperature,
-        max_tokens=settings.model_max_tokens
+        max_tokens=settings.model_max_tokens,
+        timeout_seconds=30.0,
     )
     embedding_provider = EmbeddingProviderConfig(
         base_url=settings.embedding_api_base_url,
@@ -76,6 +79,7 @@ def get_ai_runtime_config() -> AIRuntimeConfig:
         app_version=settings.app_version,
         default_mode="ask",
         allowed_modes=("ask", "carbon", "report"),
+        ask_max_question_length=2000,
         chat_provider=chat_provider,
         embedding_provider=embedding_provider,
         public_data_dir=settings.public_data_dir,

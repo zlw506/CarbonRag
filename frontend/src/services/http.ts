@@ -3,5 +3,5 @@ import env from "../app/env";
 
 export const httpClient = axios.create({
     baseURL: env.apiBaseUrl,
-    timeout: 5000
+    timeout: 30000
 });

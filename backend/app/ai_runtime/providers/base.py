@@ -17,6 +17,13 @@ class ChatCompletionResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+class ChatProviderError(Exception):
+    def __init__(self, message: str, *, reason: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.status_code = status_code
+
+
 @dataclass(frozen=True)
 class EmbeddingResult:
     vectors: list[list[float]]
@@ -29,12 +36,11 @@ class BaseChatProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def generate_stub_response(
+    def generate_response(
         self,
         *,
-        mode_name: str,
+        system_prompt: str,
         user_input: str,
-        tool_names: Sequence[str]
     ) -> ChatCompletionResult:
         raise NotImplementedError
 
