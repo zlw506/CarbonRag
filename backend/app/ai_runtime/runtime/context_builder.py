@@ -24,12 +24,23 @@ def build_context_bundle(
     if mode.name == "ask":
         knowledge_scope_requested = request.payload.get("knowledge_scope_requested", "public")
         knowledge_scope_effective = request.payload.get("knowledge_scope_effective", "public")
+        session_context = request.payload.get("session_context", [])
         policy_hits = _extract_policy_hits(tool_results)
         limitations = [
             "当前未接入企业私有数据。",
             "当前 citations 仅来自本地公共政策样本语料。",
             "不得伪造引用或声称已访问未检索到的外部证据。",
         ]
+        if session_context:
+            session_context_lines = ["最近单会话历史如下，请仅用于延续当前会话上下文："]
+            for index, message in enumerate(session_context, start=1):
+                if not isinstance(message, dict):
+                    continue
+                role = message.get("role", "unknown")
+                content = message.get("content", "")
+                session_context_lines.append(f"[history-{index}] {role}: {content}")
+        else:
+            session_context_lines = ["当前会话历史为空，这是本轮对话的起点。"]
         if policy_hits:
             policy_context_lines = ["当前已检索到以下公共政策片段，请优先基于这些片段回答："]
             for index, hit in enumerate(policy_hits, start=1):
@@ -54,6 +65,7 @@ def build_context_bundle(
                 [
                     "你是 CarbonRag 的 ask mode 问答助手。",
                     "当前产品定位：面向中小企业的双碳问答 MVP。",
+                    *session_context_lines,
                     "当前策略：先检索本地公共政策样本，再基于命中的政策片段回答。",
                     "当前限制：未接入企业私有数据、未接入完整知识库、不得伪造引用。",
                     f"当前知识范围请求：{knowledge_scope_requested}。",
@@ -65,6 +77,7 @@ def build_context_bundle(
             "user_question": request.user_input,
             "knowledge_scope_requested": knowledge_scope_requested,
             "knowledge_scope_effective": knowledge_scope_effective,
+            "session_context": session_context,
             "policy_context": {
                 "ready": True,
                 "source": "local_public_policy_corpus",

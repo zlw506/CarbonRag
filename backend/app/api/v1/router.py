@@ -1,8 +1,10 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints.ask import router as ask_router
+from app.api.v1.endpoints.files import router as files_router
+from app.api.v1.endpoints.sessions import router as sessions_router
 from app.api.v1.endpoints.system import router as system_router
 
 router = APIRouter()
-router.include_router(ask_router, tags=["ask"])
+router.include_router(files_router, tags=["files"])
+router.include_router(sessions_router, tags=["sessions"])
 router.include_router(system_router, tags=["system"])

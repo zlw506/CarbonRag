@@ -53,7 +53,8 @@ def format_runtime_result(
             {
                 "knowledge_scope_requested": context_bundle.get("knowledge_scope_requested"),
                 "knowledge_scope_effective": context_bundle.get("knowledge_scope_effective"),
-                "single_turn_only": True,
+                "single_turn_only": False,
+                "session_message_count": len(context_bundle.get("session_context", [])),
                 "grounded_by_policy": True,
                 "retrieval_hit_count": len(citations),
                 "citation_count": len(citations),

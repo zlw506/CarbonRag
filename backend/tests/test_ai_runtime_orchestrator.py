@@ -60,6 +60,11 @@ def test_orchestrator_returns_runtime_result_for_ok_request() -> None:
         mode="ask",
         user_input="什么是双碳目标？",
         payload={
+            "session_id": "session-demo",
+            "session_context": [
+                {"role": "user", "content": "先解释什么是碳达峰。"},
+                {"role": "assistant", "content": "碳达峰是排放到峰值后进入下降。"},
+            ],
             "knowledge_scope_requested": "public",
             "knowledge_scope_effective": "public",
             "top_k": 5,
@@ -75,6 +80,7 @@ def test_orchestrator_returns_runtime_result_for_ok_request() -> None:
     assert result.context_summary["knowledge_scope_effective"] == "public"
     assert result.context_summary["memory_reserved"] is True
     assert result.context_summary["tool_count"] == 1
+    assert result.context_summary["session_message_count"] == 2
     assert result.context_summary["grounded_by_policy"] is True
     assert result.context_summary["retrieval_hit_count"] >= 1
     assert result.tool_calls[0].name == "policy_retrieve"
@@ -95,6 +101,11 @@ def test_orchestrator_returns_provider_error_when_chat_provider_fails() -> None:
         mode="ask",
         user_input="什么是碳中和？",
         payload={
+            "session_id": "session-demo",
+            "session_context": [
+                {"role": "user", "content": "先解释什么是碳达峰。"},
+                {"role": "assistant", "content": "碳达峰是排放到峰值后进入下降。"},
+            ],
             "knowledge_scope_requested": "public",
             "knowledge_scope_effective": "public",
             "top_k": 5,
