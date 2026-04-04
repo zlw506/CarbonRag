@@ -1,6 +1,6 @@
 # API Boundary Draft
-版本：v0.0.2
-状态：draft only / not implemented
+版本：v0.1.4
+状态：stub-ready / not implemented
 
 ## 已开放的最小接口
 
@@ -31,10 +31,10 @@
 ```json
 {
   "app_name": "CarbonRag",
-  "version": "v0.0.2",
+  "version": "v0.1.4",
   "env": "development",
   "api_prefix": "/api/v1",
-  "model_provider_mode": "cloud_api_stub",
+  "model_provider_mode": "openai_compatible",
   "timestamp": "2026-04-03T13:00:00+00:00"
 }
 ```
@@ -43,13 +43,20 @@
 
 ## 草案接口
 
-以下接口仅冻结边界，不在 v0.0.2 实现。
+以下接口仅冻结边界，不在 v0.1.4 实现。
 
 ### `POST /api/v1/ask`
 
-状态：`draft only / not implemented`
+状态：`stub-ready / not implemented`
 
 鉴权：暂定否
+
+内部驱动：未来由 `ai_runtime` 的 `ask` mode 驱动
+
+内部最小 schema 映射：
+
+- 输入落到 `ChatRequest`
+- 输出落到 `ChatResponse` / `RuntimeResult`
 
 请求字段草案：
 
@@ -66,6 +73,8 @@
 ```json
 {
   "answer": "string",
+  "mode": "ask",
+  "status": "stub_ready",
   "citations": [
     {
       "source_id": "string",
@@ -79,9 +88,16 @@
 
 ### `POST /api/v1/calc-carbon`
 
-状态：`draft only / not implemented`
+状态：`stub-ready / not implemented`
 
 鉴权：暂定否
+
+内部驱动：未来由 `ai_runtime` 的 `carbon` mode 驱动
+
+内部最小 schema 映射：
+
+- 输入落到 `ChatRequest`
+- 输出落到 `RuntimeResult`
 
 请求字段草案：
 
@@ -99,6 +115,8 @@
 
 ```json
 {
+  "mode": "carbon",
+  "status": "stub_ready",
   "scenario": "demo_basic",
   "total_emission": 0,
   "unit": "kgCO2e",
@@ -109,9 +127,16 @@
 
 ### `POST /api/v1/generate-report`
 
-状态：`draft only / not implemented`
+状态：`stub-ready / not implemented`
 
 鉴权：暂定否
+
+内部驱动：未来由 `ai_runtime` 的 `report` mode 驱动
+
+内部最小 schema 映射：
+
+- 输入落到 `ChatRequest`
+- 输出落到 `RuntimeResult`
 
 请求字段草案：
 
@@ -127,12 +152,21 @@
 
 ```json
 {
+  "mode": "report",
+  "status": "stub_ready",
   "report_type": "demo_summary",
   "format": "markdown",
   "content": "string",
   "trace_id": "string"
 }
 ```
+
+## AI Runtime 内部约束
+
+- 未来 ask / calc-carbon / generate-report 都只通过 `app.ai_runtime.runtime.orchestrator.run()` 进入 AI Runtime
+- provider 访问必须经 `app.ai_runtime.providers.factory`
+- 当前模式只冻结为 `ask`、`carbon`、`report`
+- 当前工具只允许双碳业务 stub：`policy_retrieve`、`enterprise_retrieve`、`carbon_factor_lookup`、`carbon_calc`、`report_draft`
 
 ## 错误码占位
 

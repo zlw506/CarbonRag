@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter
 
+from app.ai_runtime.providers.factory import get_chat_provider
 from app.core.config import get_settings
-from app.providers.factory import get_model_provider
 from app.schemas.system import SystemInfoResponse
 
 router = APIRouter()
@@ -12,7 +12,7 @@ router = APIRouter()
 @router.get("/system/info", response_model=SystemInfoResponse)
 def get_system_info() -> SystemInfoResponse:
     settings = get_settings()
-    provider = get_model_provider()
+    provider = get_chat_provider()
     descriptor = provider.describe()
 
     return SystemInfoResponse(

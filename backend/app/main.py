@@ -11,7 +11,7 @@ configure_logging()
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="CarbonRag stable bootstrap backend shell"
+    description="CarbonRag AI runtime architecture freeze backend skeleton"
 )
 app.include_router(health_router)
 app.include_router(api_router, prefix=settings.api_prefix)

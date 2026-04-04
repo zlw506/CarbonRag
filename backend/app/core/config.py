@@ -10,12 +10,12 @@ LOCAL_PROVIDER_CONFIG_PATH = BACKEND_DIR / "local_provider_config.json"
 
 class Settings(BaseSettings):
     app_name: str = "CarbonRag"
-    app_version: str = "v0.0.2"
+    app_version: str = "v0.1.4"
     app_env: str = "development"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     api_prefix: str = "/api/v1"
-    model_provider_mode: str = "cloud_api_stub"
+    model_provider_mode: str = "openai_compatible"
 
     model_api_base_url: str = "https://api.example.com/v1"
     model_api_key: str = "replace-with-model-api-key"
