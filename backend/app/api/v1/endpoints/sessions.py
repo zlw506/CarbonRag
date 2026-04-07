@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from app.ai_runtime.config import get_ai_runtime_config
 from app.ai_runtime.runtime.orchestrator import AIRuntimeOrchestrator
 from app.ai_runtime.schemas.chat import ChatRequest
-from app.schemas.ask import AskRequest, AskResponse, AskCitation
+from app.schemas.ask import AskCitation, AskRequest, AskResponse
 from app.session.schemas import CreateSessionRequest, SessionDetail, SessionSummary, UpdateSessionRequest
 from app.session.service import get_session_service
 
@@ -56,7 +56,6 @@ def ask_in_session(session_id: str, payload: AskRequest) -> AskResponse | JSONRe
         raise HTTPException(status_code=404, detail="会话不存在。")
 
     requested_scope = payload.knowledge_scope
-    effective_scope = requested_scope
     chat_request = ChatRequest(
         mode="ask",
         user_input=payload.question,
@@ -64,7 +63,7 @@ def ask_in_session(session_id: str, payload: AskRequest) -> AskResponse | JSONRe
             "session_id": session_id,
             "session_context": session_service.build_session_context(session_id, max_turns=4),
             "knowledge_scope_requested": requested_scope,
-            "knowledge_scope_effective": effective_scope,
+            "knowledge_scope_effective": requested_scope,
             "top_k": payload.top_k,
         },
     )

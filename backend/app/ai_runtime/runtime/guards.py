@@ -29,7 +29,7 @@ def enforce_mode_whitelist(mode_name: str, allowed_modes: Iterable[str]) -> None
 def enforce_tool_whitelist(
     mode: ModeSpec,
     registry: ToolRegistry,
-    tool_names: Iterable[str]
+    tool_names: Iterable[str],
 ) -> GuardSnapshot:
     available = set(registry.list_tool_names())
     requested = list(tool_names)
@@ -46,7 +46,7 @@ def enforce_tool_whitelist(
     return GuardSnapshot(
         mode_name=mode.name,
         allowed_tools=mode.allowed_tools,
-        forbidden_capabilities=FORBIDDEN_CAPABILITIES
+        forbidden_capabilities=FORBIDDEN_CAPABILITIES,
     )
 
 

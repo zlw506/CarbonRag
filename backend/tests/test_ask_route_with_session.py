@@ -10,6 +10,22 @@ from app.session.service import SessionService
 client = TestClient(app)
 
 
+class FakeStreamingResponse:
+    def __init__(self, *, status_code: int, lines: list[str]) -> None:
+        self.status_code = status_code
+        self._lines = lines
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def iter_lines(self):
+        for line in self._lines:
+            yield line
+
+
 def build_test_services(tmp_path):
     session_service = SessionService(store=SQLiteSessionStore(tmp_path / "carbonrag.sqlite3"))
     file_service = FileService(
@@ -26,17 +42,18 @@ def test_session_ask_route_persists_history_and_citations(monkeypatch, tmp_path)
 
     captured: dict[str, dict] = {}
 
-    def fake_post(url: str, *, headers: dict, json: dict, timeout: float):
+    def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
         captured["payload"] = json
-        return httpx.Response(
-            200,
-            json={
-                "id": "chatcmpl-session-ok",
-                "choices": [{"message": {"content": "双碳目标包括碳达峰和碳中和。"}}],
-            },
+        return FakeStreamingResponse(
+            status_code=200,
+            lines=[
+                'data: {"id":"chatcmpl-session-ok","choices":[{"delta":{"role":"assistant","content":"双碳目标包括"}}]}',
+                'data: {"id":"chatcmpl-session-ok","choices":[{"delta":{"role":"assistant","content":"碳达峰和碳中和。"}}]}',
+                "data: [DONE]",
+            ],
         )
 
-    monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.post", fake_post)
+    monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", fake_stream)
 
     session = client.post("/api/v1/sessions", json={}).json()
     session_id = session["session_id"]
@@ -92,10 +109,10 @@ def test_session_ask_route_records_provider_error_message(monkeypatch, tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
 
-    def failing_post(url: str, *, headers: dict, json: dict, timeout: float):
+    def failing_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
         raise httpx.ConnectError("provider down")
 
-    monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.post", failing_post)
+    monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", failing_stream)
 
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
     response = client.post(

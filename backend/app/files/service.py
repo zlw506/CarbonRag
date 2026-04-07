@@ -2,8 +2,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.files.storage import FileStorage, get_file_storage
-from app.session.service import SessionService, get_session_service
 from app.session.schemas import UploadedFile
+from app.session.service import SessionService, get_session_service
 
 ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md", ".csv", ".xls", ".xlsx"}
 ALLOWED_MIME_TYPES = {
