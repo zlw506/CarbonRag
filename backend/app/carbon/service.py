@@ -4,12 +4,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import psycopg
+from psycopg.rows import dict_row
+
 from app.carbon.calculator import CarbonCalculator
 from app.carbon.explain import CarbonExplainer
-from app.carbon.factor_loader import CarbonFactorLoader, FactorLoadError, get_factor_loader
+from app.carbon.factor_loader import CarbonFactorLoader, get_factor_loader
 from app.carbon.schemas import CalcCarbonRequest, CalcCarbonResponse, StoredCarbonCalculation
-from app.session.adapters.sqlite_store import SQLiteSessionStore, get_session_store
+from app.core.config import get_settings
+from app.runtime_db.bootstrap import bootstrap_runtime_database, get_runtime_backend_kind
 from app.session.service import SessionService, get_session_service
+from app.session.store import DEFAULT_SESSION_DB_PATH, SessionStore, get_session_store
 
 
 class CarbonService:
@@ -20,47 +25,32 @@ class CarbonService:
         calculator: CarbonCalculator | None = None,
         explainer: CarbonExplainer | None = None,
         session_service: SessionService | None = None,
-        store: SQLiteSessionStore | None = None,
+        store: SessionStore | None = None,
+        database_url: str | None = None,
+        sqlite_db_path: Path | str | None = None,
     ) -> None:
         self.factor_loader = factor_loader or get_factor_loader()
         self.calculator = calculator or CarbonCalculator()
         self.explainer = explainer or CarbonExplainer()
         self.session_service = session_service or get_session_service()
         self.store = store or get_session_store()
-        self.db_path = Path(self.store.db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._ensure_schema()
+        settings = get_settings()
+        self.database_url = database_url or getattr(self.store, "database_url", None) or settings.database_url
+        self.sqlite_db_path = Path(sqlite_db_path or getattr(self.store, "db_path", DEFAULT_SESSION_DB_PATH))
+        self.backend_kind = get_runtime_backend_kind(self.database_url)
+        self.sqlite_db_path.parent.mkdir(parents=True, exist_ok=True)
+        bootstrap_runtime_database(
+            database_url=self.database_url,
+            sqlite_db_path=self.sqlite_db_path,
+        )
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
+    def _connect(self):
+        if self.backend_kind == "postgresql":
+            return psycopg.connect(self.database_url, row_factory=dict_row)
+
+        connection = sqlite3.connect(self.sqlite_db_path)
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS carbon_calculations (
-                    calculation_seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trace_id TEXT NOT NULL UNIQUE,
-                    session_id TEXT,
-                    period_label TEXT,
-                    electricity_kwh REAL NOT NULL,
-                    natural_gas_m3 REAL NOT NULL,
-                    diesel_l REAL NOT NULL,
-                    total_emission_kgco2e REAL NOT NULL,
-                    breakdown_json TEXT NOT NULL,
-                    citations_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_carbon_calculations_session_created_at
-                ON carbon_calculations(session_id, created_at DESC)
-                """
-            )
 
     @staticmethod
     def _utcnow() -> datetime:
@@ -101,49 +91,98 @@ class CarbonService:
         )
 
     def _persist(self, calculation: StoredCarbonCalculation) -> None:
+        breakdown_json = json.dumps([item.model_dump() for item in calculation.breakdown], ensure_ascii=False)
+        citations_json = json.dumps([item.model_dump() for item in calculation.citations], ensure_ascii=False)
+
         with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO carbon_calculations (
-                    trace_id,
-                    session_id,
-                    period_label,
-                    electricity_kwh,
-                    natural_gas_m3,
-                    diesel_l,
-                    total_emission_kgco2e,
-                    breakdown_json,
-                    citations_json,
-                    created_at
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO carbon_calculations (
+                            trace_id,
+                            session_id,
+                            period_label,
+                            electricity_kwh,
+                            natural_gas_m3,
+                            diesel_l,
+                            total_emission_kgco2e,
+                            breakdown_json,
+                            citations_json,
+                            created_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            calculation.trace_id,
+                            calculation.session_id,
+                            calculation.period_label,
+                            calculation.electricity_kwh,
+                            calculation.natural_gas_m3,
+                            calculation.diesel_l,
+                            calculation.total_emission_kgco2e,
+                            breakdown_json,
+                            citations_json,
+                            calculation.created_at.isoformat(),
+                        ),
+                    )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO carbon_calculations (
+                        trace_id,
+                        session_id,
+                        period_label,
+                        electricity_kwh,
+                        natural_gas_m3,
+                        diesel_l,
+                        total_emission_kgco2e,
+                        breakdown_json,
+                        citations_json,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        calculation.trace_id,
+                        calculation.session_id,
+                        calculation.period_label,
+                        calculation.electricity_kwh,
+                        calculation.natural_gas_m3,
+                        calculation.diesel_l,
+                        calculation.total_emission_kgco2e,
+                        breakdown_json,
+                        citations_json,
+                        calculation.created_at.isoformat(),
+                    ),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    calculation.trace_id,
-                    calculation.session_id,
-                    calculation.period_label,
-                    calculation.electricity_kwh,
-                    calculation.natural_gas_m3,
-                    calculation.diesel_l,
-                    calculation.total_emission_kgco2e,
-                    json.dumps([item.model_dump() for item in calculation.breakdown], ensure_ascii=False),
-                    json.dumps([item.model_dump() for item in calculation.citations], ensure_ascii=False),
-                    calculation.created_at.isoformat(),
-                ),
-            )
 
     def get_stored_calculation(self, trace_id: str) -> StoredCarbonCalculation | None:
         with self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT *
-                FROM carbon_calculations
-                WHERE trace_id = ?
-                """,
-                (trace_id,),
-            ).fetchone()
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT *
+                        FROM carbon_calculations
+                        WHERE trace_id = %s
+                        """,
+                        (trace_id,),
+                    )
+                    row = cursor.fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT *
+                    FROM carbon_calculations
+                    WHERE trace_id = ?
+                    """,
+                    (trace_id,),
+                ).fetchone()
+
         if row is None:
             return None
+
         payload = dict(row)
         return StoredCarbonCalculation(
             trace_id=payload["trace_id"],

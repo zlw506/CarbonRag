@@ -8,7 +8,7 @@ export async function uploadSessionFile(sessionId: string, file: File) {
     formData.append("file", file);
 
     try {
-        const response = await httpClient.post<UploadedFile>("/api/v1/files", formData, {
+        const response = await httpClient.post<UploadedFile>("/v1/files", formData, {
             headers: {
                 "Content-Type": "multipart/form-data",
             },

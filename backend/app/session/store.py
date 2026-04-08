@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from pathlib import Path
 
+from app.core.config import get_settings
 from app.core.config import REPO_ROOT
 from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
@@ -81,3 +83,16 @@ class SessionStore(ABC):
     @abstractmethod
     def list_attached_private_sample_ids(self, *, session_id: str) -> list[str]:
         raise NotImplementedError
+
+
+@lru_cache(maxsize=1)
+def get_session_store() -> SessionStore:
+    settings = get_settings()
+    if settings.database_url:
+        from app.session.adapters.postgres_store import build_postgres_session_store
+
+        return build_postgres_session_store(settings.database_url)
+
+    from app.session.adapters.sqlite_store import SQLiteSessionStore
+
+    return SQLiteSessionStore()

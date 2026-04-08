@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchHealthStatus, fetchSystemInfo } from "../services/system";
+import { fetchSystemInfo } from "../services/system";
 import type { HealthStatus, SystemInfo } from "../types/system";
 
 interface SystemInfoState {
@@ -22,11 +22,16 @@ export function useSystemInfo() {
 
         async function load() {
             try {
-                const [info, health] = await Promise.all([fetchSystemInfo(), fetchHealthStatus()]);
+                const info = await fetchSystemInfo();
                 if (!active) {
                     return;
                 }
-                setState({ info, health, loading: false, error: null });
+                setState({
+                    info,
+                    health: { status: "ok" } as HealthStatus,
+                    loading: false,
+                    error: null,
+                });
             } catch (error) {
                 if (!active) {
                     return;

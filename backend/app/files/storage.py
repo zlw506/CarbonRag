@@ -2,9 +2,12 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from app.core.config import REPO_ROOT
+from app.core.config import REPO_ROOT, get_settings
 
-DEFAULT_UPLOAD_ROOT = REPO_ROOT / "data" / "outputs" / "uploads"
+
+def resolve_upload_root(upload_root: Path | str | None = None) -> Path:
+    raw_path = Path(upload_root or get_settings().upload_dir)
+    return raw_path if raw_path.is_absolute() else REPO_ROOT / raw_path
 
 
 def sanitize_filename(filename: str) -> str:
@@ -13,8 +16,8 @@ def sanitize_filename(filename: str) -> str:
 
 
 class FileStorage:
-    def __init__(self, upload_root: Path | str = DEFAULT_UPLOAD_ROOT) -> None:
-        self.upload_root = Path(upload_root)
+    def __init__(self, upload_root: Path | str | None = None) -> None:
+        self.upload_root = resolve_upload_root(upload_root)
         self.upload_root.mkdir(parents=True, exist_ok=True)
 
     def save(self, *, session_id: str, file_id: str, filename: str, content: bytes) -> Path:

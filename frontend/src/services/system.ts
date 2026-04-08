@@ -1,12 +1,8 @@
 import { httpClient } from "./http";
-import type { HealthStatus, SystemInfo } from "../types/system";
+import type { SystemInfo } from "../types/system";
+
 
 export async function fetchSystemInfo() {
-    const response = await httpClient.get<SystemInfo>("/api/v1/system/info");
-    return response.data;
-}
-
-export async function fetchHealthStatus() {
-    const response = await httpClient.get<HealthStatus>("/healthz");
+    const response = await httpClient.get<SystemInfo>("/v1/system/info");
     return response.data;
 }

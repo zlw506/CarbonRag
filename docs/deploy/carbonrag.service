@@ -1,0 +1,15 @@
+[Unit]
+Description=CarbonRag FastAPI Service
+After=network.target postgresql.service
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/srv/carbonrag/app/backend
+EnvironmentFile=/etc/carbonrag/carbonrag.env
+ExecStart=/srv/carbonrag/app/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips='*'
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,407 @@
+import json
+from functools import lru_cache
+
+import psycopg
+from psycopg.rows import dict_row
+
+from app.retrieval.private_corpus_loader import load_private_sample_catalog
+from app.runtime_db.bootstrap import bootstrap_runtime_database
+from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
+from app.session.schemas import (
+    SessionAttachment,
+    SessionDetail,
+    SessionMessage,
+    SessionSummary,
+    UploadedFile,
+)
+from app.session.store import SessionStore
+
+
+class PostgreSQLSessionStore(SessionStore):
+    def __init__(self, database_url: str) -> None:
+        self.database_url = database_url
+        bootstrap_runtime_database(database_url=self.database_url)
+
+    def _connect(self):
+        return psycopg.connect(self.database_url, row_factory=dict_row)
+
+    def create_session(self, *, session_id: str, title: str, created_at: str) -> SessionSummary:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO sessions (
+                        session_id,
+                        title,
+                        created_at,
+                        updated_at,
+                        knowledge_scope_last_used,
+                        source_summary_json
+                    )
+                    VALUES (%s, %s, %s, %s, NULL, NULL)
+                    """,
+                    (session_id, title, created_at, created_at),
+                )
+        return self._get_session_summary(session_id)
+
+    def list_sessions(self) -> list[SessionSummary]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        s.session_id,
+                        s.title,
+                        s.created_at,
+                        s.updated_at,
+                        COALESCE(m.message_count, 0) AS message_count,
+                        COALESCE(f.file_count, 0) AS file_count,
+                        COALESCE(p.private_sample_count, 0) AS attached_private_sample_count
+                    FROM sessions s
+                    LEFT JOIN (
+                        SELECT session_id, COUNT(*) AS message_count
+                        FROM messages
+                        GROUP BY session_id
+                    ) m ON m.session_id = s.session_id
+                    LEFT JOIN (
+                        SELECT session_id, COUNT(*) AS file_count
+                        FROM files
+                        GROUP BY session_id
+                    ) f ON f.session_id = s.session_id
+                    LEFT JOIN (
+                        SELECT session_id, COUNT(*) AS private_sample_count
+                        FROM session_private_samples
+                        GROUP BY session_id
+                    ) p ON p.session_id = s.session_id
+                    ORDER BY s.updated_at DESC, s.created_at DESC
+                    """
+                )
+                rows = cursor.fetchall()
+        return [self._row_to_session_summary(row) for row in rows]
+
+    def get_session(self, session_id: str) -> SessionDetail | None:
+        summary = self._get_session_summary(session_id)
+        if summary is None:
+            return None
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT knowledge_scope_last_used, source_summary_json
+                    FROM sessions
+                    WHERE session_id = %s
+                    """,
+                    (session_id,),
+                )
+                session_row = cursor.fetchone()
+                cursor.execute(
+                    """
+                    SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                    FROM messages
+                    WHERE session_id = %s
+                    ORDER BY message_seq ASC
+                    """,
+                    (session_id,),
+                )
+                message_rows = cursor.fetchall()
+                cursor.execute(
+                    """
+                    SELECT file_id, session_id, filename, size, mime_type, stored_at
+                    FROM files
+                    WHERE session_id = %s
+                    ORDER BY file_seq DESC
+                    """,
+                    (session_id,),
+                )
+                file_rows = cursor.fetchall()
+                cursor.execute(
+                    """
+                    SELECT doc_id, attached_at
+                    FROM session_private_samples
+                    WHERE session_id = %s
+                    ORDER BY attachment_seq DESC
+                    """,
+                    (session_id,),
+                )
+                private_sample_rows = cursor.fetchall()
+
+        uploaded_files = [self._row_to_uploaded_file(row) for row in file_rows]
+        attached_files = [self._uploaded_file_to_attachment(file) for file in uploaded_files]
+        attached_files.extend(self._row_to_private_sample_attachment(row) for row in private_sample_rows)
+        attached_files.sort(key=lambda item: item.attached_at, reverse=True)
+
+        source_summary = None
+        if session_row is not None and session_row["source_summary_json"]:
+            source_summary = AskSourceSummary.model_validate(json.loads(session_row["source_summary_json"]))
+
+        return SessionDetail(
+            **summary.model_dump(),
+            messages=[self._row_to_session_message(row) for row in message_rows],
+            files=uploaded_files,
+            attached_files=attached_files,
+            knowledge_scope_last_used=session_row["knowledge_scope_last_used"] if session_row else None,
+            source_summary=source_summary,
+        )
+
+    def update_session_title(self, *, session_id: str, title: str, updated_at: str) -> SessionSummary | None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET title = %s, updated_at = %s
+                    WHERE session_id = %s
+                    """,
+                    (title, updated_at, session_id),
+                )
+                if cursor.rowcount == 0:
+                    return None
+        return self._get_session_summary(session_id)
+
+    def update_session_runtime_state(
+        self,
+        *,
+        session_id: str,
+        updated_at: str,
+        knowledge_scope_last_used: KnowledgeScope,
+        source_summary: AskSourceSummary,
+    ) -> SessionSummary | None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET updated_at = %s, knowledge_scope_last_used = %s, source_summary_json = %s
+                    WHERE session_id = %s
+                    """,
+                    (
+                        updated_at,
+                        knowledge_scope_last_used,
+                        json.dumps(source_summary.model_dump(), ensure_ascii=False),
+                        session_id,
+                    ),
+                )
+                if cursor.rowcount == 0:
+                    return None
+        return self._get_session_summary(session_id)
+
+    def append_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        role: str,
+        content: str,
+        created_at: str,
+        status: AskStatus | None = None,
+        trace_id: str | None = None,
+        citations: list[AskCitation] | None = None,
+    ) -> SessionMessage:
+        citations_json = json.dumps([citation.model_dump() for citation in (citations or [])], ensure_ascii=False)
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO messages (
+                        message_id,
+                        session_id,
+                        role,
+                        content,
+                        status,
+                        trace_id,
+                        citations_json,
+                        created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (message_id, session_id, role, content, status, trace_id, citations_json, created_at),
+                )
+                cursor.execute(
+                    "UPDATE sessions SET updated_at = %s WHERE session_id = %s",
+                    (created_at, session_id),
+                )
+                cursor.execute(
+                    """
+                    SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                    FROM messages
+                    WHERE message_id = %s
+                    """,
+                    (message_id,),
+                )
+                row = cursor.fetchone()
+        return self._row_to_session_message(row)
+
+    def list_recent_messages(self, *, session_id: str, limit: int) -> list[SessionMessage]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                    FROM messages
+                    WHERE session_id = %s
+                    ORDER BY message_seq DESC
+                    LIMIT %s
+                    """,
+                    (session_id, limit),
+                )
+                rows = cursor.fetchall()
+        messages = [self._row_to_session_message(row) for row in rows]
+        messages.reverse()
+        return messages
+
+    def session_exists(self, session_id: str) -> bool:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM sessions WHERE session_id = %s", (session_id,))
+                row = cursor.fetchone()
+        return row is not None
+
+    def create_uploaded_file(
+        self,
+        *,
+        file_id: str,
+        session_id: str,
+        filename: str,
+        size: int,
+        mime_type: str,
+        stored_at: str,
+        storage_path: str,
+    ) -> UploadedFile:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO files (file_id, session_id, filename, size, mime_type, stored_at, storage_path)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (file_id, session_id, filename, size, mime_type, stored_at, storage_path),
+                )
+                cursor.execute(
+                    "UPDATE sessions SET updated_at = %s WHERE session_id = %s",
+                    (stored_at, session_id),
+                )
+                cursor.execute(
+                    """
+                    SELECT file_id, session_id, filename, size, mime_type, stored_at
+                    FROM files
+                    WHERE file_id = %s
+                    """,
+                    (file_id,),
+                )
+                row = cursor.fetchone()
+        return self._row_to_uploaded_file(row)
+
+    def replace_attached_private_samples(self, *, session_id: str, doc_ids: list[str], attached_at: str) -> None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM session_private_samples WHERE session_id = %s",
+                    (session_id,),
+                )
+                for doc_id in doc_ids:
+                    cursor.execute(
+                        """
+                        INSERT INTO session_private_samples (session_id, doc_id, attached_at)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (session_id, doc_id, attached_at),
+                    )
+                cursor.execute(
+                    "UPDATE sessions SET updated_at = %s WHERE session_id = %s",
+                    (attached_at, session_id),
+                )
+
+    def list_attached_private_sample_ids(self, *, session_id: str) -> list[str]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT doc_id
+                    FROM session_private_samples
+                    WHERE session_id = %s
+                    ORDER BY attachment_seq DESC
+                    """,
+                    (session_id,),
+                )
+                rows = cursor.fetchall()
+        return [row["doc_id"] for row in rows]
+
+    def _get_session_summary(self, session_id: str) -> SessionSummary | None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        s.session_id,
+                        s.title,
+                        s.created_at,
+                        s.updated_at,
+                        COALESCE(m.message_count, 0) AS message_count,
+                        COALESCE(f.file_count, 0) AS file_count,
+                        COALESCE(p.private_sample_count, 0) AS attached_private_sample_count
+                    FROM sessions s
+                    LEFT JOIN (
+                        SELECT session_id, COUNT(*) AS message_count
+                        FROM messages
+                        GROUP BY session_id
+                    ) m ON m.session_id = s.session_id
+                    LEFT JOIN (
+                        SELECT session_id, COUNT(*) AS file_count
+                        FROM files
+                        GROUP BY session_id
+                    ) f ON f.session_id = s.session_id
+                    LEFT JOIN (
+                        SELECT session_id, COUNT(*) AS private_sample_count
+                        FROM session_private_samples
+                        GROUP BY session_id
+                    ) p ON p.session_id = s.session_id
+                    WHERE s.session_id = %s
+                    """,
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return None
+        return self._row_to_session_summary(row)
+
+    @staticmethod
+    def _row_to_session_summary(row) -> SessionSummary:
+        return SessionSummary.model_validate(dict(row))
+
+    @staticmethod
+    def _row_to_session_message(row) -> SessionMessage:
+        payload = dict(row)
+        payload["citations"] = json.loads(payload.pop("citations_json") or "[]")
+        return SessionMessage.model_validate(payload)
+
+    @staticmethod
+    def _row_to_uploaded_file(row) -> UploadedFile:
+        return UploadedFile.model_validate(dict(row))
+
+    @staticmethod
+    def _uploaded_file_to_attachment(file: UploadedFile) -> SessionAttachment:
+        return SessionAttachment(
+            file_id=file.file_id,
+            filename=file.filename,
+            source_type="uploaded_file",
+            attached_at=file.stored_at,
+        )
+
+    @staticmethod
+    def _row_to_private_sample_attachment(row) -> SessionAttachment:
+        catalog_map = {item.doc_id: item for item in load_private_sample_catalog()}
+        doc_id = row["doc_id"]
+        item = catalog_map.get(doc_id)
+        filename = item.title if item else doc_id
+        return SessionAttachment(
+            file_id=doc_id,
+            filename=filename,
+            source_type="private_sample",
+            attached_at=row["attached_at"],
+        )
+
+
+@lru_cache(maxsize=1)
+def build_postgres_session_store(database_url: str) -> PostgreSQLSessionStore:
+    return PostgreSQLSessionStore(database_url)

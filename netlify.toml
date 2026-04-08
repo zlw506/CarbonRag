@@ -1,0 +1,15 @@
+[build]
+  base = "frontend"
+  command = "npm ci && npm run build"
+  publish = "dist"
+
+[[redirects]]
+  from = "/api/*"
+  to = "http://8.141.111.33/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

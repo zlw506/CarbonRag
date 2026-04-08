@@ -3,8 +3,8 @@ from uuid import uuid4
 
 from app.retrieval.private_corpus_loader import load_private_sample_catalog
 from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
-from app.session.adapters.sqlite_store import SQLiteSessionStore, get_session_store
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
+from app.session.store import SessionStore, get_session_store
 
 DEFAULT_TITLE_PREFIX = "新对话"
 DEFAULT_CONTEXT_TURNS = 4
@@ -15,7 +15,7 @@ def utcnow() -> datetime:
 
 
 class SessionService:
-    def __init__(self, store: SQLiteSessionStore | None = None) -> None:
+    def __init__(self, store: SessionStore | None = None) -> None:
         self.store = store or get_session_store()
 
     def create_session(self, title: str | None = None) -> SessionSummary:

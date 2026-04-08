@@ -3,9 +3,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import psycopg
+from psycopg.rows import dict_row
+
+from app.core.config import get_settings
 from app.feedback.schemas import FeedbackRequest, FeedbackResponse, StoredFeedbackEntry
-from app.session.adapters.sqlite_store import SQLiteSessionStore, get_session_store
+from app.runtime_db.bootstrap import bootstrap_runtime_database, get_runtime_backend_kind
 from app.session.service import SessionService, get_session_service
+from app.session.store import DEFAULT_SESSION_DB_PATH, SessionStore, get_session_store
 
 
 class FeedbackService:
@@ -13,41 +18,29 @@ class FeedbackService:
         self,
         *,
         session_service: SessionService | None = None,
-        store: SQLiteSessionStore | None = None,
+        store: SessionStore | None = None,
+        database_url: str | None = None,
+        sqlite_db_path: Path | str | None = None,
     ) -> None:
         self.session_service = session_service or get_session_service()
         self.store = store or get_session_store()
-        self.db_path = Path(self.store.db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._ensure_schema()
+        settings = get_settings()
+        self.database_url = database_url or getattr(self.store, "database_url", None) or settings.database_url
+        self.sqlite_db_path = Path(sqlite_db_path or getattr(self.store, "db_path", DEFAULT_SESSION_DB_PATH))
+        self.backend_kind = get_runtime_backend_kind(self.database_url)
+        self.sqlite_db_path.parent.mkdir(parents=True, exist_ok=True)
+        bootstrap_runtime_database(
+            database_url=self.database_url,
+            sqlite_db_path=self.sqlite_db_path,
+        )
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
+    def _connect(self):
+        if self.backend_kind == "postgresql":
+            return psycopg.connect(self.database_url, row_factory=dict_row)
+
+        connection = sqlite3.connect(self.sqlite_db_path)
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS feedback_entries (
-                    feedback_seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    feedback_id TEXT NOT NULL UNIQUE,
-                    target_type TEXT NOT NULL,
-                    trace_id TEXT NOT NULL,
-                    session_id TEXT,
-                    rating TEXT NOT NULL,
-                    comment TEXT,
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_feedback_entries_trace
-                ON feedback_entries(trace_id, created_at DESC)
-                """
-            )
 
     @staticmethod
     def _utcnow() -> datetime:
@@ -60,44 +53,84 @@ class FeedbackService:
         feedback_id = f"feedback-{uuid4().hex[:12]}"
         created_at = self._utcnow()
         with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO feedback_entries (
-                    feedback_id,
-                    target_type,
-                    trace_id,
-                    session_id,
-                    rating,
-                    comment,
-                    created_at
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO feedback_entries (
+                            feedback_id,
+                            target_type,
+                            trace_id,
+                            session_id,
+                            rating,
+                            comment,
+                            created_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            feedback_id,
+                            payload.target_type,
+                            payload.trace_id,
+                            payload.session_id,
+                            payload.rating,
+                            payload.comment,
+                            created_at.isoformat(),
+                        ),
+                    )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO feedback_entries (
+                        feedback_id,
+                        target_type,
+                        trace_id,
+                        session_id,
+                        rating,
+                        comment,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        feedback_id,
+                        payload.target_type,
+                        payload.trace_id,
+                        payload.session_id,
+                        payload.rating,
+                        payload.comment,
+                        created_at.isoformat(),
+                    ),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    feedback_id,
-                    payload.target_type,
-                    payload.trace_id,
-                    payload.session_id,
-                    payload.rating,
-                    payload.comment,
-                    created_at.isoformat(),
-                ),
-            )
 
         return FeedbackResponse(status="ok", feedback_id=feedback_id, created_at=created_at)
 
     def get_entry(self, feedback_id: str) -> StoredFeedbackEntry | None:
         with self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT feedback_id, target_type, trace_id, session_id, rating, comment, created_at
-                FROM feedback_entries
-                WHERE feedback_id = ?
-                """,
-                (feedback_id,),
-            ).fetchone()
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT feedback_id, target_type, trace_id, session_id, rating, comment, created_at
+                        FROM feedback_entries
+                        WHERE feedback_id = %s
+                        """,
+                        (feedback_id,),
+                    )
+                    row = cursor.fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT feedback_id, target_type, trace_id, session_id, rating, comment, created_at
+                    FROM feedback_entries
+                    WHERE feedback_id = ?
+                    """,
+                    (feedback_id,),
+                ).fetchone()
+
         if row is None:
             return None
+
         payload = dict(row)
         return StoredFeedbackEntry(
             feedback_id=payload["feedback_id"],

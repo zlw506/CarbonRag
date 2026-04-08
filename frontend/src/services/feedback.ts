@@ -4,7 +4,7 @@ import { httpClient } from "./http";
 
 export async function submitFeedback(payload: FeedbackRequest) {
     try {
-        const response = await httpClient.post<FeedbackResponse>("/api/v1/feedback", payload);
+        const response = await httpClient.post<FeedbackResponse>("/v1/feedback", payload);
         return response.data;
     } catch (error) {
         if (axios.isAxiosError(error) && error.response?.data) {

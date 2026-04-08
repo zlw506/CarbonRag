@@ -3,10 +3,17 @@ from functools import lru_cache
 from pathlib import Path
 
 from app.carbon.schemas import CarbonFactor
-from app.core.config import REPO_ROOT
+from app.core.config import REPO_ROOT, get_settings
 
 
-DEFAULT_FACTOR_FILE = REPO_ROOT / "data" / "factors" / "carbon_factors_v0_1_9a.json"
+def resolve_factor_file(factor_file: Path | str | None = None) -> Path:
+    if factor_file is not None:
+        path = Path(factor_file)
+        return path if path.is_absolute() else REPO_ROOT / path
+
+    factor_dir = Path(get_settings().factor_data_dir)
+    resolved_dir = factor_dir if factor_dir.is_absolute() else REPO_ROOT / factor_dir
+    return resolved_dir / "carbon_factors_v0_1_9a.json"
 
 
 class FactorLoadError(RuntimeError):
@@ -14,8 +21,8 @@ class FactorLoadError(RuntimeError):
 
 
 class CarbonFactorLoader:
-    def __init__(self, factor_file: Path | str = DEFAULT_FACTOR_FILE) -> None:
-        self.factor_file = Path(factor_file)
+    def __init__(self, factor_file: Path | str | None = None) -> None:
+        self.factor_file = resolve_factor_file(factor_file)
 
     def load(self) -> dict[str, CarbonFactor]:
         if not self.factor_file.exists():

@@ -10,7 +10,7 @@ LOCAL_PROVIDER_CONFIG_PATH = BACKEND_DIR / "local_provider_config.json"
 
 class Settings(BaseSettings):
     app_name: str = "CarbonRag"
-    app_version: str = "v0.1.9A"
+    app_version: str = "v0.1.9C"
     app_env: str = "development"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     public_data_dir: str = "./data/public"
     private_sample_dir: str = "./data/private_sample"
     factor_data_dir: str = "./data/factors"
+    upload_dir: str = "./data/outputs/uploads"
+    database_url: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=REPO_ROOT / ".env",

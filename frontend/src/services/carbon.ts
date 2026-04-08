@@ -4,7 +4,7 @@ import { httpClient } from "./http";
 
 export async function submitCarbonCalculation(payload: CalcCarbonRequest) {
     try {
-        const response = await httpClient.post<CalcCarbonResponse>("/api/v1/calc-carbon", payload);
+        const response = await httpClient.post<CalcCarbonResponse>("/v1/calc-carbon", payload);
         return response.data;
     } catch (error) {
         if (axios.isAxiosError(error) && error.response?.data) {
