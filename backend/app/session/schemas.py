@@ -3,9 +3,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.ask import AskCitation, AskStatus
+from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 
 MessageRole = Literal["user", "assistant"]
+AttachmentSourceType = Literal["uploaded_file", "private_sample"]
 
 
 class SessionMessage(BaseModel):
@@ -27,6 +28,13 @@ class UploadedFile(BaseModel):
     stored_at: datetime
 
 
+class SessionAttachment(BaseModel):
+    file_id: str
+    filename: str
+    source_type: AttachmentSourceType
+    attached_at: datetime
+
+
 class SessionSummary(BaseModel):
     session_id: str
     title: str
@@ -34,11 +42,15 @@ class SessionSummary(BaseModel):
     updated_at: datetime
     message_count: int = 0
     file_count: int = 0
+    attached_private_sample_count: int = 0
 
 
 class SessionDetail(SessionSummary):
     messages: list[SessionMessage] = Field(default_factory=list)
     files: list[UploadedFile] = Field(default_factory=list)
+    attached_files: list[SessionAttachment] = Field(default_factory=list)
+    knowledge_scope_last_used: KnowledgeScope | None = None
+    source_summary: AskSourceSummary | None = None
 
 
 class CreateSessionRequest(BaseModel):
@@ -67,3 +79,9 @@ class UpdateSessionRequest(BaseModel):
         if not normalized:
             raise ValueError("会话标题不能为空。")
         return normalized
+
+
+class ReplaceAttachedPrivateSamplesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doc_ids: list[str] = Field(default_factory=list)

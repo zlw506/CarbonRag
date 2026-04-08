@@ -2,6 +2,7 @@ import axios from "axios";
 import { httpClient } from "./http";
 import type {
     CreateSessionRequest,
+    ReplaceAttachedPrivateSamplesRequest,
     SessionAskRequest,
     SessionAskResponse,
     SessionDetail,
@@ -26,6 +27,17 @@ export async function getSession(sessionId: string) {
 
 export async function updateSessionTitle(sessionId: string, payload: UpdateSessionRequest) {
     const response = await httpClient.patch<SessionSummary>(`/api/v1/sessions/${sessionId}`, payload);
+    return response.data;
+}
+
+export async function replaceAttachedPrivateSamples(
+    sessionId: string,
+    payload: ReplaceAttachedPrivateSamplesRequest,
+) {
+    const response = await httpClient.put<SessionDetail>(
+        `/api/v1/sessions/${sessionId}/attached-files/private-samples`,
+        payload,
+    );
     return response.data;
 }
 

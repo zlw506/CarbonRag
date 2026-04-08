@@ -1,4 +1,4 @@
-import type { AskCitation, AskRequest, AskResponse, AskStatus } from "./ask";
+import type { AskCitation, AskRequest, AskResponse, AskSourceSummary, AskStatus, KnowledgeScope } from "./ask";
 
 export interface UploadedFile {
     file_id: string;
@@ -9,6 +9,13 @@ export interface UploadedFile {
     stored_at: string;
 }
 
+export interface SessionAttachment {
+    file_id: string;
+    filename: string;
+    source_type: "uploaded_file" | "private_sample";
+    attached_at: string;
+}
+
 export interface SessionSummary {
     session_id: string;
     title: string;
@@ -16,6 +23,7 @@ export interface SessionSummary {
     updated_at: string;
     message_count: number;
     file_count: number;
+    attached_private_sample_count: number;
 }
 
 export interface SessionMessage {
@@ -26,11 +34,15 @@ export interface SessionMessage {
     status?: AskStatus | null;
     trace_id?: string | null;
     citations: AskCitation[];
+    source_summary?: AskSourceSummary | null;
 }
 
 export interface SessionDetail extends SessionSummary {
     messages: SessionMessage[];
     files: UploadedFile[];
+    attached_files: SessionAttachment[];
+    knowledge_scope_last_used?: KnowledgeScope | null;
+    source_summary?: AskSourceSummary | null;
 }
 
 export interface CreateSessionRequest {
@@ -39,6 +51,10 @@ export interface CreateSessionRequest {
 
 export interface UpdateSessionRequest {
     title: string;
+}
+
+export interface ReplaceAttachedPrivateSamplesRequest {
+    doc_ids: string[];
 }
 
 export type SessionAskRequest = AskRequest;

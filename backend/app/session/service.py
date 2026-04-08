@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from app.schemas.ask import AskCitation, AskStatus
+from app.retrieval.private_corpus_loader import load_private_sample_catalog
+from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 from app.session.adapters.sqlite_store import SQLiteSessionStore, get_session_store
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
 
@@ -65,6 +66,8 @@ class SessionService:
         assistant_status: AskStatus,
         trace_id: str,
         citations: list[AskCitation],
+        knowledge_scope: KnowledgeScope = "public",
+        source_summary: AskSourceSummary | None = None,
     ) -> tuple[SessionMessage, SessionMessage]:
         timestamp = utcnow()
         user_message = self.store.append_message(
@@ -83,6 +86,18 @@ class SessionService:
             status=assistant_status,
             trace_id=trace_id,
             citations=citations,
+        )
+        effective_source_summary = source_summary or AskSourceSummary(
+            knowledge_scope=knowledge_scope,
+            public_policy_count=sum(1 for citation in citations if citation.source_type == "public_policy"),
+            private_sample_count=sum(1 for citation in citations if citation.source_type == "private_sample"),
+            total_citation_count=len(citations),
+        )
+        self.store.update_session_runtime_state(
+            session_id=session_id,
+            updated_at=utcnow().isoformat(),
+            knowledge_scope_last_used=knowledge_scope,
+            source_summary=effective_source_summary,
         )
         return user_message, assistant_message
 
@@ -123,6 +138,31 @@ class SessionService:
             stored_at=stored_at,
             storage_path=storage_path,
         )
+
+    def list_private_sample_catalog(self):
+        return [item for item in load_private_sample_catalog() if item.session_attachable]
+
+    def replace_attached_private_samples(self, *, session_id: str, doc_ids: list[str]) -> None:
+        self.require_session(session_id)
+        catalog = {item.doc_id: item for item in self.list_private_sample_catalog()}
+        normalized = []
+        for doc_id in doc_ids:
+            candidate = doc_id.strip()
+            if not candidate:
+                continue
+            if candidate not in catalog:
+                raise ValueError(f"未知的 private sample：{candidate}")
+            normalized.append(candidate)
+        deduplicated = list(dict.fromkeys(normalized))
+        self.store.replace_attached_private_samples(
+            session_id=session_id,
+            doc_ids=deduplicated,
+            attached_at=utcnow().isoformat(),
+        )
+
+    def list_attached_private_sample_ids(self, session_id: str) -> list[str]:
+        self.require_session(session_id)
+        return self.store.list_attached_private_sample_ids(session_id=session_id)
 
 
 def get_session_service() -> SessionService:

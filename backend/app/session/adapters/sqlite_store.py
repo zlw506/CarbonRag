@@ -3,8 +3,15 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 
-from app.schemas.ask import AskCitation, AskStatus
-from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
+from app.retrieval.private_corpus_loader import load_private_sample_catalog
+from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
+from app.session.schemas import (
+    SessionAttachment,
+    SessionDetail,
+    SessionMessage,
+    SessionSummary,
+    UploadedFile,
+)
 from app.session.store import DEFAULT_SESSION_DB_PATH, SessionStore
 
 
@@ -19,6 +26,15 @@ class SQLiteSessionStore(SessionStore):
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
+
+    @staticmethod
+    def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        existing_columns = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in existing_columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def _ensure_schema(self) -> None:
         with self._connect() as connection:
@@ -56,21 +72,41 @@ class SQLiteSessionStore(SessionStore):
                     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS session_private_samples (
+                    attachment_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    doc_id TEXT NOT NULL,
+                    attached_at TEXT NOT NULL,
+                    UNIQUE (session_id, doc_id),
+                    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_messages_session_seq
                     ON messages(session_id, message_seq);
                 CREATE INDEX IF NOT EXISTS idx_files_session_seq
                     ON files(session_id, file_seq);
                 CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
                     ON sessions(updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_private_samples_session_seq
+                    ON session_private_samples(session_id, attachment_seq DESC);
                 """
             )
+            self._ensure_column(connection, "sessions", "knowledge_scope_last_used", "TEXT")
+            self._ensure_column(connection, "sessions", "source_summary_json", "TEXT")
 
     def create_session(self, *, session_id: str, title: str, created_at: str) -> SessionSummary:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO sessions (session_id, title, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO sessions (
+                    session_id,
+                    title,
+                    created_at,
+                    updated_at,
+                    knowledge_scope_last_used,
+                    source_summary_json
+                )
+                VALUES (?, ?, ?, ?, NULL, NULL)
                 """,
                 (session_id, title, created_at, created_at),
             )
@@ -86,7 +122,8 @@ class SQLiteSessionStore(SessionStore):
                     s.created_at,
                     s.updated_at,
                     COALESCE(m.message_count, 0) AS message_count,
-                    COALESCE(f.file_count, 0) AS file_count
+                    COALESCE(f.file_count, 0) AS file_count,
+                    COALESCE(p.private_sample_count, 0) AS attached_private_sample_count
                 FROM sessions s
                 LEFT JOIN (
                     SELECT session_id, COUNT(*) AS message_count
@@ -98,6 +135,11 @@ class SQLiteSessionStore(SessionStore):
                     FROM files
                     GROUP BY session_id
                 ) f ON f.session_id = s.session_id
+                LEFT JOIN (
+                    SELECT session_id, COUNT(*) AS private_sample_count
+                    FROM session_private_samples
+                    GROUP BY session_id
+                ) p ON p.session_id = s.session_id
                 ORDER BY s.updated_at DESC, s.created_at DESC
                 """
             ).fetchall()
@@ -109,6 +151,14 @@ class SQLiteSessionStore(SessionStore):
             return None
 
         with self._connect() as connection:
+            session_row = connection.execute(
+                """
+                SELECT knowledge_scope_last_used, source_summary_json
+                FROM sessions
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
             message_rows = connection.execute(
                 """
                 SELECT message_id, role, content, status, trace_id, citations_json, created_at
@@ -127,11 +177,32 @@ class SQLiteSessionStore(SessionStore):
                 """,
                 (session_id,),
             ).fetchall()
+            private_sample_rows = connection.execute(
+                """
+                SELECT doc_id, attached_at
+                FROM session_private_samples
+                WHERE session_id = ?
+                ORDER BY attachment_seq DESC
+                """,
+                (session_id,),
+            ).fetchall()
+
+        uploaded_files = [self._row_to_uploaded_file(row) for row in file_rows]
+        attached_files = [self._uploaded_file_to_attachment(file) for file in uploaded_files]
+        attached_files.extend(self._row_to_private_sample_attachment(row) for row in private_sample_rows)
+        attached_files.sort(key=lambda item: item.attached_at, reverse=True)
+
+        source_summary = None
+        if session_row is not None and session_row["source_summary_json"]:
+            source_summary = AskSourceSummary.model_validate(json.loads(session_row["source_summary_json"]))
 
         return SessionDetail(
             **summary.model_dump(),
             messages=[self._row_to_session_message(row) for row in message_rows],
-            files=[self._row_to_uploaded_file(row) for row in file_rows],
+            files=uploaded_files,
+            attached_files=attached_files,
+            knowledge_scope_last_used=session_row["knowledge_scope_last_used"] if session_row else None,
+            source_summary=source_summary,
         )
 
     def update_session_title(self, *, session_id: str, title: str, updated_at: str) -> SessionSummary | None:
@@ -143,6 +214,32 @@ class SQLiteSessionStore(SessionStore):
                 WHERE session_id = ?
                 """,
                 (title, updated_at, session_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self._get_session_summary(session_id)
+
+    def update_session_runtime_state(
+        self,
+        *,
+        session_id: str,
+        updated_at: str,
+        knowledge_scope_last_used: KnowledgeScope,
+        source_summary: AskSourceSummary,
+    ) -> SessionSummary | None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE sessions
+                SET updated_at = ?, knowledge_scope_last_used = ?, source_summary_json = ?
+                WHERE session_id = ?
+                """,
+                (
+                    updated_at,
+                    knowledge_scope_last_used,
+                    json.dumps(source_summary.model_dump(), ensure_ascii=False),
+                    session_id,
+                ),
             )
             if cursor.rowcount == 0:
                 return None
@@ -252,6 +349,38 @@ class SQLiteSessionStore(SessionStore):
             ).fetchone()
         return self._row_to_uploaded_file(row)
 
+    def replace_attached_private_samples(self, *, session_id: str, doc_ids: list[str], attached_at: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM session_private_samples WHERE session_id = ?",
+                (session_id,),
+            )
+            for doc_id in doc_ids:
+                connection.execute(
+                    """
+                    INSERT INTO session_private_samples (session_id, doc_id, attached_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (session_id, doc_id, attached_at),
+                )
+            connection.execute(
+                "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
+                (attached_at, session_id),
+            )
+
+    def list_attached_private_sample_ids(self, *, session_id: str) -> list[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT doc_id
+                FROM session_private_samples
+                WHERE session_id = ?
+                ORDER BY attachment_seq DESC
+                """,
+                (session_id,),
+            ).fetchall()
+        return [row["doc_id"] for row in rows]
+
     def _get_session_summary(self, session_id: str) -> SessionSummary | None:
         with self._connect() as connection:
             row = connection.execute(
@@ -262,7 +391,8 @@ class SQLiteSessionStore(SessionStore):
                     s.created_at,
                     s.updated_at,
                     COALESCE(m.message_count, 0) AS message_count,
-                    COALESCE(f.file_count, 0) AS file_count
+                    COALESCE(f.file_count, 0) AS file_count,
+                    COALESCE(p.private_sample_count, 0) AS attached_private_sample_count
                 FROM sessions s
                 LEFT JOIN (
                     SELECT session_id, COUNT(*) AS message_count
@@ -274,6 +404,11 @@ class SQLiteSessionStore(SessionStore):
                     FROM files
                     GROUP BY session_id
                 ) f ON f.session_id = s.session_id
+                LEFT JOIN (
+                    SELECT session_id, COUNT(*) AS private_sample_count
+                    FROM session_private_samples
+                    GROUP BY session_id
+                ) p ON p.session_id = s.session_id
                 WHERE s.session_id = ?
                 """,
                 (session_id,),
@@ -295,6 +430,28 @@ class SQLiteSessionStore(SessionStore):
     @staticmethod
     def _row_to_uploaded_file(row: sqlite3.Row) -> UploadedFile:
         return UploadedFile.model_validate(dict(row))
+
+    @staticmethod
+    def _uploaded_file_to_attachment(file: UploadedFile) -> SessionAttachment:
+        return SessionAttachment(
+            file_id=file.file_id,
+            filename=file.filename,
+            source_type="uploaded_file",
+            attached_at=file.stored_at,
+        )
+
+    @staticmethod
+    def _row_to_private_sample_attachment(row: sqlite3.Row) -> SessionAttachment:
+        catalog_map = {item.doc_id: item for item in load_private_sample_catalog()}
+        doc_id = row["doc_id"]
+        item = catalog_map.get(doc_id)
+        filename = item.title if item else doc_id
+        return SessionAttachment(
+            file_id=doc_id,
+            filename=filename,
+            source_type="private_sample",
+            attached_at=row["attached_at"],
+        )
 
 
 @lru_cache(maxsize=1)

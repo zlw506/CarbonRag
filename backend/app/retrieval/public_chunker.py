@@ -76,6 +76,7 @@ def chunk_public_policy_document(document: PublicPolicyDocument) -> list[Retriev
             RetrievedChunk(
                 doc_id=metadata.doc_id,
                 title=metadata.title,
+                source_type="public_policy",
                 source=metadata.source,
                 source_url=metadata.source_url,
                 issued_at=metadata.issued_at,

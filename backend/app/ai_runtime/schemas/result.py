@@ -14,5 +14,6 @@ class RuntimeResult(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list)
     tool_results: list[ToolResult] = Field(default_factory=list)
     citations: list[dict[str, Any]] = Field(default_factory=list)
+    source_summary: dict[str, Any] = Field(default_factory=dict)
     response: ChatResponse
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -1,0 +1,56 @@
+[
+    {
+        "doc_id": "enterprise_doc_001",
+        "title": "华北示例制造厂项目背景说明",
+        "source_type": "private_sample",
+        "sample_type": "doc",
+        "business_topic": "project_background",
+        "filepath": "docs/enterprise_doc_001.md",
+        "session_attachable": true
+    },
+    {
+        "doc_id": "enterprise_doc_002",
+        "title": "压缩空气与蒸汽系统概况样例",
+        "source_type": "private_sample",
+        "sample_type": "doc",
+        "business_topic": "energy",
+        "filepath": "docs/enterprise_doc_002.md",
+        "session_attachable": true
+    },
+    {
+        "doc_id": "enterprise_doc_003",
+        "title": "物流与运输组织说明样例",
+        "source_type": "private_sample",
+        "sample_type": "doc",
+        "business_topic": "logistics",
+        "filepath": "docs/enterprise_doc_003.md",
+        "session_attachable": true
+    },
+    {
+        "doc_id": "energy_bill_sample_001",
+        "title": "月度能耗台账样例",
+        "source_type": "private_sample",
+        "sample_type": "table",
+        "business_topic": "energy",
+        "filepath": "tables/energy_bill_sample_001.csv",
+        "session_attachable": true
+    },
+    {
+        "doc_id": "production_sample_001",
+        "title": "月度产量与开机时长样例",
+        "source_type": "private_sample",
+        "sample_type": "table",
+        "business_topic": "production",
+        "filepath": "tables/production_sample_001.csv",
+        "session_attachable": true
+    },
+    {
+        "doc_id": "logistics_sample_001",
+        "title": "运输里程与载重样例",
+        "source_type": "private_sample",
+        "sample_type": "table",
+        "business_topic": "logistics",
+        "filepath": "tables/logistics_sample_001.csv",
+        "session_attachable": true
+    }
+]

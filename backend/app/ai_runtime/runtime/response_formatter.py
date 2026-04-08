@@ -8,8 +8,6 @@ from app.ai_runtime.schemas.tool import ToolCall, ToolResult
 def _extract_citations(tool_results: list[ToolResult]) -> list[dict]:
     citations: list[dict] = []
     for tool_result in tool_results:
-        if tool_result.name != "policy_retrieve":
-            continue
         hits = tool_result.output.get("hits", [])
         if not isinstance(hits, list):
             continue
@@ -20,6 +18,7 @@ def _extract_citations(tool_results: list[ToolResult]) -> list[dict]:
                 {
                     "doc_id": hit.get("doc_id"),
                     "title": hit.get("title"),
+                    "source_type": hit.get("source_type"),
                     "source": hit.get("source"),
                     "source_url": hit.get("source_url"),
                     "snippet": hit.get("snippet"),
@@ -27,6 +26,17 @@ def _extract_citations(tool_results: list[ToolResult]) -> list[dict]:
                 }
             )
     return citations
+
+
+def _build_source_summary(*, knowledge_scope: str, citations: list[dict]) -> dict:
+    public_policy_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy")
+    private_sample_count = sum(1 for citation in citations if citation.get("source_type") == "private_sample")
+    return {
+        "knowledge_scope": knowledge_scope,
+        "public_policy_count": public_policy_count,
+        "private_sample_count": private_sample_count,
+        "total_citation_count": len(citations),
+    }
 
 
 def format_runtime_result(
@@ -43,6 +53,11 @@ def format_runtime_result(
     answer: str,
 ) -> RuntimeResult:
     citations = _extract_citations(tool_results)
+    knowledge_scope = context_bundle.get("knowledge_scope_effective") or request.payload.get(
+        "knowledge_scope_effective",
+        "public",
+    )
+    source_summary = _build_source_summary(knowledge_scope=knowledge_scope, citations=citations)
     context_summary = {
         "payload_keys": context_bundle.get("payload_keys", []),
         "memory_reserved": not context_bundle.get("memory_slot", {}).get("implemented", False),
@@ -55,9 +70,11 @@ def format_runtime_result(
                 "knowledge_scope_effective": context_bundle.get("knowledge_scope_effective"),
                 "single_turn_only": False,
                 "session_message_count": len(context_bundle.get("session_context", [])),
-                "grounded_by_policy": True,
+                "grounded_by_policy": source_summary["public_policy_count"] > 0,
+                "grounded_by_private_sample": source_summary["private_sample_count"] > 0,
                 "retrieval_hit_count": len(citations),
                 "citation_count": len(citations),
+                "source_summary": source_summary,
             }
         )
     else:
@@ -88,6 +105,7 @@ def format_runtime_result(
         tool_calls=tool_calls,
         tool_results=tool_results,
         citations=citations,
+        source_summary=source_summary,
         response=response,
         metadata={
             "chat_provider": provider_descriptor.name,

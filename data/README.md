@@ -4,7 +4,7 @@
 
 ## 子目录约定
 - `public/`：公共政策、标准、指南等可公开样本文档
-- `private_sample/`：脱敏后的企业样例数据或演示文档
+- `private_sample/`：脱敏后的企业样例数据或演示文档，当前已按 `docs/ + tables/ + manifest.json` 建立 v0.1.8 最小样例语料
 - `factors/`：排放因子、核算模板、辅助配置
 - `outputs/`：运行结果、中间产物、演示报告草稿
 
@@ -12,3 +12,9 @@
 - `public/`、`private_sample/`、`factors/` 可以提交示例或说明文件，但不得提交真实敏感企业数据
 - `outputs/` 默认不提交运行产物，仅保留目录占位
 - 新增数据前先确认来源、权限和脱敏状态
+
+## 当前数据层边界
+- `public/` 当前服务于 public policy grounding
+- `private_sample/` 当前服务于 session-attached sample、private retrieval 和 mixed retrieval
+- `private_sample/` 中的样例只用于演示，不代表真实企业审计结果
+- 用户上传文件当前只落到 `outputs/`，不会自动进入 `private_sample/`

@@ -31,16 +31,28 @@ class AIRuntimeOrchestrator:
     def supported_modes(self) -> list[str]:
         return list_mode_names()
 
+    @staticmethod
+    def _resolve_ask_tool_sequence(request: ChatRequest) -> tuple[str, ...]:
+        effective_scope = request.payload.get("knowledge_scope_effective", "public")
+        if effective_scope == "private_sample":
+            return ("enterprise_retrieve",)
+        if effective_scope == "mixed":
+            return ("mixed_retrieve",)
+        return ("policy_retrieve",)
+
     def run(self, request: ChatRequest) -> RuntimeResult:
         mode = resolve_mode(request.mode)
         enforce_mode_whitelist(mode.name, self.config.allowed_modes)
         if request.mode == "ask":
             enforce_ask_request_constraints(request)
+            tool_sequence = self._resolve_ask_tool_sequence(request)
+        else:
+            tool_sequence = mode.default_stub_tool_sequence
 
         guard_snapshot = enforce_tool_whitelist(
             mode,
             self.registry,
-            mode.default_stub_tool_sequence,
+            tool_sequence,
         )
 
         tool_calls = [
@@ -52,10 +64,11 @@ class AIRuntimeOrchestrator:
                     "user_input": request.user_input,
                     "top_k": request.payload.get("top_k", 5),
                     "knowledge_scope": request.payload.get("knowledge_scope_effective", "public"),
+                    "allowed_doc_ids": request.payload.get("attached_private_sample_ids", []),
                     "payload": request.payload,
                 },
             )
-            for tool_name in mode.default_stub_tool_sequence
+            for tool_name in tool_sequence
         ]
         tool_context = {
             "mode": request.mode,

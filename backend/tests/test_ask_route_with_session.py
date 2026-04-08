@@ -85,7 +85,7 @@ def test_session_ask_route_persists_history_and_citations(monkeypatch, tmp_path)
     assert "最近单会话历史如下" in captured["payload"]["messages"][0]["content"]
 
 
-def test_session_ask_route_returns_422_for_non_public_scope(monkeypatch, tmp_path) -> None:
+def test_session_ask_route_supports_mixed_scope_without_private_hits(monkeypatch, tmp_path) -> None:
     session_service, file_service = build_test_services(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
@@ -100,8 +100,9 @@ def test_session_ask_route_returns_422_for_non_public_scope(monkeypatch, tmp_pat
         },
     )
 
-    assert response.status_code == 422
-    assert response.json()["status"] == "invalid_input"
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["source_summary"]["knowledge_scope"] == "mixed"
 
 
 def test_session_ask_route_records_provider_error_message(monkeypatch, tmp_path) -> None:

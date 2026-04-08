@@ -166,6 +166,24 @@ body {
     gap: 8px;
 }
 
+.chat-scope-bar,
+.chat-session-state,
+.chat-citation-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.chat-scope-bar__hint {
+    margin-bottom: 0;
+}
+
+.chat-session-state {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
 .chat-attachments__tag {
     padding: 6px 10px;
     border-radius: 999px;
@@ -183,9 +201,26 @@ body {
     gap: 8px;
 }
 
+.chat-citation-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.chat-citation-group__header {
+    margin-bottom: 4px;
+}
+
 .chat-citation-card__snippet {
     margin-bottom: 0;
     white-space: pre-wrap;
+}
+
+.private-sample-list__item {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
 }
 
 @media (max-width: 1200px) {

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from app.core.config import REPO_ROOT
-from app.schemas.ask import AskCitation, AskStatus
+from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
 
 RUNTIME_DIR = REPO_ROOT / "data" / "outputs" / "runtime"
@@ -24,6 +24,17 @@ class SessionStore(ABC):
 
     @abstractmethod
     def update_session_title(self, *, session_id: str, title: str, updated_at: str) -> SessionSummary | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def update_session_runtime_state(
+        self,
+        *,
+        session_id: str,
+        updated_at: str,
+        knowledge_scope_last_used: KnowledgeScope,
+        source_summary: AskSourceSummary,
+    ) -> SessionSummary | None:
         raise NotImplementedError
 
     @abstractmethod
@@ -61,4 +72,12 @@ class SessionStore(ABC):
         stored_at: str,
         storage_path: str,
     ) -> UploadedFile:
+        raise NotImplementedError
+
+    @abstractmethod
+    def replace_attached_private_samples(self, *, session_id: str, doc_ids: list[str], attached_at: str) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_attached_private_sample_ids(self, *, session_id: str) -> list[str]:
         raise NotImplementedError
