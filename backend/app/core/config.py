@@ -10,7 +10,7 @@ LOCAL_PROVIDER_CONFIG_PATH = BACKEND_DIR / "local_provider_config.json"
 
 class Settings(BaseSettings):
     app_name: str = "CarbonRag"
-    app_version: str = "v0.1.7"
+    app_version: str = "v0.1.9A"
     app_env: str = "development"
     app_host: str = "127.0.0.1"
     app_port: int = 8000

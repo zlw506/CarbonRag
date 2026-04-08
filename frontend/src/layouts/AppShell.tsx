@@ -23,7 +23,8 @@ export function AppShell() {
                 <div className="app-shell__brand">
                     <Typography.Title level={4}>{env.appTitle}</Typography.Title>
                     <Typography.Paragraph>
-                        v0.1.7 conversation experience + session foundation，当前正在补 session、单会话记忆和附件入口。
+                        v0.1.9A calc-carbon + feedback foundation。当前 ask 已支持 public/private/mixed grounding，
+                        本轮新增本地碳核算链路与结果反馈落库。
                     </Typography.Paragraph>
                 </div>
                 <Menu

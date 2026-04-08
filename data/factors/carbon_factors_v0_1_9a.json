@@ -1,0 +1,38 @@
+{
+    "version": "v0.1.9a",
+    "factors": [
+        {
+            "factor_id": "factor-electricity-demo-cn-v0_1_9a",
+            "item": "electricity",
+            "name": "购电排放因子（演示）",
+            "unit": "kgCO2e/kWh",
+            "value": 0.57,
+            "source": "CarbonRag demo factor baseline based on public electricity-emission-factor references",
+            "source_url": "https://www.mee.gov.cn/",
+            "note": "演示用因子，仅用于 v0.1.9A 本地验证，不用于正式盘查或审计。",
+            "version": "v0.1.9a"
+        },
+        {
+            "factor_id": "factor-natural-gas-demo-cn-v0_1_9a",
+            "item": "natural_gas",
+            "name": "天然气燃烧排放因子（演示）",
+            "unit": "kgCO2e/m3",
+            "value": 2.162,
+            "source": "CarbonRag demo factor baseline based on public stationary-combustion references",
+            "source_url": "https://www.ipcc.ch/",
+            "note": "演示用因子，仅用于 v0.1.9A 本地验证，不用于正式盘查或审计。",
+            "version": "v0.1.9a"
+        },
+        {
+            "factor_id": "factor-diesel-demo-cn-v0_1_9a",
+            "item": "diesel",
+            "name": "柴油燃烧排放因子（演示）",
+            "unit": "kgCO2e/L",
+            "value": 2.63,
+            "source": "CarbonRag demo factor baseline based on public mobile-combustion references",
+            "source_url": "https://www.ipcc.ch/",
+            "note": "演示用因子，仅用于 v0.1.9A 本地验证，不用于正式盘查或审计。",
+            "version": "v0.1.9a"
+        }
+    ]
+}

@@ -1,0 +1,123 @@
+import json
+
+from fastapi.testclient import TestClient
+
+from app.carbon.factor_loader import CarbonFactorLoader
+from app.carbon.service import CarbonService
+from app.main import app
+from app.session.adapters.sqlite_store import SQLiteSessionStore
+from app.session.service import SessionService
+
+client = TestClient(app)
+
+
+def build_factor_file(tmp_path) -> None:
+    payload = {
+        "version": "v0.1.9a",
+        "factors": [
+            {
+                "factor_id": "factor-electricity",
+                "item": "electricity",
+                "name": "Electricity Demo Factor",
+                "unit": "kgCO2e/kWh",
+                "value": 0.57,
+                "source": "Demo Source",
+                "source_url": "https://example.com/electricity",
+                "note": "demo",
+                "version": "v0.1.9a",
+            },
+            {
+                "factor_id": "factor-natural-gas",
+                "item": "natural_gas",
+                "name": "Natural Gas Demo Factor",
+                "unit": "kgCO2e/m3",
+                "value": 2.162,
+                "source": "Demo Source",
+                "source_url": "https://example.com/gas",
+                "note": "demo",
+                "version": "v0.1.9a",
+            },
+            {
+                "factor_id": "factor-diesel",
+                "item": "diesel",
+                "name": "Diesel Demo Factor",
+                "unit": "kgCO2e/L",
+                "value": 2.63,
+                "source": "Demo Source",
+                "source_url": "https://example.com/diesel",
+                "note": "demo",
+                "version": "v0.1.9a",
+            },
+        ],
+    }
+    factor_file = tmp_path / "factors.json"
+    factor_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return factor_file
+
+
+def build_test_service(tmp_path) -> tuple[SessionService, CarbonService]:
+    store = SQLiteSessionStore(tmp_path / "carbonrag.sqlite3")
+    session_service = SessionService(store=store)
+    factor_loader = CarbonFactorLoader(build_factor_file(tmp_path))
+    carbon_service = CarbonService(
+        factor_loader=factor_loader,
+        session_service=session_service,
+        store=store,
+    )
+    return session_service, carbon_service
+
+
+def test_calc_carbon_route_returns_breakdown_and_citations(monkeypatch, tmp_path) -> None:
+    session_service, carbon_service = build_test_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)
+
+    session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
+    response = client.post(
+        "/api/v1/calc-carbon",
+        json={
+            "session_id": session_id,
+            "period_label": "2026-Q1",
+            "electricity_kwh": 12000,
+            "natural_gas_m3": 800,
+            "diesel_l": 120,
+        },
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["status"] == "ok"
+    assert payload["trace_id"].startswith("calc-")
+    assert len(payload["breakdown"]) == 3
+    assert len(payload["citations"]) == 3
+
+
+def test_calc_carbon_route_rejects_unknown_session(monkeypatch, tmp_path) -> None:
+    _, carbon_service = build_test_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)
+
+    response = client.post(
+        "/api/v1/calc-carbon",
+        json={
+            "session_id": "session-missing",
+            "electricity_kwh": 100,
+        },
+    )
+
+    assert response.status_code == 404
+
+
+def test_calc_carbon_route_rejects_all_zero_activity(monkeypatch, tmp_path) -> None:
+    _, carbon_service = build_test_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)
+
+    response = client.post(
+        "/api/v1/calc-carbon",
+        json={
+            "electricity_kwh": 0,
+            "natural_gas_m3": 0,
+            "diesel_l": 0,
+        },
+    )
+
+    assert response.status_code == 422

@@ -23,6 +23,7 @@ import {
 } from "antd";
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
+import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
 import { uploadSessionFile } from "../../services/files";
 import { listPrivateSamples } from "../../services/privateSamples";
@@ -303,6 +304,7 @@ export function AskPage() {
                                         <MessageBubble
                                             key={message.message_id}
                                             message={message}
+                                            sessionId={activeSession.session_id}
                                             activeCitation={message.message_id === selectedCitationMessageId}
                                             onSelectCitations={() => setSelectedCitationMessageId(message.message_id)}
                                         />
@@ -449,11 +451,12 @@ export function AskPage() {
 
 interface MessageBubbleProps {
     message: SessionMessage;
+    sessionId: string;
     activeCitation: boolean;
     onSelectCitations: () => void;
 }
 
-function MessageBubble({ message, activeCitation, onSelectCitations }: MessageBubbleProps) {
+function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }: MessageBubbleProps) {
     const isAssistant = message.role === "assistant";
     const hasCitations = isAssistant && message.citations.length > 0;
     const messageSourceSummary = summarizeCitations(message.citations);
@@ -474,6 +477,14 @@ function MessageBubble({ message, activeCitation, onSelectCitations }: MessageBu
                                 <Typography.Text type="secondary">
                                     Trace: <Typography.Text code>{message.trace_id}</Typography.Text>
                                 </Typography.Text>
+                            ) : null}
+                            {isAssistant && message.trace_id ? (
+                                <FeedbackButtonGroup
+                                    targetType="ask"
+                                    traceId={message.trace_id}
+                                    sessionId={sessionId}
+                                    size="small"
+                                />
                             ) : null}
                             {hasCitations ? (
                                 <>
