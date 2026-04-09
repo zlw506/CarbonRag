@@ -345,6 +345,51 @@ body {
     align-items: start;
 }
 
+.admin-grid__table-card .ant-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.admin-grid__table-hint {
+    margin-bottom: 0;
+}
+
+.admin-table-cell {
+    min-width: 0;
+}
+
+.admin-table-cell--multiline .ant-typography {
+    margin-bottom: 0;
+}
+
+.admin-task-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.admin-task-detail__section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.admin-task-detail__content {
+    max-height: 180px;
+    overflow: auto;
+    padding: 12px 14px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 14px;
+    background: rgba(248, 250, 252, 0.92);
+}
+
+.admin-task-detail__content .ant-typography:last-child {
+    margin-bottom: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .admin-stats {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

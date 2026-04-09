@@ -1,4 +1,4 @@
-import { ReloadOutlined, SyncOutlined } from "@ant-design/icons";
+import { EyeOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
 import {
     Alert,
     Button,
@@ -13,6 +13,7 @@ import {
     Switch,
     Table,
     Tag,
+    Tooltip,
     Typography,
     message,
 } from "antd";
@@ -49,6 +50,7 @@ export function AdminPlaceholderPage() {
     const [userSavingId, setUserSavingId] = useState<string | null>(null);
     const [knowledgeItemSavingId, setKnowledgeItemSavingId] = useState<string | null>(null);
     const [refreshingKnowledge, setRefreshingKnowledge] = useState<KnowledgeTaskRefreshAction>(null);
+    const [selectedTask, setSelectedTask] = useState<KnowledgeTask | null>(null);
 
     const userColumns = useMemo<ColumnsType<AdminUserSummary>>(
         () => [
@@ -215,46 +217,77 @@ export function AdminPlaceholderPage() {
 
     const taskColumns = useMemo<ColumnsType<KnowledgeTask>>(
         () => [
-            { title: "任务编号", dataIndex: "task_id", key: "task_id", width: 220 },
+            {
+                title: "任务编号",
+                dataIndex: "task_id",
+                key: "task_id",
+                width: 180,
+                render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
+            },
             {
                 title: "动作",
                 key: "task_type",
+                width: 100,
                 render: (_, record) => <Tag>{taskTypeLabelMap[record.task_type] ?? record.task_type}</Tag>,
             },
             {
                 title: "范围",
                 key: "scope",
+                width: 100,
                 render: (_, record) => <Tag>{taskScopeLabelMap[record.scope] ?? record.scope}</Tag>,
             },
             {
                 title: "状态",
                 key: "status",
+                width: 90,
                 render: (_, record) => <Tag color={taskStatusColorMap[record.status]}>{taskStatusLabelMap[record.status]}</Tag>,
             },
             {
                 title: "摘要",
                 key: "summary",
+                width: 260,
                 render: (_, record) => (
-                    <Typography.Text type="secondary">{record.summary ?? "暂无摘要。"}</Typography.Text>
+                    <div className="admin-table-cell admin-table-cell--multiline">
+                        <Typography.Paragraph
+                            type="secondary"
+                            ellipsis={{ rows: 2, expandable: false, tooltip: record.summary ?? "暂无摘要。" }}
+                        >
+                            {record.summary ?? "暂无摘要。"}
+                        </Typography.Paragraph>
+                    </div>
                 ),
             },
             {
                 title: "对象",
                 key: "target_label",
-                render: (_, record) => record.target_label ?? "全部",
+                width: 180,
+                render: (_, record) => (
+                    <div className="admin-table-cell">
+                        <Tooltip title={record.target_label ?? "全部"}>
+                            <Typography.Text ellipsis>{record.target_label ?? "全部"}</Typography.Text>
+                        </Tooltip>
+                    </div>
+                ),
             },
             {
                 title: "时间",
                 key: "created_at",
+                width: 150,
                 render: (_, record) => formatTimestamp(record.created_at),
             },
             {
                 title: "操作",
                 key: "actions",
+                width: 140,
                 render: (_, record) => (
-                    <Button size="small" disabled={record.status === "running"} onClick={() => void handleRetryTask(record.task_id)}>
-                        重试
-                    </Button>
+                    <Space size={8} wrap>
+                        <Button size="small" icon={<EyeOutlined />} onClick={() => setSelectedTask(record)}>
+                            详情
+                        </Button>
+                        <Button size="small" disabled={record.status === "running"} onClick={() => void handleRetryTask(record.task_id)}>
+                            重试
+                        </Button>
+                    </Space>
                 ),
             },
         ],
@@ -507,6 +540,7 @@ export function AdminPlaceholderPage() {
                     </Card>
 
                     <Card
+                        className="admin-grid__table-card"
                         title="知识条目 / 文档列表"
                         extra={
                             <Tag color="blue">
@@ -519,27 +553,107 @@ export function AdminPlaceholderPage() {
                             columns={knowledgeColumns}
                             dataSource={knowledgeItems}
                             pagination={{ pageSize: 6 }}
+                            scroll={{ y: 420, x: 980 }}
+                            tableLayout="fixed"
                             size="small"
                             locale={{ emptyText: <Empty description="暂无知识条目。" /> }}
                         />
                     </Card>
 
-                    <Card title="更新任务列表">
+                    <Card
+                        className="admin-grid__table-card"
+                        title="更新任务列表"
+                        extra={<Tag color="purple">{knowledgeTasks.length} 条任务</Tag>}
+                    >
+                        <Typography.Paragraph type="secondary" className="admin-grid__table-hint">
+                            任务列表固定高度显示，长摘要会折叠。点击“详情”可在弹窗中查看完整任务信息。
+                        </Typography.Paragraph>
                         <Table
                             rowKey="task_id"
                             columns={taskColumns}
                             dataSource={knowledgeTasks}
-                            pagination={{ pageSize: 6 }}
+                            pagination={{ pageSize: 6, showSizeChanger: false }}
+                            scroll={{ y: 420, x: 1180 }}
+                            tableLayout="fixed"
                             size="small"
                             locale={{ emptyText: <Empty description="暂无知识任务。" /> }}
                         />
                     </Card>
 
-                    <Card title="用户列表">
-                        <Table rowKey="user_id" columns={userColumns} dataSource={users} pagination={false} size="small" />
+                    <Card className="admin-grid__table-card" title="用户列表">
+                        <Table
+                            rowKey="user_id"
+                            columns={userColumns}
+                            dataSource={users}
+                            pagination={{ pageSize: 8, showSizeChanger: false }}
+                            scroll={{ y: 420, x: 980 }}
+                            tableLayout="fixed"
+                            size="small"
+                        />
                     </Card>
                 </div>
             )}
+
+            <Modal
+                title="知识任务详情"
+                open={selectedTask !== null}
+                onCancel={() => setSelectedTask(null)}
+                footer={[
+                    <Button key="close" onClick={() => setSelectedTask(null)}>
+                        关闭
+                    </Button>,
+                ]}
+                width={760}
+            >
+                {selectedTask ? (
+                    <div className="admin-task-detail">
+                        <Descriptions column={2} size="small" bordered>
+                            <Descriptions.Item label="任务编号" span={2}>
+                                <Typography.Text code>{selectedTask.task_id}</Typography.Text>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="动作">
+                                {taskTypeLabelMap[selectedTask.task_type] ?? selectedTask.task_type}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="状态">
+                                <Tag color={taskStatusColorMap[selectedTask.status]}>
+                                    {taskStatusLabelMap[selectedTask.status]}
+                                </Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="范围">
+                                {taskScopeLabelMap[selectedTask.scope] ?? selectedTask.scope}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="创建时间">
+                                {formatTimestamp(selectedTask.created_at)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="开始时间">
+                                {selectedTask.started_at ? formatTimestamp(selectedTask.started_at) : "暂无"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="完成时间">
+                                {selectedTask.finished_at ? formatTimestamp(selectedTask.finished_at) : "暂无"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="目标对象" span={2}>
+                                {selectedTask.target_label ?? "全部"}
+                            </Descriptions.Item>
+                        </Descriptions>
+                        <div className="admin-task-detail__section">
+                            <Typography.Text strong>任务摘要</Typography.Text>
+                            <div className="admin-task-detail__content">
+                                <Typography.Paragraph>
+                                    {selectedTask.summary ?? "暂无摘要。"}
+                                </Typography.Paragraph>
+                            </div>
+                        </div>
+                        <div className="admin-task-detail__section">
+                            <Typography.Text strong>最近错误</Typography.Text>
+                            <div className="admin-task-detail__content">
+                                <Typography.Paragraph type="secondary">
+                                    {selectedTask.last_error ?? "暂无错误信息。"}
+                                </Typography.Paragraph>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+            </Modal>
         </Space>
     );
 }
