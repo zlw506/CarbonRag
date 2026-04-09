@@ -88,7 +88,7 @@ export function AskPage() {
             setSessions(sessionList);
             setActiveSessionId((current) => current ?? sessionList[0].session_id);
         } catch {
-            setTransportError("当前无法初始化对话工作台，请确认 backend 已启动。");
+            setTransportError("当前无法初始化对话工作台，请确认后端已启动。");
         } finally {
             setLoadingSessions(false);
             setLoadingPrivateSamples(false);
@@ -150,7 +150,7 @@ export function AskPage() {
             await refreshSessions(activeSessionId);
             setPrivateSampleDrawerOpen(false);
         } catch (error) {
-            setTransportError(extractDetailMessage(error) ?? "当前无法保存 private sample 挂接状态。");
+            setTransportError(extractDetailMessage(error) ?? "当前无法保存企业样例挂接状态。");
         } finally {
             setSavingAttachedSamples(false);
         }
@@ -185,12 +185,12 @@ export function AskPage() {
                 if (error.status === "invalid_input") {
                     setTransportError(error.answer);
                 } else {
-                    setTransportError("provider 当前响应失败，系统已把这次失败记录到当前会话。");
+                    setTransportError("模型服务当前响应失败，系统已把这次失败记录到当前会话。");
                     await refreshSessions(activeSessionId);
                     await loadSessionDetail(activeSessionId);
                 }
             } else {
-                setTransportError("当前问答服务暂不可达，请确认 backend 已启动且 provider 可用。");
+                setTransportError("当前问答服务暂不可达，请确认后端已启动且模型服务可用。");
             }
         } finally {
             setSending(false);
@@ -233,7 +233,7 @@ export function AskPage() {
                     extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession}>新建对话</Button>}
                 >
                     <Typography.Paragraph type="secondary">
-                        v0.1.8 继续沿用 conversation workbench，并把 private sample / mixed scope 接入当前 ask。
+                        v0.1.8 继续沿用对话工作台，并把企业样例 / 混合范围接入当前问答。
                     </Typography.Paragraph>
                     {loadingSessions ? (
                         <div className="chat-workbench__loading"><Spin /></div>
@@ -271,8 +271,8 @@ export function AskPage() {
                         type="info"
                         showIcon
                         className="chat-workbench__alert"
-                        message="当前 scope 已切到 private sample / mixed"
-                        description="当前会话还没有挂接任何脱敏企业样例，因此该 scope 下可能检索为空。"
+                        message="当前范围已切到企业样例 / 混合"
+                        description="当前会话还没有挂接任何脱敏企业样例，因此该范围下可能检索为空。"
                     />
                 ) : null}
 
@@ -292,7 +292,7 @@ export function AskPage() {
                     ) : activeSession ? (
                         <>
                             <Typography.Paragraph type="secondary">
-                                当前 ask 会带最近 4 轮历史继续回答；scope 可切到 public、private sample 或 mixed。
+                                当前问答会带最近 4 轮历史继续回答；范围可切到公共政策、企业样例或混合模式。
                             </Typography.Paragraph>
                             <div className="chat-message-stream">
                                 {activeSession.messages.length === 0 ? (
@@ -324,18 +324,18 @@ export function AskPage() {
                             value={knowledgeScope}
                             onChange={(value) => setKnowledgeScope(value)}
                             options={[
-                                { label: "public", value: "public" },
-                                { label: "private sample", value: "private_sample" },
-                                { label: "mixed", value: "mixed" },
+                                { label: "公共政策", value: "public" },
+                                { label: "企业样例", value: "private_sample" },
+                                { label: "混合", value: "mixed" },
                             ]}
                         />
                         <Typography.Paragraph type="secondary" className="chat-scope-bar__hint">
-                            public 只看政策样本；private sample 只看当前会话已挂接的脱敏企业样例；mixed 同时参考两类依据。
+                            公共政策只看政策样本；企业样例只看当前会话已挂接的脱敏企业样例；混合模式同时参考两类依据。
                         </Typography.Paragraph>
                     </div>
 
                     <div className="chat-session-state">
-                        <Tag color="blue">当前 scope：{scopeLabelMap[knowledgeScope]}</Tag>
+                        <Tag color="blue">当前范围：{scopeLabelMap[knowledgeScope]}</Tag>
                         <Tag color="green">上传附件：{uploadedAttachments.length}</Tag>
                         <Tag color="magenta">挂接样例：{privateAttachments.length}</Tag>
                         <Button icon={<TagsOutlined />} onClick={() => setPrivateSampleDrawerOpen(true)} disabled={loadingPrivateSamples}>
@@ -344,7 +344,7 @@ export function AskPage() {
                     </div>
 
                     <Typography.Paragraph type="secondary">
-                        当前上传入口继续只做 session 绑定；上传文件不会进入 ask 检索。本轮 private retrieval 只读取仓库内的脱敏样例。
+                        当前上传入口继续只做会话绑定；上传文件不会进入问答检索。本轮企业样例检索只读取仓库内的脱敏样例。
                     </Typography.Paragraph>
 
                     {activeSession?.attached_files.length ? (
@@ -372,7 +372,7 @@ export function AskPage() {
                     <Space className="chat-composer__actions" size={12} wrap>
                         <Button icon={<PaperClipOutlined />} onClick={() => fileInputRef.current?.click()} loading={uploading}>添加附件</Button>
                         <Button type="primary" icon={<MessageOutlined />} onClick={handleSubmit} loading={sending}>发送到当前会话</Button>
-                        <Typography.Text type="secondary">当前 session：{activeSession?.title ?? "未选择"}</Typography.Text>
+                        <Typography.Text type="secondary">当前会话：{activeSession?.title ?? "未选择"}</Typography.Text>
                     </Space>
                     <input
                         ref={fileInputRef}
@@ -396,7 +396,7 @@ export function AskPage() {
                     }
                 >
                     <Typography.Paragraph type="secondary">
-                        当前 citations 来自本地公共政策样本与脱敏企业样例。private sample 不代表真实客户审计结果。
+                        当前依据来自本地公共政策样本与脱敏企业样例。企业样例不代表真实客户审计结果。
                     </Typography.Paragraph>
                     {citationMessage?.citations.length ? (
                         <div className="chat-citation-groups">
@@ -411,14 +411,14 @@ export function AskPage() {
             </div>
 
             <Drawer
-                title="管理当前会话的 private sample 挂接"
+                title="管理当前会话的企业样例挂接"
                 width={420}
                 open={privateSampleDrawerOpen}
                 onClose={() => setPrivateSampleDrawerOpen(false)}
                 extra={<Button type="primary" onClick={handleSaveAttachedSamples} loading={savingAttachedSamples}>保存挂接</Button>}
             >
                 <Typography.Paragraph type="secondary">
-                    这里选择的是当前 session 可用于 private_sample / mixed 检索的脱敏样例。上传文件不会自动进入这一列表。
+                    这里选择的是当前会话可用于企业样例 / 混合检索的脱敏样例。上传文件不会自动进入这一列表。
                 </Typography.Paragraph>
                 {loadingPrivateSamples ? (
                     <div className="chat-workbench__loading"><Spin /></div>
@@ -495,7 +495,7 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
                         <Space size={12} wrap>
                             {message.trace_id ? (
                                 <Typography.Text type="secondary">
-                                    Trace: <Typography.Text code>{message.trace_id}</Typography.Text>
+                                    追踪号：<Typography.Text code>{message.trace_id}</Typography.Text>
                                 </Typography.Text>
                             ) : null}
                             {isAssistant && message.trace_id ? (
@@ -544,7 +544,7 @@ function CitationGroup({ title, tagColor, citations }: CitationGroupProps) {
                             <Space size={8} wrap>
                                 <Typography.Text strong>{citation.title}</Typography.Text>
                                 <Tag color={citation.source_type === "public_policy" ? "blue" : "magenta"}>
-                                    {citation.source_type === "public_policy" ? "public policy" : "private sample"}
+                                    {citation.source_type === "public_policy" ? "公共政策" : "企业样例"}
                                 </Tag>
                                 <Tag>{citation.source}</Tag>
                                 <Typography.Text type="secondary">{citation.chunk_id}</Typography.Text>
@@ -574,9 +574,9 @@ const statusColorMap = {
 } as const;
 
 const scopeLabelMap: Record<KnowledgeScope, string> = {
-    public: "public",
-    private_sample: "private sample",
-    mixed: "mixed",
+    public: "公共政策",
+    private_sample: "企业样例",
+    mixed: "混合",
 };
 
 function getAttachedPrivateSampleIds(attachedFiles: SessionAttachment[]) {

@@ -42,8 +42,7 @@ export function AppShell() {
                 <div className="app-shell__brand">
                     <Typography.Title level={4}>{env.appTitle}</Typography.Title>
                     <Typography.Paragraph>
-                        Enterprise trial baseline with user isolation, protected workspaces, and an initial admin
-                        console.
+                        企业试用基线，具备用户隔离、受保护工作台和首版管理员入口。
                     </Typography.Paragraph>
                 </div>
                 <Menu
@@ -61,17 +60,19 @@ export function AppShell() {
                 <Header className="app-shell__header">
                     <div className="app-shell__header-bar">
                         <div>
-                            <Typography.Title level={3}>CarbonRag Workbench</Typography.Title>
+                            <Typography.Title level={3}>CarbonRag 工作台</Typography.Title>
                             <Typography.Paragraph>
-                                Local accounts, role-aware access, and isolated data per signed-in user.
+                                本地账号体系、角色感知访问，以及按登录用户隔离的数据空间。
                             </Typography.Paragraph>
                         </div>
                         <Space size={12} wrap>
                             <Avatar>{user.username.slice(0, 1).toUpperCase()}</Avatar>
                             <Typography.Text strong>{user.username}</Typography.Text>
-                            <Tag color={user.role === "admin" ? "purple" : "blue"}>{user.role}</Tag>
+                            <Tag color={user.role === "admin" ? "purple" : "blue"}>
+                                {user.role === "admin" ? "管理员" : "普通用户"}
+                            </Tag>
                             <Button icon={<LogoutOutlined />} onClick={() => void handleLogout()}>
-                                Logout
+                                退出登录
                             </Button>
                         </Space>
                     </div>

@@ -33,7 +33,7 @@ export function SystemInfoPanel() {
                 <Descriptions.Item label="版本">{info.version}</Descriptions.Item>
                 <Descriptions.Item label="环境">{info.env}</Descriptions.Item>
                 <Descriptions.Item label="API 前缀">{info.api_prefix}</Descriptions.Item>
-                <Descriptions.Item label="Provider 模式">{info.model_provider_mode}</Descriptions.Item>
+                <Descriptions.Item label="模型服务模式">{info.model_provider_mode}</Descriptions.Item>
                 <Descriptions.Item label="时间戳">
                     <Typography.Text code>{info.timestamp}</Typography.Text>
                 </Descriptions.Item>

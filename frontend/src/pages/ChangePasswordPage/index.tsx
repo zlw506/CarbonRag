@@ -38,10 +38,10 @@ export function ChangePasswordPage() {
                 current_password: values.current_password,
                 new_password: values.new_password,
             });
-            message.success("Password updated.");
+            message.success("密码已更新。");
             navigate("/", { replace: true });
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "Password change failed.");
+            setErrorMessage(extractDetailMessage(error) ?? "修改密码失败，请稍后重试。");
         } finally {
             setSubmitting(false);
         }
@@ -50,47 +50,46 @@ export function ChangePasswordPage() {
     return (
         <div className="auth-shell">
             <Card className="auth-card">
-                <Typography.Title level={2}>Change Password</Typography.Title>
+                <Typography.Title level={2}>修改密码</Typography.Title>
                 <Typography.Paragraph type="secondary">
-                    The initial admin account and any reset password flow must complete this step before entering the
-                    workbench.
+                    初始管理员账号和被重置密码的账号，都必须先完成这一步，才能进入工作台。
                 </Typography.Paragraph>
                 {errorMessage ? (
                     <Alert
                         showIcon
                         type="warning"
-                        message="Password Update Error"
+                        message="密码更新提示"
                         description={errorMessage}
                         className="auth-card__alert"
                     />
                 ) : null}
                 <Form<ChangePasswordFormValues> form={form} layout="vertical" onFinish={handleSubmit}>
                     <Form.Item
-                        label="Current Password"
+                        label="当前密码"
                         name="current_password"
-                        rules={[{ required: true, message: "Current password is required." }]}
+                        rules={[{ required: true, message: "请输入当前密码。" }]}
                     >
                         <Input.Password prefix={<LockOutlined />} autoComplete="current-password" />
                     </Form.Item>
                     <Form.Item
-                        label="New Password"
+                        label="新密码"
                         name="new_password"
-                        rules={[{ required: true, message: "New password is required." }]}
+                        rules={[{ required: true, message: "请输入新密码。" }]}
                     >
                         <Input.Password prefix={<LockOutlined />} autoComplete="new-password" />
                     </Form.Item>
                     <Form.Item
-                        label="Confirm New Password"
+                        label="确认新密码"
                         name="confirm_password"
                         dependencies={["new_password"]}
                         rules={[
-                            { required: true, message: "Please confirm the new password." },
+                            { required: true, message: "请再次输入新密码。" },
                             ({ getFieldValue }) => ({
                                 validator(_, value) {
                                     if (!value || value === getFieldValue("new_password")) {
                                         return Promise.resolve();
                                     }
-                                    return Promise.reject(new Error("Passwords do not match."));
+                                    return Promise.reject(new Error("两次输入的新密码不一致。"));
                                 },
                             }),
                         ]}
@@ -98,7 +97,7 @@ export function ChangePasswordPage() {
                         <Input.Password prefix={<LockOutlined />} autoComplete="new-password" />
                     </Form.Item>
                     <Button type="primary" htmlType="submit" block loading={submitting}>
-                        Update Password
+                        更新密码
                     </Button>
                 </Form>
             </Card>

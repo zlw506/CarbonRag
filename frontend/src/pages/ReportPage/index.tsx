@@ -57,9 +57,9 @@ const reportTypeLabelMap: Record<ReportType, string> = {
 };
 
 const sourceTypeLabelMap = {
-    public_policy: "public policy",
-    private_sample: "private sample",
-    carbon_factor: "carbon factor",
+    public_policy: "公共政策",
+    private_sample: "企业样例",
+    carbon_factor: "排放因子",
 } as const;
 
 const sourceTypeColorMap = {
@@ -147,7 +147,7 @@ export function ReportPage() {
             setSessions(sessionList);
             setActiveSessionId((current) => current ?? sessionList[0].session_id);
         } catch {
-            setTransportError("当前无法初始化报告工作台，请确认 backend 已启动。");
+            setTransportError("当前无法初始化报告工作台，请确认后端已启动。");
         } finally {
             setLoadingSessions(false);
         }
@@ -187,7 +187,7 @@ export function ReportPage() {
             setActiveSession(null);
             setReports([]);
             setCarbonResults([]);
-            setTransportError("当前无法读取所选 session 的报告上下文，请稍后重试。");
+            setTransportError("当前无法读取所选会话的报告上下文，请稍后重试。");
         } finally {
             setLoadingSessionDetail(false);
         }
@@ -228,7 +228,7 @@ export function ReportPage() {
 
     async function handleGenerate() {
         if (!activeSessionId) {
-            setTransportError("当前没有可用 session。");
+            setTransportError("当前没有可用会话。");
             return;
         }
 
@@ -285,7 +285,7 @@ export function ReportPage() {
         }
         try {
             await navigator.clipboard.writeText(activeReport.content);
-            message.success("Markdown 已复制。");
+            message.success("正文已复制。");
         } catch {
             message.error("复制失败，请检查浏览器权限。");
         }
@@ -303,7 +303,7 @@ export function ReportPage() {
                     )}
                 >
                     <Typography.Paragraph type="secondary">
-                        报告始终绑定在某个 session 下生成与回看，不做漂在外面的独立报告。
+                        报告始终绑定在某个会话下生成与回看，不做漂在外面的独立报告。
                     </Typography.Paragraph>
                     {loadingSessions ? (
                         <div className="chat-workbench__loading"><Spin /></div>
@@ -336,7 +336,7 @@ export function ReportPage() {
                     )}
                 </Card>
 
-                <Card title="当前 session 报告列表">
+                <Card title="当前会话报告列表">
                     {loadingSessionDetail ? (
                         <div className="chat-workbench__loading"><Spin /></div>
                     ) : reports.length ? (
@@ -364,7 +364,7 @@ export function ReportPage() {
                             )}
                         />
                     ) : (
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 session 还没有生成报告。" />
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前会话还没有生成报告。" />
                     )}
                 </Card>
             </div>
@@ -406,7 +406,7 @@ export function ReportPage() {
                             <Input
                                 value={title}
                                 onChange={(event) => setTitle(event.target.value)}
-                                placeholder="可选；为空时使用模板名 + session 标题"
+                                placeholder="可选；为空时使用模板名 + 会话标题"
                             />
                         </div>
 
@@ -434,7 +434,7 @@ export function ReportPage() {
                                         </Checkbox>
                                     )) : (
                                         <Typography.Text type="secondary">
-                                            当前 session 还没有可作为报告来源的 assistant 消息。
+                                            当前会话还没有可作为报告来源的助手消息。
                                         </Typography.Text>
                                     )}
                                 </Space>
@@ -442,12 +442,12 @@ export function ReportPage() {
                         </div>
 
                         <div className="report-workbench__field">
-                            <Typography.Text strong>可选 carbon 结果</Typography.Text>
+                            <Typography.Text strong>可选碳核算结果</Typography.Text>
                             <Select
                                 allowClear
                                 value={selectedCarbonResultId}
                                 onChange={(value) => setSelectedCarbonResultId(value)}
-                                placeholder="仅 carbon_summary 必填"
+                                placeholder="仅碳核算结果说明必填"
                                 options={carbonResults.map((item) => ({
                                     value: item.trace_id,
                                     label: `${item.period_label ?? "未命名周期"} | ${item.total_emission_kgco2e.toFixed(3)} kgCO2e`,
@@ -476,7 +476,7 @@ export function ReportPage() {
                                 disabled={!activeReport}
                                 onClick={() => void handleCopyMarkdown()}
                             >
-                                复制 Markdown
+                                复制正文
                             </Button>
                             <Button
                                 icon={<SaveOutlined />}
@@ -511,7 +511,7 @@ export function ReportPage() {
                                 onChange={(value) => setPreviewMode(value)}
                                 options={[
                                     { label: "预览", value: "preview" },
-                                    { label: "编辑 Markdown", value: "edit" },
+                                    { label: "编辑正文", value: "edit" },
                                 ]}
                             />
 
@@ -530,7 +530,7 @@ export function ReportPage() {
                     ) : (
                         <Empty
                             image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            description="选择来源并生成一份 session 关联报告，生成后这里会显示 Markdown 预览。"
+                            description="选择来源并生成一份会话关联报告，生成后这里会显示正文预览。"
                         />
                     )}
                 </Card>
@@ -542,8 +542,8 @@ export function ReportPage() {
                     extra={(
                         <Space size={8} wrap>
                             <Tag color="blue">{currentSummary.public_policy_count} 条政策</Tag>
-                            <Tag color="magenta">{currentSummary.private_sample_count} 条样例</Tag>
-                            <Tag color="gold">{currentSummary.carbon_factor_count} 条因子</Tag>
+                            <Tag color="magenta">{currentSummary.private_sample_count} 条企业样例</Tag>
+                            <Tag color="gold">{currentSummary.carbon_factor_count} 条排放因子</Tag>
                         </Space>
                     )}
                 >
@@ -567,7 +567,7 @@ export function ReportPage() {
                             ) : null}
                             {groupedCitations.carbon_factor.length ? (
                                 <ReportCitationGroup
-                                    title="碳因子依据"
+                                    title="排放因子依据"
                                     citations={groupedCitations.carbon_factor}
                                 />
                             ) : null}

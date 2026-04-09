@@ -28,7 +28,7 @@ function normalizeApiBaseUrl(rawValue?: string) {
 
 const env = {
     apiBaseUrl: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL),
-    appTitle: import.meta.env.VITE_APP_TITLE ?? "CarbonRag Conversation Workbench"
+    appTitle: import.meta.env.VITE_APP_TITLE ?? "CarbonRag 对话工作台"
 };
 
 export default env;

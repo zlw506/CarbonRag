@@ -149,7 +149,7 @@ export function CarbonCalcPage() {
                     extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession}>新建对话</Button>}
                 >
                     <Typography.Paragraph type="secondary">
-                        v0.1.9A 在当前 conversation workbench 上新增真实碳核算链路，并把结果与反馈落入本地数据库。
+                        v0.1.9A 在当前对话工作台上新增真实碳核算链路，并把结果与反馈落入本地数据库。
                     </Typography.Paragraph>
                     {loadingSessions ? (
                         <div className="chat-workbench__loading"><Spin /></div>
@@ -196,10 +196,10 @@ export function CarbonCalcPage() {
                     extra={<Tag color="blue">{activeSession?.title ?? "未选择会话"}</Tag>}
                 >
                     <Typography.Paragraph type="secondary">
-                        本轮只支持购电量、天然气用量和柴油用量三类活动数据；结果会关联到当前 session，但不会进入 ask 消息流。
+                        本轮只支持购电量、天然气用量和柴油用量三类活动数据；结果会关联到当前会话，但不会进入问答消息流。
                     </Typography.Paragraph>
                     <div className="chat-session-state">
-                        <Tag color="blue">当前 session：{activeSession ? "已关联" : "未关联"}</Tag>
+                        <Tag color="blue">当前会话：{activeSession ? "已关联" : "未关联"}</Tag>
                         <Tag color="green">上传附件：{uploadedFileCount}</Tag>
                         <Tag color="magenta">挂接样例：{privateSampleCount}</Tag>
                     </div>
@@ -252,7 +252,7 @@ export function CarbonCalcPage() {
                             计算当前排放
                         </Button>
                         <Typography.Text type="secondary">
-                            当前结果将{activeSessionId ? "关联到选中的 session" : "不关联 session"}
+                            当前结果将{activeSessionId ? "关联到选中的会话" : "不关联任何会话"}
                         </Typography.Text>
                     </Space>
                 </Card>
@@ -260,7 +260,7 @@ export function CarbonCalcPage() {
                 <Card
                     className="calc-workbench__result-card"
                     title="核算结果"
-                    extra={calcResult ? <Tag color="green">Trace {calcResult.trace_id}</Tag> : null}
+                    extra={calcResult ? <Tag color="green">追踪号：{calcResult.trace_id}</Tag> : null}
                 >
                     {loadingSessionDetail && !calcResult ? (
                         <div className="chat-workbench__loading"><Spin /></div>
@@ -275,7 +275,7 @@ export function CarbonCalcPage() {
                                 />
                                 <Space size={12} wrap>
                                     <Tag color={activeSessionId ? "blue" : "default"}>
-                                        {activeSessionId ? `已关联到 ${activeSession?.title ?? activeSessionId}` : "未关联 session"}
+                                        {activeSessionId ? `已关联到 ${activeSession?.title ?? activeSessionId}` : "未关联会话"}
                                     </Tag>
                                     <FeedbackButtonGroup
                                         targetType="calc_carbon"
@@ -290,7 +290,7 @@ export function CarbonCalcPage() {
                                 <Descriptions.Item label="摘要">{calcResult.formula_summary}</Descriptions.Item>
                             </Descriptions>
 
-                            <Card size="small" title="分项 breakdown">
+                            <Card size="small" title="分项明细">
                                 <List
                                     dataSource={calcResult.breakdown}
                                     renderItem={(item) => (
@@ -334,7 +334,7 @@ export function CarbonCalcPage() {
                                     <div className="chat-citation-card">
                                         <Space size={8} wrap>
                                             <Typography.Text strong>{citation.factor_id}</Typography.Text>
-                                            <Tag color="gold">factor</Tag>
+                                            <Tag color="gold">排放因子</Tag>
                                         </Space>
                                         <Typography.Paragraph className="chat-citation-card__snippet">
                                             {citation.source}

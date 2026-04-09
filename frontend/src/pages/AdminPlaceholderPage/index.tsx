@@ -54,7 +54,7 @@ export function AdminPlaceholderPage() {
     const userColumns = useMemo<ColumnsType<AdminUserSummary>>(
         () => [
             {
-                title: "User",
+                title: "用户",
                 dataIndex: "username",
                 key: "username",
                 render: (_, record) => (
@@ -65,7 +65,7 @@ export function AdminPlaceholderPage() {
                 ),
             },
             {
-                title: "Role",
+                title: "角色",
                 key: "role",
                 render: (_, record) => (
                     <Select
@@ -73,15 +73,15 @@ export function AdminPlaceholderPage() {
                         value={record.role}
                         style={{ width: 120 }}
                         options={[
-                            { label: "user", value: "user" },
-                            { label: "admin", value: "admin" },
+                            { label: "普通用户", value: "user" },
+                            { label: "管理员", value: "admin" },
                         ]}
                         onChange={(value) => void handleUpdateUser(record, value as "user" | "admin", record.is_active)}
                     />
                 ),
             },
             {
-                title: "Active",
+                title: "状态",
                 key: "is_active",
                 render: (_, record) => (
                     <Switch
@@ -93,28 +93,28 @@ export function AdminPlaceholderPage() {
                 ),
             },
             {
-                title: "Usage",
+                title: "使用情况",
                 key: "counts",
                 render: (_, record) => (
                     <Space size={8} wrap>
-                        <Tag>{record.session_count} sessions</Tag>
-                        <Tag>{record.report_count} reports</Tag>
-                        <Tag>{record.feedback_count} feedback</Tag>
+                        <Tag>{record.session_count} 个会话</Tag>
+                        <Tag>{record.report_count} 份报告</Tag>
+                        <Tag>{record.feedback_count} 条反馈</Tag>
                     </Space>
                 ),
             },
             {
-                title: "Actions",
+                title: "操作",
                 key: "actions",
                 render: (_, record) => (
                     <Space size={8} wrap>
-                        {record.password_must_change ? <Tag color="orange">must change password</Tag> : null}
+                        {record.password_must_change ? <Tag color="orange">下次登录需改密</Tag> : null}
                         <Button
                             size="small"
                             disabled={userSavingId === record.user_id}
                             onClick={() => void handleResetPassword(record.user_id)}
                         >
-                            Reset Password
+                            重置密码
                         </Button>
                     </Space>
                 ),
@@ -144,17 +144,13 @@ export function AdminPlaceholderPage() {
             setKnowledgeTasks(nextTasks);
             setSystemStatus(nextStatus);
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "Failed to load admin workspace.");
+            setErrorMessage(extractDetailMessage(error) ?? "加载管理员工作台失败。");
         } finally {
             setLoading(false);
         }
     }
 
-    async function handleUpdateUser(
-        record: AdminUserSummary,
-        role: "user" | "admin",
-        isActive: boolean,
-    ) {
+    async function handleUpdateUser(record: AdminUserSummary, role: "user" | "admin", isActive: boolean) {
         setUserSavingId(record.user_id);
         setErrorMessage(null);
         try {
@@ -163,10 +159,10 @@ export function AdminPlaceholderPage() {
                 is_active: isActive,
             });
             setUsers((current) => current.map((item) => (item.user_id === updated.user_id ? updated : item)));
-            message.success(`Updated ${updated.username}.`);
+            message.success(`已更新用户「${updated.username}」。`);
             void refreshSystemStatus();
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "Failed to update user.");
+            setErrorMessage(extractDetailMessage(error) ?? "更新用户失败。");
         } finally {
             setUserSavingId(null);
         }
@@ -178,19 +174,17 @@ export function AdminPlaceholderPage() {
         try {
             const result = await resetAdminUserPassword(userId);
             Modal.info({
-                title: "Temporary Password",
+                title: "临时密码",
                 content: (
                     <Space direction="vertical" size={8}>
-                        <Typography.Paragraph>
-                            The password has been reset. The user must change it at next login.
-                        </Typography.Paragraph>
+                        <Typography.Paragraph>密码已重置。该用户下次登录时必须修改密码。</Typography.Paragraph>
                         <Typography.Text code>{result.temporary_password}</Typography.Text>
                     </Space>
                 ),
             });
             await refreshUsers();
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "Failed to reset password.");
+            setErrorMessage(extractDetailMessage(error) ?? "重置密码失败。");
         } finally {
             setUserSavingId(null);
         }
@@ -208,10 +202,10 @@ export function AdminPlaceholderPage() {
                 session_attachable: patch.session_attachable ?? record.session_attachable,
             });
             setPrivateSamples((current) => current.map((item) => (item.doc_id === updated.doc_id ? updated : item)));
-            message.success(`Updated ${updated.doc_id}.`);
+            message.success(`已更新样例「${updated.doc_id}」。`);
             void refreshSystemStatus();
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "Failed to update private sample.");
+            setErrorMessage(extractDetailMessage(error) ?? "更新企业样例失败。");
         } finally {
             setPrivateSampleSavingId(null);
         }
@@ -223,10 +217,10 @@ export function AdminPlaceholderPage() {
         try {
             const task = await triggerKnowledgeRefresh({ scope: knowledgeScope });
             setKnowledgeTasks((current) => [task, ...current.filter((item) => item.task_id !== task.task_id)]);
-            message.success(`Knowledge refresh completed: ${task.status}.`);
+            message.success(`知识刷新已完成：${taskStatusLabelMap[task.status] ?? task.status}。`);
             await refreshSystemStatus();
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "Knowledge refresh failed.");
+            setErrorMessage(extractDetailMessage(error) ?? "知识刷新失败。");
         } finally {
             setRefreshingKnowledge(false);
         }
@@ -246,23 +240,22 @@ export function AdminPlaceholderPage() {
     return (
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <Card>
-                <Typography.Title level={2}>Admin Console</Typography.Title>
+                <Typography.Title level={2}>管理员控制台</Typography.Title>
                 <Typography.Paragraph>
-                    V1.0.0 adds minimum governance for enterprise trial use: local identity, user-level data
-                    isolation, system status visibility, private sample entry management, and manual knowledge refresh.
+                    V1.0.0 增加了企业试用版所需的最小治理能力：本地身份、按用户隔离数据、系统状态查看、企业样例入口管理，以及手动知识刷新。
                 </Typography.Paragraph>
                 <Space size={12} wrap>
                     <Button icon={<ReloadOutlined />} onClick={() => void loadAdminWorkspace()} disabled={loading}>
-                        Refresh
+                        刷新
                     </Button>
                     <Select
                         value={knowledgeScope}
                         onChange={(value) => setKnowledgeScope(value)}
                         style={{ width: 180 }}
                         options={[
-                            { label: "All sources", value: "all" },
-                            { label: "Public policy only", value: "public_policy" },
-                            { label: "Private sample only", value: "private_sample" },
+                            { label: "全部来源", value: "all" },
+                            { label: "仅公共政策", value: "public_policy" },
+                            { label: "仅企业样例", value: "private_sample" },
                         ]}
                     />
                     <Button
@@ -271,14 +264,14 @@ export function AdminPlaceholderPage() {
                         loading={refreshingKnowledge}
                         onClick={() => void handleTriggerKnowledgeRefresh()}
                     >
-                        Trigger Knowledge Refresh
+                        触发知识刷新
                     </Button>
                 </Space>
                 {errorMessage ? (
                     <Alert
                         showIcon
                         type="warning"
-                        message="Admin Workspace Warning"
+                        message="管理员工作台提示"
                         description={errorMessage}
                         className="auth-card__alert"
                     />
@@ -293,51 +286,59 @@ export function AdminPlaceholderPage() {
                 </Card>
             ) : (
                 <div className="admin-grid">
-                    <Card title="System Connection Status">
+                    <Card title="系统连接状态">
                         {systemStatus ? (
                             <Descriptions column={1} size="small" bordered>
-                                <Descriptions.Item label="App">{systemStatus.app_name}</Descriptions.Item>
-                                <Descriptions.Item label="Version">{systemStatus.version}</Descriptions.Item>
-                                <Descriptions.Item label="Environment">{systemStatus.env}</Descriptions.Item>
-                                <Descriptions.Item label="Database">{systemStatus.database_backend}</Descriptions.Item>
-                                <Descriptions.Item label="Model">{systemStatus.model_name}</Descriptions.Item>
-                                <Descriptions.Item label="Provider Mode">{systemStatus.model_provider_mode}</Descriptions.Item>
-                                <Descriptions.Item label="Users">{systemStatus.total_users}</Descriptions.Item>
-                                <Descriptions.Item label="Sessions">{systemStatus.total_sessions}</Descriptions.Item>
-                                <Descriptions.Item label="Reports">{systemStatus.total_reports}</Descriptions.Item>
-                                <Descriptions.Item label="Feedback">{systemStatus.total_feedback_entries}</Descriptions.Item>
-                                <Descriptions.Item label="Private Samples">
+                                <Descriptions.Item label="应用名称">{systemStatus.app_name}</Descriptions.Item>
+                                <Descriptions.Item label="版本">{systemStatus.version}</Descriptions.Item>
+                                <Descriptions.Item label="环境">{resolveLabel(environmentLabelMap, systemStatus.env)}</Descriptions.Item>
+                                <Descriptions.Item label="数据库">
+                                    {resolveLabel(databaseBackendLabelMap, systemStatus.database_backend)}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="模型">{systemStatus.model_name}</Descriptions.Item>
+                                <Descriptions.Item label="模型服务模式">
+                                    {resolveLabel(providerModeLabelMap, systemStatus.model_provider_mode)}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="用户数">{systemStatus.total_users}</Descriptions.Item>
+                                <Descriptions.Item label="会话数">{systemStatus.total_sessions}</Descriptions.Item>
+                                <Descriptions.Item label="报告数">{systemStatus.total_reports}</Descriptions.Item>
+                                <Descriptions.Item label="反馈数">{systemStatus.total_feedback_entries}</Descriptions.Item>
+                                <Descriptions.Item label="企业样例">
                                     {systemStatus.enabled_private_samples} / {systemStatus.total_private_samples}
                                 </Descriptions.Item>
-                                <Descriptions.Item label="Latest Refresh">
-                                    {systemStatus.latest_refresh_status ?? "none"}
+                                <Descriptions.Item label="最近刷新">
+                                    {systemStatus.latest_refresh_status
+                                        ? resolveLabel(taskStatusLabelMap, systemStatus.latest_refresh_status)
+                                        : "暂无"}
                                 </Descriptions.Item>
                             </Descriptions>
                         ) : (
-                            <Typography.Text type="secondary">No system status available.</Typography.Text>
+                            <Typography.Text type="secondary">暂无系统状态。</Typography.Text>
                         )}
                     </Card>
 
-                    <Card title="Feedback Overview">
+                    <Card title="反馈概览">
                         {feedbackOverview ? (
                             <Space direction="vertical" size={16} style={{ width: "100%" }}>
                                 <div className="admin-stats">
-                                    <Statistic title="Total" value={feedbackOverview.total_count} />
-                                    <Statistic title="Ask Up" value={feedbackOverview.ask_up_count} />
-                                    <Statistic title="Ask Down" value={feedbackOverview.ask_down_count} />
-                                    <Statistic title="Calc Up" value={feedbackOverview.calc_up_count} />
-                                    <Statistic title="Calc Down" value={feedbackOverview.calc_down_count} />
+                                    <Statistic title="总数" value={feedbackOverview.total_count} />
+                                    <Statistic title="问答赞成" value={feedbackOverview.ask_up_count} />
+                                    <Statistic title="问答反对" value={feedbackOverview.ask_down_count} />
+                                    <Statistic title="核算赞成" value={feedbackOverview.calc_up_count} />
+                                    <Statistic title="核算反对" value={feedbackOverview.calc_down_count} />
                                 </div>
                                 <List
                                     size="small"
                                     dataSource={feedbackOverview.recent_entries}
-                                    locale={{ emptyText: "No feedback yet." }}
+                                    locale={{ emptyText: "暂无反馈。" }}
                                     renderItem={(item) => (
                                         <List.Item>
                                             <Space direction="vertical" size={2} style={{ width: "100%" }}>
                                                 <Space size={8} wrap>
-                                                    <Tag>{item.target_type}</Tag>
-                                                    <Tag color={item.rating === "up" ? "green" : "red"}>{item.rating}</Tag>
+                                                    <Tag>{resolveLabel(feedbackTargetLabelMap, item.target_type)}</Tag>
+                                                    <Tag color={item.rating === "up" ? "green" : "red"}>
+                                                        {resolveLabel(feedbackRatingLabelMap, item.rating)}
+                                                    </Tag>
                                                     <Typography.Text type="secondary">{item.owner_user_id}</Typography.Text>
                                                 </Space>
                                                 <Typography.Text type="secondary">{formatTimestamp(item.created_at)}</Typography.Text>
@@ -347,23 +348,25 @@ export function AdminPlaceholderPage() {
                                 />
                             </Space>
                         ) : (
-                            <Typography.Text type="secondary">No feedback summary available.</Typography.Text>
+                            <Typography.Text type="secondary">暂无反馈汇总。</Typography.Text>
                         )}
                     </Card>
 
-                    <Card title="Knowledge Tasks Overview">
+                    <Card title="知识任务概览">
                         <List
                             size="small"
                             dataSource={knowledgeTasks}
-                            locale={{ emptyText: "No refresh task history." }}
+                            locale={{ emptyText: "暂无刷新任务历史。" }}
                             renderItem={(item) => (
                                 <List.Item>
                                     <Space direction="vertical" size={2} style={{ width: "100%" }}>
                                         <Space size={8} wrap>
-                                            <Tag>{item.scope}</Tag>
-                                            <Tag color={taskStatusColorMap[item.status]}>{item.status}</Tag>
+                                            <Tag>{resolveLabel(knowledgeScopeLabelMap, item.scope)}</Tag>
+                                            <Tag color={taskStatusColorMap[item.status]}>
+                                                {resolveLabel(taskStatusLabelMap, item.status)}
+                                            </Tag>
                                         </Space>
-                                        <Typography.Text>{item.summary ?? "No summary."}</Typography.Text>
+                                        <Typography.Text>{item.summary ?? "暂无摘要。"}</Typography.Text>
                                         <Typography.Text type="secondary">{formatTimestamp(item.created_at)}</Typography.Text>
                                     </Space>
                                 </List.Item>
@@ -371,25 +374,25 @@ export function AdminPlaceholderPage() {
                         />
                     </Card>
 
-                    <Card title="Private Sample Entry Management">
+                    <Card title="企业样例入口管理">
                         <List
                             size="small"
                             dataSource={privateSamples}
-                            locale={{ emptyText: "No private samples available." }}
+                            locale={{ emptyText: "暂无可用企业样例。" }}
                             renderItem={(item) => (
                                 <List.Item>
                                     <div className="admin-private-sample-row">
                                         <Space direction="vertical" size={4} style={{ width: "100%" }}>
                                             <Typography.Text strong>{item.title}</Typography.Text>
                                             <Space size={8} wrap>
-                                                <Tag color="magenta">{item.sample_type}</Tag>
-                                                <Tag>{item.business_topic}</Tag>
+                                                <Tag color="magenta">{resolveLabel(sampleTypeLabelMap, item.sample_type)}</Tag>
+                                                <Tag>{resolveLabel(businessTopicLabelMap, item.business_topic)}</Tag>
                                                 <Tag>{item.doc_id}</Tag>
                                             </Space>
                                         </Space>
                                         <Space size={12} wrap>
                                             <Space size={6}>
-                                                <Typography.Text type="secondary">Enabled</Typography.Text>
+                                                <Typography.Text type="secondary">启用</Typography.Text>
                                                 <Switch
                                                     size="small"
                                                     checked={item.is_enabled}
@@ -400,7 +403,7 @@ export function AdminPlaceholderPage() {
                                                 />
                                             </Space>
                                             <Space size={6}>
-                                                <Typography.Text type="secondary">Attachable</Typography.Text>
+                                                <Typography.Text type="secondary">可挂接</Typography.Text>
                                                 <Switch
                                                     size="small"
                                                     checked={item.session_attachable}
@@ -417,7 +420,7 @@ export function AdminPlaceholderPage() {
                         />
                     </Card>
 
-                    <Card title="User Management">
+                    <Card title="用户管理">
                         <Table
                             rowKey="user_id"
                             columns={userColumns}
@@ -436,6 +439,56 @@ const taskStatusColorMap = {
     running: "processing",
     succeeded: "green",
     failed: "red",
+} as const;
+
+const taskStatusLabelMap = {
+    running: "运行中",
+    succeeded: "已完成",
+    failed: "失败",
+} as const;
+
+const knowledgeScopeLabelMap = {
+    all: "全部来源",
+    public_policy: "仅公共政策",
+    private_sample: "仅企业样例",
+} as const;
+
+const feedbackRatingLabelMap = {
+    up: "正向",
+    down: "负向",
+} as const;
+
+const feedbackTargetLabelMap = {
+    ask: "问答反馈",
+    calc_carbon: "核算反馈",
+} as const;
+
+const sampleTypeLabelMap = {
+    doc: "文档",
+    table: "表格",
+} as const;
+
+const businessTopicLabelMap = {
+    energy: "能耗",
+    production: "生产",
+    logistics: "物流",
+    project_background: "项目背景",
+} as const;
+
+const environmentLabelMap = {
+    development: "本地开发环境",
+    production: "生产环境",
+    staging: "预发布环境",
+} as const;
+
+const databaseBackendLabelMap = {
+    sqlite: "本地数据库",
+    postgresql: "生产数据库",
+} as const;
+
+const providerModeLabelMap = {
+    openai_compatible: "兼容模式",
+    stub: "模拟模式",
 } as const;
 
 function formatTimestamp(value: string) {
@@ -459,4 +512,8 @@ function extractDetailMessage(value: unknown): string | null {
     }
     const candidate = value as { detail?: unknown };
     return typeof candidate.detail === "string" ? candidate.detail : null;
+}
+
+function resolveLabel<T extends Record<string, string>>(map: T, value: string) {
+    return map[value as keyof T] ?? value;
 }

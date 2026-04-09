@@ -38,10 +38,10 @@ export function LoginPage() {
         setErrorMessage(null);
         try {
             const loggedInUser = await login(values);
-            message.success(`Welcome back, ${loggedInUser.username}.`);
+            message.success(`欢迎回来，${loggedInUser.username}。`);
             navigate(loggedInUser.password_must_change ? "/change-password" : redirectTarget, { replace: true });
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "Login failed. Please check your username and password.");
+            setErrorMessage(extractDetailMessage(error) ?? "登录失败，请检查用户名和密码。");
         } finally {
             setSubmitting(false);
         }
@@ -52,12 +52,12 @@ export function LoginPage() {
         setErrorMessage(null);
         try {
             const createdUser = await register(values);
-            message.success(`User ${createdUser.username} created. Please sign in.`);
+            message.success(`账号 ${createdUser.username} 已创建，请登录。`);
             setActiveTab("login");
             loginForm.setFieldsValue({ username: createdUser.username, password: values.password });
             registerForm.resetFields();
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "Registration failed.");
+            setErrorMessage(extractDetailMessage(error) ?? "注册失败，请稍后重试。");
         } finally {
             setSubmitting(false);
         }
@@ -66,16 +66,15 @@ export function LoginPage() {
     return (
         <div className="auth-shell">
             <Card className="auth-card">
-                <Typography.Title level={2}>CarbonRag Sign In</Typography.Title>
+                <Typography.Title level={2}>CarbonRag 登录</Typography.Title>
                 <Typography.Paragraph type="secondary">
-                    V1.0.0 introduces local accounts, user isolation, and an admin entry. Sign in to access your own
-                    sessions, reports, calculations, and feedback.
+                    V1.0.0 已引入本地账号、用户数据隔离和管理员入口。登录后才能访问你自己的会话、报告、核算结果和反馈记录。
                 </Typography.Paragraph>
                 {errorMessage ? (
                     <Alert
                         showIcon
                         type="warning"
-                        message="Authentication Error"
+                        message="身份认证提示"
                         description={errorMessage}
                         className="auth-card__alert"
                     />
@@ -89,52 +88,52 @@ export function LoginPage() {
                     items={[
                         {
                             key: "login",
-                            label: "Login",
+                            label: "登录",
                             children: (
                                 <Form<FormValues> form={loginForm} layout="vertical" onFinish={handleLogin}>
                                     <Form.Item
-                                        label="Username"
+                                        label="用户名"
                                         name="username"
-                                        rules={[{ required: true, message: "Username is required." }]}
+                                        rules={[{ required: true, message: "请输入用户名。" }]}
                                     >
                                         <Input prefix={<UserOutlined />} autoComplete="username" />
                                     </Form.Item>
                                     <Form.Item
-                                        label="Password"
+                                        label="密码"
                                         name="password"
-                                        rules={[{ required: true, message: "Password is required." }]}
+                                        rules={[{ required: true, message: "请输入密码。" }]}
                                     >
                                         <Input.Password prefix={<LockOutlined />} autoComplete="current-password" />
                                     </Form.Item>
                                     <Button type="primary" htmlType="submit" block loading={submitting}>
-                                        Sign In
+                                        登录
                                     </Button>
                                 </Form>
                             ),
                         },
                         {
                             key: "register",
-                            label: "Register",
+                            label: "注册",
                             children: (
                                 <Form<FormValues> form={registerForm} layout="vertical" onFinish={handleRegister}>
                                     <Form.Item
-                                        label="Username"
+                                        label="用户名"
                                         name="username"
-                                        rules={[{ required: true, message: "Username is required." }]}
-                                        extra="Lowercase letters, digits, '_' and '-' only."
+                                        rules={[{ required: true, message: "请输入用户名。" }]}
+                                        extra="仅允许小写字母、数字、下划线和连字符。"
                                     >
                                         <Input prefix={<UserOutlined />} autoComplete="username" />
                                     </Form.Item>
                                     <Form.Item
-                                        label="Password"
+                                        label="密码"
                                         name="password"
-                                        rules={[{ required: true, message: "Password is required." }]}
-                                        extra="At least 6 characters."
+                                        rules={[{ required: true, message: "请输入密码。" }]}
+                                        extra="至少 6 位字符。"
                                     >
                                         <Input.Password prefix={<LockOutlined />} autoComplete="new-password" />
                                     </Form.Item>
                                     <Button htmlType="submit" block loading={submitting}>
-                                        Create Account
+                                        创建账号
                                     </Button>
                                 </Form>
                             ),
