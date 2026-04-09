@@ -5,9 +5,13 @@ from app.carbon.service import CarbonService
 from app.carbon.schemas import CalcCarbonRequest
 from app.feedback.schemas import FeedbackRequest
 from app.feedback.service import FeedbackService
+from app.report.schemas import CreateReportRequest
+from app.report.service import ReportService
+from app.report.storage import ReportStorage
 from app.session.adapters.postgres_store import PostgreSQLSessionStore
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
+from app.schemas.ask import AskCitation
 
 
 class FakeRuntimeDatabase:
@@ -18,6 +22,8 @@ class FakeRuntimeDatabase:
         self.session_private_samples: list[dict] = []
         self.feedback_entries: dict[str, dict] = {}
         self.carbon_calculations: dict[str, dict] = {}
+        self.reports: dict[str, dict] = {}
+        self.report_sources: list[dict] = []
 
     def build_session_summary(self, session_id: str) -> dict | None:
         session = self.sessions.get(session_id)
@@ -304,6 +310,97 @@ class FakeCursor:
             self._rows = [row] if row is not None else []
             return
 
+        if normalized.startswith("insert into reports"):
+            (
+                report_id,
+                session_id,
+                report_type,
+                title,
+                content,
+                output_format,
+                citations_json,
+                source_summary_json,
+                trace_id,
+                created_at,
+                updated_at,
+            ) = params
+            self.db.reports[report_id] = {
+                "report_id": report_id,
+                "session_id": session_id,
+                "report_type": report_type,
+                "title": title,
+                "content": content,
+                "output_format": output_format,
+                "citations_json": citations_json,
+                "source_summary_json": source_summary_json,
+                "trace_id": trace_id,
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }
+            self.rowcount = 1
+            self._rows = []
+            return
+
+        if normalized.startswith("insert into report_sources"):
+            report_id, source_type, source_ref, label, order_index = params
+            self.db.report_sources.append(
+                {
+                    "source_seq": len(self.db.report_sources) + 1,
+                    "report_id": report_id,
+                    "source_type": source_type,
+                    "source_ref": source_ref,
+                    "label": label,
+                    "order_index": order_index,
+                }
+            )
+            self.rowcount = 1
+            self._rows = []
+            return
+
+        if normalized.startswith("select * from reports where report_id = %s"):
+            row = self.db.reports.get(params[0])
+            self._rows = [row] if row is not None else []
+            return
+
+        if "from report_sources" in normalized and "where report_id = %s" in normalized:
+            rows = [item for item in self.db.report_sources if item["report_id"] == params[0]]
+            rows.sort(key=lambda item: (item["order_index"], item["source_seq"]))
+            self._rows = rows
+            return
+
+        if normalized.startswith("update reports set title = coalesce(%s, title),"):
+            title, content, updated_at, report_id = params
+            report = self.db.reports.get(report_id)
+            if report is not None:
+                if title is not None:
+                    report["title"] = title
+                report["content"] = content
+                report["updated_at"] = updated_at
+                self.rowcount = 1
+            self._rows = []
+            return
+
+        if "from reports r" in normalized and "left join report_sources rs" in normalized:
+            session_id = params[0]
+            rows = []
+            for report in self.db.reports.values():
+                if report["session_id"] != session_id:
+                    continue
+                source_count = sum(1 for item in self.db.report_sources if item["report_id"] == report["report_id"])
+                rows.append(
+                    {
+                        "report_id": report["report_id"],
+                        "report_type": report["report_type"],
+                        "title": report["title"],
+                        "created_at": report["created_at"],
+                        "updated_at": report["updated_at"],
+                        "source_count": source_count,
+                    }
+                )
+            rows.sort(key=lambda item: (item["updated_at"], item["created_at"]), reverse=True)
+            self._rows = rows
+            return
+
         raise AssertionError(f"Unsupported SQL in fake PostgreSQL layer: {statement}")
 
     def fetchone(self):
@@ -339,6 +436,7 @@ def patch_postgres_connect(monkeypatch, db: FakeRuntimeDatabase) -> None:
     monkeypatch.setattr("app.session.adapters.postgres_store.psycopg.connect", fake_connect)
     monkeypatch.setattr("app.feedback.service.psycopg.connect", fake_connect)
     monkeypatch.setattr("app.carbon.service.psycopg.connect", fake_connect)
+    monkeypatch.setattr("app.report.storage.psycopg.connect", fake_connect)
 
 
 def build_factor_file(tmp_path):
@@ -383,6 +481,25 @@ def build_factor_file(tmp_path):
     factor_file = tmp_path / "factors.json"
     factor_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     return factor_file
+
+
+class FakeReportChatProvider:
+    def generate_response(self, *, system_prompt: str, user_input: str):
+        payload = json.loads(user_input)
+        sections = [
+            {"heading": heading, "body": f"{heading}：postgres report storage 测试。"}
+            for heading in payload["template_sections"]
+        ]
+        return type(
+            "Result",
+            (),
+            {
+                "content": json.dumps(
+                    {"title": payload["requested_title"] or payload["template_name"], "sections": sections},
+                    ensure_ascii=False,
+                )
+            },
+        )()
 
 
 def test_postgres_session_store_persists_message_and_file(monkeypatch) -> None:
@@ -484,3 +601,52 @@ def test_carbon_service_persists_with_postgres_backend(monkeypatch, tmp_path) ->
     assert stored.total_emission_kgco2e == result.total_emission_kgco2e
     assert len(stored.breakdown) == 3
     assert len(stored.citations) == 3
+
+
+def test_report_storage_persists_with_postgres_backend(monkeypatch, tmp_path) -> None:
+    db = FakeRuntimeDatabase()
+    patch_postgres_connect(monkeypatch, db)
+    sqlite_store = SQLiteSessionStore(tmp_path / "carbonrag.sqlite3")
+    session_service = SessionService(store=sqlite_store)
+    session = session_service.create_session()
+    session_service.record_exchange(
+        session_id=session.session_id,
+        user_content="请总结相关政策依据",
+        assistant_content="这是带政策依据的回答。",
+        assistant_status="ok",
+        trace_id="trace-ask-001",
+        citations=[
+            AskCitation(
+                doc_id="policy_001",
+                title="政策依据",
+                source_type="public_policy",
+                source="国务院",
+                source_url="https://example.com/policy",
+                snippet="政策片段",
+                chunk_id="policy_001_chunk_01",
+            )
+        ],
+    )
+    monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeReportChatProvider())
+    storage = ReportStorage(database_url="postgresql://example", store=sqlite_store)
+    report_service = ReportService(
+        session_service=session_service,
+        storage=storage,
+    )
+    session_detail = session_service.get_session(session.session_id)
+
+    created = report_service.create_report(
+        CreateReportRequest(
+            session_id=session.session_id,
+            report_type="policy_summary",
+            source_message_ids=[session_detail.messages[-1].message_id],
+        )
+    )
+    fetched = storage.get_report(created.report_id)
+    listed = storage.list_session_reports(session.session_id)
+
+    assert fetched is not None
+    assert fetched.report_id == created.report_id
+    assert fetched.session_id == session.session_id
+    assert fetched.source_summary.public_policy_count == 1
+    assert listed[0].report_id == created.report_id

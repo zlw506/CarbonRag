@@ -48,14 +48,16 @@ class SessionService:
         )
 
     def build_session_context(self, session_id: str, *, max_turns: int = DEFAULT_CONTEXT_TURNS) -> list[dict[str, str]]:
-        recent_messages = self.store.list_recent_messages(session_id=session_id, limit=max_turns * 2)
-        return [
+        recent_messages = self.store.list_recent_messages(session_id=session_id, limit=max_turns * 4)
+        conversation_messages = [
             {
                 "role": message.role,
                 "content": message.content,
             }
             for message in recent_messages
+            if message.role in {"user", "assistant"}
         ]
+        return conversation_messages[-(max_turns * 2):]
 
     def record_exchange(
         self,
@@ -117,6 +119,16 @@ class SessionService:
         max_length = 24
         promoted = trimmed if len(trimmed) <= max_length else f"{trimmed[:max_length].rstrip()}..."
         return self.update_session_title(session_id, promoted)
+
+    def record_system_message(self, *, session_id: str, content: str) -> SessionMessage:
+        self.require_session(session_id)
+        return self.store.append_message(
+            session_id=session_id,
+            message_id=f"msg-{uuid4().hex[:12]}",
+            role="system",
+            content=content,
+            created_at=utcnow().isoformat(),
+        )
 
     def record_uploaded_file(
         self,

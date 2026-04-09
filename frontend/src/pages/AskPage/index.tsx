@@ -458,15 +458,35 @@ interface MessageBubbleProps {
 
 function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }: MessageBubbleProps) {
     const isAssistant = message.role === "assistant";
+    const isSystem = message.role === "system";
     const hasCitations = isAssistant && message.citations.length > 0;
     const messageSourceSummary = summarizeCitations(message.citations);
 
     return (
-        <div className={isAssistant ? "chat-message chat-message--assistant" : "chat-message chat-message--user"}>
-            <Card size="small" className={isAssistant ? "chat-message__card" : "chat-message__card chat-message__card--user"}>
+        <div
+            className={
+                isAssistant
+                    ? "chat-message chat-message--assistant"
+                    : isSystem
+                        ? "chat-message chat-message--system"
+                        : "chat-message chat-message--user"
+            }
+        >
+            <Card
+                size="small"
+                className={
+                    isAssistant
+                        ? "chat-message__card"
+                        : isSystem
+                            ? "chat-message__card chat-message__card--system"
+                            : "chat-message__card chat-message__card--user"
+                }
+            >
                 <Space direction="vertical" size={8} style={{ width: "100%" }}>
                     <Space size={8} wrap>
-                        <Tag color={isAssistant ? "blue" : "gold"}>{isAssistant ? "助手" : "用户"}</Tag>
+                        <Tag color={isAssistant ? "blue" : isSystem ? "purple" : "gold"}>
+                            {isAssistant ? "助手" : isSystem ? "系统" : "用户"}
+                        </Tag>
                         {isAssistant && message.status ? <Tag color={statusColorMap[message.status]}>{message.status}</Tag> : null}
                         <Typography.Text type="secondary">{formatTimestamp(message.created_at)}</Typography.Text>
                     </Space>

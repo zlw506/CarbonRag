@@ -65,3 +65,5 @@ def test_bootstrap_runtime_database_executes_postgres_schema(monkeypatch) -> Non
     assert any("CREATE TABLE IF NOT EXISTS sessions" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS feedback_entries" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS carbon_calculations" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS reports" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS report_sources" in statement for statement in executed)

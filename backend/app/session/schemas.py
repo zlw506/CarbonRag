@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 
-MessageRole = Literal["user", "assistant"]
+MessageRole = Literal["user", "assistant", "system"]
 AttachmentSourceType = Literal["uploaded_file", "private_sample"]
 
 

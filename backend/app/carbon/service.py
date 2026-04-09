@@ -10,7 +10,12 @@ from psycopg.rows import dict_row
 from app.carbon.calculator import CarbonCalculator
 from app.carbon.explain import CarbonExplainer
 from app.carbon.factor_loader import CarbonFactorLoader, get_factor_loader
-from app.carbon.schemas import CalcCarbonRequest, CalcCarbonResponse, StoredCarbonCalculation
+from app.carbon.schemas import (
+    CalcCarbonRequest,
+    CalcCarbonResponse,
+    CarbonCalculationSummary,
+    StoredCarbonCalculation,
+)
 from app.core.config import get_settings
 from app.runtime_db.bootstrap import bootstrap_runtime_database, get_runtime_backend_kind
 from app.session.service import SessionService, get_session_service
@@ -196,6 +201,41 @@ class CarbonService:
             citations=json.loads(payload["citations_json"]),
             created_at=datetime.fromisoformat(payload["created_at"]),
         )
+
+    def list_session_calculations(self, session_id: str) -> list[CarbonCalculationSummary]:
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT trace_id, period_label, total_emission_kgco2e, created_at
+                        FROM carbon_calculations
+                        WHERE session_id = %s
+                        ORDER BY created_at DESC
+                        """,
+                        (session_id,),
+                    )
+                    rows = cursor.fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT trace_id, period_label, total_emission_kgco2e, created_at
+                    FROM carbon_calculations
+                    WHERE session_id = ?
+                    ORDER BY created_at DESC
+                    """,
+                    (session_id,),
+                ).fetchall()
+
+        return [
+            CarbonCalculationSummary(
+                trace_id=row["trace_id"],
+                period_label=row["period_label"],
+                total_emission_kgco2e=row["total_emission_kgco2e"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            for row in rows
+        ]
 
 
 def get_carbon_service() -> CarbonService:

@@ -32,3 +32,10 @@ export interface CalcCarbonResponse {
     formula_summary: string;
     citations: CarbonCitation[];
 }
+
+export interface CarbonCalculationSummary {
+    trace_id: string;
+    period_label?: string | null;
+    total_emission_kgco2e: number;
+    created_at: string;
+}

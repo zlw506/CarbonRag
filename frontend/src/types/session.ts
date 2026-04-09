@@ -28,7 +28,7 @@ export interface SessionSummary {
 
 export interface SessionMessage {
     message_id: string;
-    role: "user" | "assistant";
+    role: "user" | "assistant" | "system";
     content: string;
     created_at: string;
     status?: AskStatus | null;

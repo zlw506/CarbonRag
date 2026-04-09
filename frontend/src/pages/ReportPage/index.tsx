@@ -1,12 +1,697 @@
-import { PageScaffold } from "../../components/PageScaffold";
+import {
+    CopyOutlined,
+    FileTextOutlined,
+    PlusOutlined,
+    ReloadOutlined,
+    SaveOutlined,
+} from "@ant-design/icons";
+import {
+    Alert,
+    Button,
+    Card,
+    Checkbox,
+    Empty,
+    Input,
+    List,
+    Segmented,
+    Select,
+    Space,
+    Spin,
+    Tag,
+    Typography,
+    message,
+} from "antd";
+import { useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { SystemInfoPanel } from "../../components/SystemInfoPanel";
+import { createSession, getSession, listSessions } from "../../services/sessions";
+import {
+    createReport,
+    getReport,
+    listSessionCarbonResults,
+    listSessionReports,
+    updateReport,
+} from "../../services/reports";
+import type { SessionDetail, SessionMessage, SessionSummary } from "../../types/session";
+import type {
+    ReportCitation,
+    ReportDetail,
+    ReportSourceSummary,
+    ReportSummary,
+    ReportType,
+    SessionCarbonCalculationSummary,
+} from "../../types/report";
+
+type PreviewMode = "preview" | "edit";
+
+const reportTypeOptions: { label: string; value: ReportType }[] = [
+    { label: "政策解读摘要", value: "policy_summary" },
+    { label: "政策 + 样例分析", value: "mixed_analysis" },
+    { label: "碳核算结果说明", value: "carbon_summary" },
+];
+
+const reportTypeLabelMap: Record<ReportType, string> = {
+    policy_summary: "政策解读摘要",
+    mixed_analysis: "政策 + 样例分析",
+    carbon_summary: "碳核算结果说明",
+};
+
+const sourceTypeLabelMap = {
+    public_policy: "public policy",
+    private_sample: "private sample",
+    carbon_factor: "carbon factor",
+} as const;
+
+const sourceTypeColorMap = {
+    public_policy: "blue",
+    private_sample: "magenta",
+    carbon_factor: "gold",
+} as const;
+
+const emptyReportSourceSummary: ReportSourceSummary = {
+    public_policy_count: 0,
+    private_sample_count: 0,
+    carbon_factor_count: 0,
+    total_citation_count: 0,
+};
 
 export function ReportPage() {
-    return (
-        <PageScaffold
-            title="报告生成页占位"
-            description="用于固定未来报告参数与输出区域。当前不实现真实报告生成。"
-            formTitle="报告配置区"
-            resultTitle="报告输出区"
-        />
+    const [sessions, setSessions] = useState<SessionSummary[]>([]);
+    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+    const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
+    const [reports, setReports] = useState<ReportSummary[]>([]);
+    const [carbonResults, setCarbonResults] = useState<SessionCarbonCalculationSummary[]>([]);
+    const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+    const [activeReport, setActiveReport] = useState<ReportDetail | null>(null);
+    const [reportType, setReportType] = useState<ReportType>("policy_summary");
+    const [title, setTitle] = useState("");
+    const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+    const [selectedCarbonResultId, setSelectedCarbonResultId] = useState<string | undefined>(undefined);
+    const [previewMode, setPreviewMode] = useState<PreviewMode>("preview");
+    const [editorContent, setEditorContent] = useState("");
+    const [loadingSessions, setLoadingSessions] = useState(true);
+    const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
+    const [loadingReport, setLoadingReport] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [transportError, setTransportError] = useState<string | null>(null);
+
+    const selectableMessages = useMemo(
+        () => (activeSession?.messages ?? []).filter((item) => item.role === "assistant" && item.citations.length > 0),
+        [activeSession],
     );
+
+    const groupedCitations = useMemo(
+        () => groupReportCitations(activeReport?.citations ?? []),
+        [activeReport],
+    );
+    const currentSummary = activeReport?.source_summary ?? emptyReportSourceSummary;
+
+    useEffect(() => {
+        void bootstrapWorkbench();
+    }, []);
+
+    useEffect(() => {
+        if (!activeSessionId) {
+            return;
+        }
+        void loadSessionWorkspace(activeSessionId);
+    }, [activeSessionId]);
+
+    useEffect(() => {
+        if (!selectedReportId) {
+            return;
+        }
+        void loadReport(selectedReportId);
+    }, [selectedReportId]);
+
+    useEffect(() => {
+        if (selectedReportId) {
+            return;
+        }
+        applyDefaults(reportType, activeSession, carbonResults, setSelectedMessageIds, setSelectedCarbonResultId);
+    }, [reportType, activeSession, carbonResults, selectedReportId]);
+
+    async function bootstrapWorkbench() {
+        setLoadingSessions(true);
+        setTransportError(null);
+        try {
+            const sessionList = await listSessions();
+            if (sessionList.length === 0) {
+                const created = await createSession();
+                setSessions([created]);
+                setActiveSessionId(created.session_id);
+                return;
+            }
+
+            setSessions(sessionList);
+            setActiveSessionId((current) => current ?? sessionList[0].session_id);
+        } catch {
+            setTransportError("当前无法初始化报告工作台，请确认 backend 已启动。");
+        } finally {
+            setLoadingSessions(false);
+        }
+    }
+
+    async function refreshSessions(preferredSessionId?: string) {
+        const sessionList = await listSessions();
+        setSessions(sessionList);
+        if (!sessionList.length) {
+            return;
+        }
+        const targetId = preferredSessionId && sessionList.some((item) => item.session_id === preferredSessionId)
+            ? preferredSessionId
+            : sessionList[0].session_id;
+        setActiveSessionId(targetId);
+    }
+
+    async function loadSessionWorkspace(sessionId: string) {
+        setLoadingSessionDetail(true);
+        setTransportError(null);
+        setSelectedReportId(null);
+        setActiveReport(null);
+        try {
+            const [detail, reportList, carbonList] = await Promise.all([
+                getSession(sessionId),
+                listSessionReports(sessionId),
+                listSessionCarbonResults(sessionId),
+            ]);
+            setActiveSession(detail);
+            setReports(reportList);
+            setCarbonResults(carbonList);
+            setTitle("");
+            setEditorContent("");
+            setPreviewMode("preview");
+            applyDefaults(reportType, detail, carbonList, setSelectedMessageIds, setSelectedCarbonResultId);
+        } catch {
+            setActiveSession(null);
+            setReports([]);
+            setCarbonResults([]);
+            setTransportError("当前无法读取所选 session 的报告上下文，请稍后重试。");
+        } finally {
+            setLoadingSessionDetail(false);
+        }
+    }
+
+    async function loadReport(reportId: string) {
+        setLoadingReport(true);
+        setTransportError(null);
+        try {
+            const detail = await getReport(reportId);
+            setActiveReport(detail);
+            setReportType(detail.report_type);
+            setTitle(detail.title);
+            setEditorContent(detail.content);
+            setPreviewMode("preview");
+            setSelectedMessageIds(
+                detail.sources.filter((item) => item.source_type === "message").map((item) => item.source_ref),
+            );
+            setSelectedCarbonResultId(
+                detail.sources.find((item) => item.source_type === "carbon_result")?.source_ref,
+            );
+        } catch {
+            setTransportError("当前无法读取所选报告，请稍后重试。");
+        } finally {
+            setLoadingReport(false);
+        }
+    }
+
+    async function handleCreateSession() {
+        setTransportError(null);
+        try {
+            const created = await createSession();
+            await refreshSessions(created.session_id);
+        } catch {
+            setTransportError("当前无法创建新会话，请稍后重试。");
+        }
+    }
+
+    async function handleGenerate() {
+        if (!activeSessionId) {
+            setTransportError("当前没有可用 session。");
+            return;
+        }
+
+        setSubmitting(true);
+        setTransportError(null);
+        try {
+            const created = await createReport({
+                session_id: activeSessionId,
+                report_type: reportType,
+                title: title.trim() || undefined,
+                source_message_ids: selectedMessageIds,
+                carbon_result_id: selectedCarbonResultId,
+                output_format: "markdown",
+            });
+            await loadSessionWorkspace(activeSessionId);
+            setSelectedReportId(created.report_id);
+            message.success("报告已生成。");
+        } catch (error) {
+            setTransportError(extractDetailMessage(error) ?? "当前无法生成报告，请稍后重试。");
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleSave() {
+        if (!activeReport) {
+            return;
+        }
+        setSaving(true);
+        setTransportError(null);
+        try {
+            const updated = await updateReport(activeReport.report_id, {
+                title: title.trim() || undefined,
+                content: editorContent,
+            });
+            setActiveReport(updated);
+            setTitle(updated.title);
+            setEditorContent(updated.content);
+            if (activeSessionId) {
+                const sessionReports = await listSessionReports(activeSessionId);
+                setReports(sessionReports);
+            }
+            message.success("报告修改已保存。");
+        } catch (error) {
+            setTransportError(extractDetailMessage(error) ?? "当前无法保存报告，请稍后重试。");
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function handleCopyMarkdown() {
+        if (!activeReport) {
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(activeReport.content);
+            message.success("Markdown 已复制。");
+        } catch {
+            message.error("复制失败，请检查浏览器权限。");
+        }
+    }
+
+    return (
+        <div className="chat-workbench">
+            <div className="chat-workbench__sidebar">
+                <Card
+                    title="会话列表"
+                    extra={(
+                        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession}>
+                            新建对话
+                        </Button>
+                    )}
+                >
+                    <Typography.Paragraph type="secondary">
+                        报告始终绑定在某个 session 下生成与回看，不做漂在外面的独立报告。
+                    </Typography.Paragraph>
+                    {loadingSessions ? (
+                        <div className="chat-workbench__loading"><Spin /></div>
+                    ) : (
+                        <List
+                            className="chat-session-list"
+                            dataSource={sessions}
+                            locale={{ emptyText: "当前还没有会话。" }}
+                            renderItem={(session) => (
+                                <List.Item
+                                    className={activeSessionId === session.session_id
+                                        ? "chat-session-list__item chat-session-list__item--active"
+                                        : "chat-session-list__item"}
+                                    onClick={() => setActiveSessionId(session.session_id)}
+                                >
+                                    <div className="chat-session-list__content">
+                                        <Typography.Text strong>{session.title}</Typography.Text>
+                                        <Typography.Text type="secondary">
+                                            {formatTimestamp(session.updated_at)}
+                                        </Typography.Text>
+                                        <Space size={8} wrap>
+                                            <Tag>{session.message_count} 条消息</Tag>
+                                            <Tag color="blue">{session.file_count} 个附件</Tag>
+                                            <Tag color="magenta">{session.attached_private_sample_count} 个样例</Tag>
+                                        </Space>
+                                    </div>
+                                </List.Item>
+                            )}
+                        />
+                    )}
+                </Card>
+
+                <Card title="当前 session 报告列表">
+                    {loadingSessionDetail ? (
+                        <div className="chat-workbench__loading"><Spin /></div>
+                    ) : reports.length ? (
+                        <List
+                            className="chat-session-list"
+                            dataSource={reports}
+                            renderItem={(report) => (
+                                <List.Item
+                                    className={selectedReportId === report.report_id
+                                        ? "chat-session-list__item chat-session-list__item--active"
+                                        : "chat-session-list__item"}
+                                    onClick={() => setSelectedReportId(report.report_id)}
+                                >
+                                    <div className="chat-session-list__content">
+                                        <Typography.Text strong>{report.title}</Typography.Text>
+                                        <Typography.Text type="secondary">
+                                            {formatTimestamp(report.updated_at)}
+                                        </Typography.Text>
+                                        <Space size={8} wrap>
+                                            <Tag color="gold">{reportTypeLabelMap[report.report_type]}</Tag>
+                                            <Tag>{report.source_count} 个来源</Tag>
+                                        </Space>
+                                    </div>
+                                </List.Item>
+                            )}
+                        />
+                    ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 session 还没有生成报告。" />
+                    )}
+                </Card>
+            </div>
+
+            <div className="chat-workbench__main">
+                {transportError ? (
+                    <Alert
+                        type="warning"
+                        showIcon
+                        className="chat-workbench__alert"
+                        message="报告工作台提示"
+                        description={transportError}
+                    />
+                ) : null}
+
+                <Card
+                    className="report-workbench__config-card"
+                    title="报告配置区"
+                    extra={activeSession ? <Tag color="blue">{activeSession.title}</Tag> : null}
+                >
+                    <Typography.Paragraph type="secondary">
+                        报告正文采用模板驱动 + 受控模型生成。重新生成会产生一份新报告；保存编辑会覆盖当前报告正文。
+                    </Typography.Paragraph>
+
+                    <div className="report-workbench__config-stack">
+                        <Segmented
+                            block
+                            value={reportType}
+                            onChange={(value) => {
+                                setSelectedReportId(null);
+                                setActiveReport(null);
+                                setReportType(value as ReportType);
+                            }}
+                            options={reportTypeOptions}
+                        />
+
+                        <div className="report-workbench__field">
+                            <Typography.Text strong>报告标题</Typography.Text>
+                            <Input
+                                value={title}
+                                onChange={(event) => setTitle(event.target.value)}
+                                placeholder="可选；为空时使用模板名 + session 标题"
+                            />
+                        </div>
+
+                        <div className="report-workbench__field">
+                            <Typography.Text strong>引用来源选择</Typography.Text>
+                            <Checkbox.Group
+                                className="report-workbench__checkbox-group"
+                                value={selectedMessageIds}
+                                onChange={(value) => setSelectedMessageIds(value as string[])}
+                            >
+                                <Space direction="vertical" style={{ width: "100%" }}>
+                                    {selectableMessages.length ? selectableMessages.map((messageItem) => (
+                                        <Checkbox key={messageItem.message_id} value={messageItem.message_id}>
+                                            <Space direction="vertical" size={4}>
+                                                <Typography.Text strong>
+                                                    {messageItem.content.slice(0, 42)}
+                                                </Typography.Text>
+                                                <Space size={8} wrap>
+                                                    <Tag>{messageItem.citations.length} 条引用</Tag>
+                                                    {messageItem.trace_id ? (
+                                                        <Tag color="blue">{messageItem.trace_id}</Tag>
+                                                    ) : null}
+                                                </Space>
+                                            </Space>
+                                        </Checkbox>
+                                    )) : (
+                                        <Typography.Text type="secondary">
+                                            当前 session 还没有可作为报告来源的 assistant 消息。
+                                        </Typography.Text>
+                                    )}
+                                </Space>
+                            </Checkbox.Group>
+                        </div>
+
+                        <div className="report-workbench__field">
+                            <Typography.Text strong>可选 carbon 结果</Typography.Text>
+                            <Select
+                                allowClear
+                                value={selectedCarbonResultId}
+                                onChange={(value) => setSelectedCarbonResultId(value)}
+                                placeholder="仅 carbon_summary 必填"
+                                options={carbonResults.map((item) => ({
+                                    value: item.trace_id,
+                                    label: `${item.period_label ?? "未命名周期"} | ${item.total_emission_kgco2e.toFixed(3)} kgCO2e`,
+                                }))}
+                            />
+                        </div>
+
+                        <Space size={12} wrap>
+                            <Button
+                                type="primary"
+                                icon={<FileTextOutlined />}
+                                loading={submitting}
+                                onClick={() => void handleGenerate()}
+                            >
+                                生成报告
+                            </Button>
+                            <Button
+                                icon={<ReloadOutlined />}
+                                loading={submitting}
+                                onClick={() => void handleGenerate()}
+                            >
+                                重新生成
+                            </Button>
+                            <Button
+                                icon={<CopyOutlined />}
+                                disabled={!activeReport}
+                                onClick={() => void handleCopyMarkdown()}
+                            >
+                                复制 Markdown
+                            </Button>
+                            <Button
+                                icon={<SaveOutlined />}
+                                disabled={!activeReport}
+                                loading={saving}
+                                onClick={() => void handleSave()}
+                            >
+                                保存编辑
+                            </Button>
+                        </Space>
+                    </div>
+                </Card>
+
+                <Card
+                    className="report-workbench__preview-card"
+                    title="报告预览区"
+                    extra={activeReport ? <Tag color="green">{activeReport.trace_id}</Tag> : null}
+                >
+                    {loadingReport || loadingSessionDetail ? (
+                        <div className="chat-workbench__loading"><Spin /></div>
+                    ) : activeReport ? (
+                        <div className="report-workbench__preview-stack">
+                            <Space size={8} wrap>
+                                <Tag color="gold">{reportTypeLabelMap[activeReport.report_type]}</Tag>
+                                <Tag>{currentSummary.total_citation_count} 条依据</Tag>
+                                <Tag>{formatTimestamp(activeReport.created_at)}</Tag>
+                                <Tag color="blue">更新于 {formatTimestamp(activeReport.updated_at)}</Tag>
+                            </Space>
+
+                            <Segmented<PreviewMode>
+                                value={previewMode}
+                                onChange={(value) => setPreviewMode(value)}
+                                options={[
+                                    { label: "预览", value: "preview" },
+                                    { label: "编辑 Markdown", value: "edit" },
+                                ]}
+                            />
+
+                            {previewMode === "preview" ? (
+                                <div className="report-workbench__markdown">
+                                    <ReactMarkdown>{activeReport.content}</ReactMarkdown>
+                                </div>
+                            ) : (
+                                <Input.TextArea
+                                    value={editorContent}
+                                    onChange={(event) => setEditorContent(event.target.value)}
+                                    autoSize={{ minRows: 18, maxRows: 28 }}
+                                />
+                            )}
+                        </div>
+                    ) : (
+                        <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description="选择来源并生成一份 session 关联报告，生成后这里会显示 Markdown 预览。"
+                        />
+                    )}
+                </Card>
+            </div>
+
+            <div className="chat-workbench__panel">
+                <Card
+                    title="依据面板"
+                    extra={(
+                        <Space size={8} wrap>
+                            <Tag color="blue">{currentSummary.public_policy_count} 条政策</Tag>
+                            <Tag color="magenta">{currentSummary.private_sample_count} 条样例</Tag>
+                            <Tag color="gold">{currentSummary.carbon_factor_count} 条因子</Tag>
+                        </Space>
+                    )}
+                >
+                    <Typography.Paragraph type="secondary">
+                        当前报告的依据分为公共政策、企业样例和碳核算因子三类。报告引用列表与右侧面板保持一致。
+                    </Typography.Paragraph>
+
+                    {activeReport ? (
+                        <div className="chat-citation-groups">
+                            {groupedCitations.public_policy.length ? (
+                                <ReportCitationGroup
+                                    title="政策依据"
+                                    citations={groupedCitations.public_policy}
+                                />
+                            ) : null}
+                            {groupedCitations.private_sample.length ? (
+                                <ReportCitationGroup
+                                    title="企业样例依据"
+                                    citations={groupedCitations.private_sample}
+                                />
+                            ) : null}
+                            {groupedCitations.carbon_factor.length ? (
+                                <ReportCitationGroup
+                                    title="碳因子依据"
+                                    citations={groupedCitations.carbon_factor}
+                                />
+                            ) : null}
+                        </div>
+                    ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="生成或打开一份报告后，这里会显示对应依据。" />
+                    )}
+                </Card>
+                <SystemInfoPanel />
+            </div>
+        </div>
+    );
+}
+
+interface ReportCitationGroupProps {
+    title: string;
+    citations: ReportCitation[];
+}
+
+function ReportCitationGroup({ title, citations }: ReportCitationGroupProps) {
+    return (
+        <div className="chat-citation-group">
+            <Space size={8} wrap className="chat-citation-group__header">
+                <Typography.Text strong>{title}</Typography.Text>
+                <Tag>{citations.length}</Tag>
+            </Space>
+            <List
+                dataSource={citations}
+                renderItem={(citation) => (
+                    <List.Item key={`${citation.source_type}-${citation.chunk_id ?? citation.factor_id ?? citation.title}`}>
+                        <div className="chat-citation-card">
+                            <Space size={8} wrap>
+                                <Typography.Text strong>{citation.title}</Typography.Text>
+                                <Tag color={sourceTypeColorMap[citation.source_type]}>
+                                    {sourceTypeLabelMap[citation.source_type]}
+                                </Tag>
+                                <Tag>{citation.source}</Tag>
+                            </Space>
+                            <Typography.Paragraph
+                                className="chat-citation-card__snippet"
+                                ellipsis={{ rows: 3, expandable: "collapsible", symbol: "展开" }}
+                            >
+                                {citation.snippet}
+                            </Typography.Paragraph>
+                            {citation.source_url ? (
+                                <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
+                                    查看来源
+                                </Typography.Link>
+                            ) : null}
+                        </div>
+                    </List.Item>
+                )}
+            />
+        </div>
+    );
+}
+
+function applyDefaults(
+    nextReportType: ReportType,
+    session: SessionDetail | null,
+    nextCarbonResults: SessionCarbonCalculationSummary[],
+    setSelectedMessageIds: (value: string[]) => void,
+    setSelectedCarbonResultId: (value: string | undefined) => void,
+) {
+    if (!session) {
+        setSelectedMessageIds([]);
+        setSelectedCarbonResultId(undefined);
+        return;
+    }
+
+    const defaultMessage = pickDefaultMessage(session.messages, nextReportType);
+    setSelectedMessageIds(defaultMessage ? [defaultMessage.message_id] : []);
+    setSelectedCarbonResultId(
+        nextReportType === "carbon_summary" ? nextCarbonResults[0]?.trace_id : undefined,
+    );
+}
+
+function pickDefaultMessage(messages: SessionMessage[], reportType: ReportType) {
+    const candidates = [...messages]
+        .filter((item) => item.role === "assistant" && item.citations.length > 0)
+        .reverse();
+
+    if (reportType === "mixed_analysis") {
+        return candidates.find(
+            (item) =>
+                item.citations.some((citation) => citation.source_type === "public_policy") &&
+                item.citations.some((citation) => citation.source_type === "private_sample"),
+        ) ?? candidates[0];
+    }
+
+    if (reportType === "policy_summary") {
+        return candidates.find((item) => item.citations.some((citation) => citation.source_type === "public_policy"))
+            ?? candidates[0];
+    }
+
+    return candidates[0];
+}
+
+function groupReportCitations(citations: ReportCitation[]) {
+    return {
+        public_policy: citations.filter((item) => item.source_type === "public_policy"),
+        private_sample: citations.filter((item) => item.source_type === "private_sample"),
+        carbon_factor: citations.filter((item) => item.source_type === "carbon_factor"),
+    };
+}
+
+function formatTimestamp(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return value;
+    }
+    return date.toLocaleString("zh-CN", {
+        hour12: false,
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
+function extractDetailMessage(value: unknown): string | null {
+    if (!value || typeof value !== "object") {
+        return null;
+    }
+    const candidate = value as { detail?: unknown };
+    return typeof candidate.detail === "string" ? candidate.detail : null;
 }

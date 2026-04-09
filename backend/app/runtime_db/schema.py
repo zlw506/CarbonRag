@@ -7,6 +7,8 @@ CORE_TABLES = (
     "session_private_samples",
     "feedback_entries",
     "carbon_calculations",
+    "reports",
+    "report_sources",
 )
 
 SQLITE_SCHEMA_SCRIPT = """
@@ -78,6 +80,32 @@ CREATE TABLE IF NOT EXISTS carbon_calculations (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS reports (
+    report_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id TEXT NOT NULL UNIQUE,
+    session_id TEXT NOT NULL,
+    report_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    output_format TEXT NOT NULL,
+    citations_json TEXT NOT NULL,
+    source_summary_json TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS report_sources (
+    source_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    label TEXT NOT NULL,
+    order_index INTEGER NOT NULL,
+    FOREIGN KEY (report_id) REFERENCES reports(report_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_session_seq
     ON messages(session_id, message_seq);
 CREATE INDEX IF NOT EXISTS idx_files_session_seq
@@ -90,6 +118,10 @@ CREATE INDEX IF NOT EXISTS idx_feedback_entries_trace
     ON feedback_entries(trace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_carbon_calculations_session_created_at
     ON carbon_calculations(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reports_session_updated_at
+    ON reports(session_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_report_sources_report_order
+    ON report_sources(report_id, order_index ASC);
 """
 
 POSTGRES_SCHEMA_STATEMENTS = (
@@ -164,12 +196,40 @@ POSTGRES_SCHEMA_STATEMENTS = (
         created_at TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS reports (
+        report_seq BIGSERIAL PRIMARY KEY,
+        report_id TEXT NOT NULL UNIQUE,
+        session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+        report_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        output_format TEXT NOT NULL,
+        citations_json TEXT NOT NULL,
+        source_summary_json TEXT NOT NULL,
+        trace_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS report_sources (
+        source_seq BIGSERIAL PRIMARY KEY,
+        report_id TEXT NOT NULL REFERENCES reports(report_id) ON DELETE CASCADE,
+        source_type TEXT NOT NULL,
+        source_ref TEXT NOT NULL,
+        label TEXT NOT NULL,
+        order_index INTEGER NOT NULL
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, message_seq)",
     "CREATE INDEX IF NOT EXISTS idx_files_session_seq ON files(session_id, file_seq)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_private_samples_session_seq ON session_private_samples(session_id, attachment_seq DESC)",
     "CREATE INDEX IF NOT EXISTS idx_feedback_entries_trace ON feedback_entries(trace_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_calculations_session_created_at ON carbon_calculations(session_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_reports_session_updated_at ON reports(session_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_report_sources_report_order ON report_sources(report_id, order_index ASC)",
 )
 
 

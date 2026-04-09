@@ -69,6 +69,13 @@ class CalcCarbonResponse(BaseModel):
     citations: list[CarbonCitation]
 
 
+class CarbonCalculationSummary(BaseModel):
+    trace_id: str
+    period_label: str | None = None
+    total_emission_kgco2e: float
+    created_at: datetime
+
+
 class StoredCarbonCalculation(BaseModel):
     trace_id: str
     session_id: str | None = None

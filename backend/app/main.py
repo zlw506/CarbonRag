@@ -12,7 +12,7 @@ configure_logging()
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="CarbonRag ask mode controlled link backend"
+    description="CarbonRag conversation, calc-carbon, and report generation backend"
 )
 app.add_middleware(
     CORSMiddleware,

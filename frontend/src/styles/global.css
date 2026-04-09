@@ -137,6 +137,10 @@ body {
     justify-content: flex-end;
 }
 
+.chat-message--system {
+    justify-content: center;
+}
+
 .chat-message__card {
     width: min(100%, 720px);
     border-radius: 20px;
@@ -147,6 +151,11 @@ body {
 .chat-message__card--user {
     background: linear-gradient(180deg, #0b7285, #17636f);
     color: #f8fafc;
+}
+
+.chat-message__card--system {
+    background: linear-gradient(180deg, #f7f0ff, #f0e4ff);
+    border-color: rgba(114, 46, 209, 0.22);
 }
 
 .chat-message__card--user .ant-typography,
@@ -252,6 +261,44 @@ body {
 
 .calc-breakdown-row__meta {
     margin-bottom: 0;
+}
+
+.report-workbench__config-stack,
+.report-workbench__preview-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.report-workbench__field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.report-workbench__checkbox-group {
+    width: 100%;
+}
+
+.report-workbench__markdown {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.88);
+    padding: 20px;
+    min-height: 360px;
+    overflow: auto;
+}
+
+.report-workbench__markdown h1,
+.report-workbench__markdown h2,
+.report-workbench__markdown h3 {
+    color: #0f172a;
+}
+
+.report-workbench__markdown p,
+.report-workbench__markdown li {
+    line-height: 1.75;
+    white-space: pre-wrap;
 }
 
 .private-sample-list__item {
