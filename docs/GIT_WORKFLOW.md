@@ -1,20 +1,27 @@
 # Git 工作流
-版本：v0.0.2
+版本：v0.1.9F
 
-## 分支
-- main：稳定演示
-- dev：主开发
-- feature/*：功能施工
-- hotfix/*：最小修复
-- verify/*：历史验证
+## 分支角色
+- `main`：长期稳定基线，不作为默认云端发布入口
+- `dev`：主开发集成线
+- `feature/*`：功能开发、本地验证、破坏性试验
+- `release/cloud-stable`：唯一云端稳定发布线
+- `hotfix/*`：最小紧急修复
 
 ## 强制规则
-- 开工前 checkpoint
+- 开工前先做 checkpoint
 - 不在脏工作树上叠改
 - 不把 key 和敏感数据提交进仓库
-- hotfix 不顺手重构
-- 稳定配置轮统一在 `feature/stable-bootstrap` 完成，不重复新建 `dev`
+- 不把本地实验数据当成稳定结果
+- 不允许每个 feature commit 自动推云端
+- Netlify 与 VPS 的稳定部署默认都只跟 `release/cloud-stable`
+
+## 本地与云端的关系
+- 本地环境服务于快速开发、试错和回归
+- 云端环境服务于稳定展示和外部验证
+- 本地运行时数据库与云端运行时数据库不共享
+- 如果本地和云端历史记录不同，默认视为正常现象
 
 ## 提交格式
-- checkpoint: before v0.x.x
-- v0.x.x: <内容摘要>
+- `checkpoint: before v0.x.x`
+- `v0.x.x: <内容摘要>`

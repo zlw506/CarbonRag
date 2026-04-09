@@ -7,6 +7,9 @@
 - 数据库：PostgreSQL
 - Nginx：外部 `80` 转发到 `127.0.0.1:8000`
 
+## 推荐发布分支
+- VPS 稳定部署默认使用：`release/cloud-stable`
+
 ## 目录要求
 - `/srv/carbonrag/app/backend`
 - `/srv/carbonrag/app/frontend`
@@ -44,6 +47,8 @@ UPLOAD_DIR=/srv/carbonrag/shared/uploads
 
 ```bash
 cd /srv/carbonrag/app
+git checkout release/cloud-stable
+git pull origin release/cloud-stable
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
@@ -51,7 +56,7 @@ pip install -r backend/requirements.txt
 ```
 
 ## 数据库初始化
-在服务启动前先执行一次：
+在服务启动前执行：
 
 ```bash
 cd /srv/carbonrag/app/backend

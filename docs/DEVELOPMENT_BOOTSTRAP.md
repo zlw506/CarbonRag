@@ -1,141 +1,110 @@
 # Development Bootstrap
-版本：v0.0.2
+版本：v0.1.9F
 
 ## 目标
+本文件用于定义 CarbonRag 的本地初始化和检查流程。当前仓库已经固定为双环境模式：
+- `local-dev`：本地最新开发环境
+- `cloud-stable`：云端稳定验证环境
 
-本文件用于定义 CarbonRag 在稳定配置轮的最小开发启动流程。当前目标不是进入业务开发，而是确保新成员可以稳定安装依赖、启动前端与后端最小服务，并跑通基础检查。
+`bootstrap` 只负责准备本地依赖与检查，不负责启动前后端服务。
 
 ## 环境基线
+- Node.js：建议 `22+`
+- npm：跟随 Node.js
+- Python：固定 `3.11`
+- Git：需要可正常推送 `feature/*` 与 `release/cloud-stable`
 
-- Node.js：建议 `22+`，当前本地验证环境为 `24.x`
-- npm：跟随 Node.js 默认安装
-- Python：固定使用 `3.11`
-- Git：要求可正常推送 `dev` 与 `feature/*` 分支
-
-## 一键初始化脚本
+## 初始化脚本
 
 ### Windows
-
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap.ps1
 ```
 
 ### macOS / Linux
-
 ```bash
 bash scripts/bootstrap.sh
 ```
 
-脚本行为：
-
+## bootstrap 行为
 1. 若根目录 `.env` 不存在，则从 `.env.example` 复制
-2. 若 `frontend/.env` 不存在，则从 `frontend/.env.example` 复制
-3. 安装前端依赖
-4. 创建后端虚拟环境并安装依赖
-5. 运行前端类型检查与构建检查
-6. 运行后端 pytest 最小测试
-7. 打印后续启动命令
+2. 安装前端依赖
+3. 创建后端 Python 环境并安装依赖
+4. 运行前端类型检查与生产构建检查
+5. 运行后端 pytest
+6. 打印后续本地启动方式
 
-注意：脚本执行完成后会退出，不会常驻启动前端 Vite 服务或后端 Uvicorn 服务。
+注意：
+- `bootstrap` 不再生成 `frontend/.env`
+- 本地前端环境文件改为 `frontend/.env.local`
+- 真正拉起本地前后端请使用 `scripts/dev-local.ps1` 或 `scripts/dev-local.sh`
 
-## 手动启动
+## 标准本地启动
 
-### 前端
+### Windows
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1
+```
 
+### macOS / Linux
 ```bash
-cd frontend
-npm install
-npm run dev
+bash scripts/dev-local.sh
 ```
 
-默认访问地址：
+`dev-local` 会：
+- 确保 `frontend/.env.local` 存在
+- 确保根目录 `.env` 存在
+- 启动本地后端 `127.0.0.1:8000`
+- 启动本地前端 `127.0.0.1:5173`
+- 强制本地后端走 SQLite fallback
 
-- `http://127.0.0.1:5173`
-
-### 后端
-
-优先方案：
-
-```powershell
-cd backend
-py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-若当前机器的 `py -3.11` 不可用，但已安装 conda，可使用回退方案：
-
-```powershell
-cd backend
-conda create -p .conda python=3.11 -y
-.\.conda\python.exe -m pip install -r requirements.txt
-.\.conda\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-默认访问地址：
-
-- `http://127.0.0.1:8000`
-- `http://127.0.0.1:8000/healthz`
-- `http://127.0.0.1:8000/api/v1/system/info`
-
-## 环境变量说明
+## 环境变量口径
 
 ### 根目录 `.env`
+用于后端本地开发配置。当前本地安全默认值是：
+- `APP_ENV=development`
+- `DATABASE_URL=` 为空，避免误连云端 PostgreSQL
+- `PUBLIC_DATA_DIR` / `PRIVATE_SAMPLE_DIR` / `FACTOR_DATA_DIR` 指向仓库内 `data/`
 
-只用于后端私有配置。允许包含：
+### `frontend/.env.local`
+仅用于本地开发，默认应为：
 
-- `APP_ENV`
-- `APP_HOST`
-- `APP_PORT`
-- `MODEL_API_BASE_URL`
-- `MODEL_API_KEY`
-- `MODEL_NAME`
-- `EMBEDDING_API_BASE_URL`
-- `EMBEDDING_API_KEY`
-- `EMBEDDING_MODEL`
-- `VECTOR_STORE_PATH`
-- `PUBLIC_DATA_DIR`
-- `PRIVATE_SAMPLE_DIR`
-- `FACTOR_DATA_DIR`
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000/api
+VITE_APP_TITLE=CarbonRag Conversation Workbench
+```
 
-当前后端默认模型名为 `gpt-5.4`。如需切换，可修改根目录 `.env` 的 `MODEL_NAME`，或调整本机未纳入版本控制的 provider 本地配置。
+### `frontend/.env.production`
+仅用于生产构建，仓库内已固定为：
 
-### `frontend/.env`
-
-只允许浏览器可见配置：
-
-- `VITE_API_BASE_URL`
-- `VITE_APP_TITLE`
-
-禁止把任何模型密钥或第三方模型供应商配置放进前端环境变量。
+```env
+VITE_API_BASE_URL=/api
+VITE_APP_TITLE=CarbonRag Conversation Workbench
+```
 
 ## 最小检查命令
 
 ### 前端
-
-```bash
+```powershell
 cd frontend
-npm run typecheck
-npm run build
+npm.cmd run typecheck
+npm.cmd run build
 ```
 
 ### 后端
-
-```powershell
-cd backend
-.\.venv\Scripts\python.exe -m pytest tests
-```
-
-若使用 conda 回退方案：
-
 ```powershell
 cd backend
 .\.conda\python.exe -m pytest tests
 ```
 
-## 当前边界
+如果本机使用 `.venv`：
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m pytest tests
+```
 
-- 当前未实现 ask、calc-carbon、generate-report 业务逻辑
-- 当前前端只允许调用后端最小接口
-- 当前后端 provider 仅为抽象壳与 stub
-- 当前数据目录只允许公开样本、脱敏样例和说明文档
+## 当前边界
+- 本地开发默认不连接云端 PostgreSQL
+- 本地历史记录与云端历史记录不共享
+- ask / calc / feedback 已可本地联调
+- 共享云端环境不承担日常 feature 半成品验证
