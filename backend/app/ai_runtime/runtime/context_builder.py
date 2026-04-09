@@ -25,14 +25,17 @@ def build_context_bundle(
         knowledge_scope_requested = request.payload.get("knowledge_scope_requested", "public")
         knowledge_scope_effective = request.payload.get("knowledge_scope_effective", "public")
         session_context = request.payload.get("session_context", [])
+        attached_knowledge_item_ids = request.payload.get("attached_knowledge_item_ids", [])
         retrieval_hits = _extract_hits(tool_results)
         public_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy"]
-        private_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "private_sample"]
+        private_hits = [
+            hit for hit in retrieval_hits if hit.get("source_type") in {"private_sample", "private_upload"}
+        ]
 
         limitations = [
             "不得伪造引用，也不得声称访问了未检索到的外部证据。",
             "private sample 当前只是脱敏演示样例，不代表真实客户审计结果。",
-            "上传文件本轮不会进入 retrieval，只作为 session 绑定资产展示。",
+            "用户上传文件进入知识任务流后，只有在当前 session 已挂接且索引完成时，才可作为私有依据参与回答。",
         ]
 
         if session_context:
@@ -45,6 +48,13 @@ def build_context_bundle(
                 session_context_lines.append(f"[history-{index}] {role}: {content}")
         else:
             session_context_lines = ["当前会话历史为空，这是本轮对话的起点。"]
+        if attached_knowledge_item_ids:
+            session_context_lines.append(
+                "当前 session 已挂接知识条目："
+                + ", ".join(str(item_id) for item_id in attached_knowledge_item_ids)
+            )
+        else:
+            session_context_lines.append("当前 session 尚未挂接可检索知识条目。")
 
         evidence_lines: list[str] = []
         if public_hits:
@@ -64,6 +74,7 @@ def build_context_bundle(
                 evidence_lines.extend(
                     [
                         f"[private-{index}] 标题：{hit['title']}",
+                        f"来源类型：{hit['source_type']}",
                         f"来源：{hit['source']}",
                         f"片段标识：{hit['chunk_id']}",
                         f"片段内容：{hit['snippet']}",
@@ -82,13 +93,13 @@ def build_context_bundle(
             ]
         elif knowledge_scope_effective == "private_sample":
             scope_strategy_lines = [
-                "当前策略：仅检索当前 session 已关联的脱敏企业样例。",
+                "当前策略：仅检索当前 session 已关联的脱敏企业知识条目。",
                 "必须明确这些样例仅用于演示，不代表真实企业审计结果。",
             ]
         else:
             scope_strategy_lines = [
-                "当前策略：同时参考公共政策依据和当前 session 已关联的脱敏企业样例。",
-                "回答时必须区分政策要求与样例现状，不能把企业样例当成政策依据。",
+                "当前策略：同时参考公共政策依据和当前 session 已关联的脱敏企业知识条目。",
+                "回答时必须区分政策要求与样例现状，不能把企业知识条目当成政策依据。",
             ]
 
         return {
@@ -127,6 +138,7 @@ def build_context_bundle(
             "session_state": {
                 "trace_id": request.trace_id,
                 "mode": mode.name,
+                "attached_knowledge_item_ids": attached_knowledge_item_ids,
             },
             "memory_slot": {
                 "status": "reserved",

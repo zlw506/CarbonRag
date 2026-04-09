@@ -58,7 +58,7 @@ const reportTypeLabelMap: Record<ReportType, string> = {
 
 const sourceTypeLabelMap = {
     public_policy: "公共政策",
-    private_sample: "企业样例",
+    private_sample: "知识条目",
     carbon_factor: "排放因子",
 } as const;
 
@@ -542,13 +542,13 @@ export function ReportPage() {
                     extra={(
                         <Space size={8} wrap>
                             <Tag color="blue">{currentSummary.public_policy_count} 条政策</Tag>
-                            <Tag color="magenta">{currentSummary.private_sample_count} 条企业样例</Tag>
+                            <Tag color="magenta">{currentSummary.private_sample_count} 条知识条目</Tag>
                             <Tag color="gold">{currentSummary.carbon_factor_count} 条排放因子</Tag>
                         </Space>
                     )}
                 >
                     <Typography.Paragraph type="secondary">
-                        当前报告的依据分为公共政策、企业样例和碳核算因子三类。报告引用列表与右侧面板保持一致。
+                        当前报告的依据分为公共政策、知识条目和碳核算因子三类。报告引用列表与右侧面板保持一致。
                     </Typography.Paragraph>
 
                     {activeReport ? (
@@ -561,7 +561,7 @@ export function ReportPage() {
                             ) : null}
                             {groupedCitations.private_sample.length ? (
                                 <ReportCitationGroup
-                                    title="企业样例依据"
+                                    title="知识条目依据"
                                     citations={groupedCitations.private_sample}
                                 />
                             ) : null}

@@ -27,14 +27,23 @@ class EnterpriseRetrieveTool(BaseTool):
         payload = arguments.get("payload", {})
         question = str(arguments.get("question") or arguments.get("user_input") or "").strip()
         top_k = int(arguments.get("top_k") or payload.get("top_k", 5))
-        allowed_doc_ids_raw = arguments.get("allowed_doc_ids") or payload.get("attached_private_sample_ids", [])
-        allowed_doc_ids = {str(item) for item in allowed_doc_ids_raw if str(item).strip()}
+        allowed_knowledge_item_ids_raw = (
+            arguments.get("allowed_knowledge_item_ids")
+            or arguments.get("allowed_doc_ids")
+            or payload.get("attached_knowledge_item_ids")
+            or payload.get("attached_private_sample_ids", [])
+        )
+        allowed_knowledge_item_ids = {
+            str(item)
+            for item in allowed_knowledge_item_ids_raw
+            if str(item).strip()
+        }
 
         retrieval_result = self.retriever.search(
             question=question,
             top_k=top_k,
             knowledge_scope="private_sample",
-            allowed_doc_ids=allowed_doc_ids,
+            allowed_knowledge_item_ids=allowed_knowledge_item_ids,
         )
         return ToolResult(
             name=self.definition.name,
@@ -43,7 +52,8 @@ class EnterpriseRetrieveTool(BaseTool):
                 "query": question,
                 "knowledge_scope": "private_sample",
                 "top_k": top_k,
-                "allowed_doc_ids": sorted(allowed_doc_ids),
+                "allowed_doc_ids": sorted(allowed_knowledge_item_ids),
+                "allowed_knowledge_item_ids": sorted(allowed_knowledge_item_ids),
                 "hits": [hit.model_dump() for hit in retrieval_result.hits],
             },
             metadata={

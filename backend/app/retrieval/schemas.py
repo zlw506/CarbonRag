@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 Region = Literal["national", "beijing"]
 DocumentType = Literal["policy", "standard", "guideline"]
-SourceType = Literal["public_policy", "private_sample"]
+SourceType = Literal["public_policy", "private_sample", "private_upload"]
 SampleType = Literal["doc", "table"]
 BusinessTopic = Literal["energy", "production", "logistics", "project_background"]
 
@@ -28,6 +28,7 @@ class PublicPolicyDocument(BaseModel):
 
 class RetrievedChunk(BaseModel):
     doc_id: str
+    knowledge_item_id: str | None = None
     title: str
     source_type: SourceType
     source: str
@@ -37,6 +38,7 @@ class RetrievedChunk(BaseModel):
     doc_type: str | None = None
     sample_type: str | None = None
     business_topic: str | None = None
+    library_scope: Literal["personal", "shared"] | None = None
     chunk_id: str
     snippet: str
     score: float

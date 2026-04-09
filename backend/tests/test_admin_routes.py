@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
 from app.admin.service import AdminService
+from app.knowledge import KnowledgeService
+from app.knowledge.store import KnowledgeStore
 from app.main import app
 from tests.test_helpers import TEST_PASSWORD, patch_test_auth_service
 
@@ -9,6 +11,10 @@ client = TestClient(app)
 
 def build_admin_service(*, auth_service, db_path):
     return AdminService(auth_service=auth_service, sqlite_db_path=db_path)
+
+
+def build_knowledge_service(*, db_path):
+    return KnowledgeService(store=KnowledgeStore(sqlite_db_path=db_path))
 
 
 def login_seed_admin_and_change_password() -> None:
@@ -30,7 +36,9 @@ def test_admin_routes_require_admin_role_and_password_change(monkeypatch, tmp_pa
     auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
     auth_service.ensure_seed_admin_and_backfill()
     admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
+    knowledge_service = build_knowledge_service(db_path=db_path)
     monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
+    monkeypatch.setattr("app.private_samples.catalog.get_knowledge_service", lambda: knowledge_service)
 
     client.cookies.clear()
     client.post("/api/v1/auth/register", json={"username": "member_one", "password": TEST_PASSWORD})
@@ -51,7 +59,9 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
     auth_service.ensure_seed_admin_and_backfill()
     admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
+    knowledge_service = build_knowledge_service(db_path=db_path)
     monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
+    monkeypatch.setattr("app.private_samples.catalog.get_knowledge_service", lambda: knowledge_service)
 
     client.cookies.clear()
     login_seed_admin_and_change_password()
@@ -81,6 +91,14 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     assert private_samples_response.status_code == 200
     doc_id = private_samples_response.json()[0]["doc_id"]
 
+    knowledge_items_response = client.get("/api/v1/admin/knowledge-items")
+    assert knowledge_items_response.status_code == 200
+    assert any(item["knowledge_item_id"] == doc_id for item in knowledge_items_response.json())
+
+    knowledge_tasks_response = client.get("/api/v1/admin/knowledge-tasks")
+    assert knowledge_tasks_response.status_code == 200
+    assert isinstance(knowledge_tasks_response.json(), list)
+
     update_private_sample_response = client.patch(
         f"/api/v1/admin/private-samples/{doc_id}",
         json={"is_enabled": True, "session_attachable": True},
@@ -94,6 +112,10 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     )
     assert refresh_response.status_code == 200
     assert refresh_response.json()["status"] == "succeeded"
+
+    scan_response = client.post("/api/v1/admin/knowledge-tasks/scan")
+    assert scan_response.status_code == 200
+    assert isinstance(scan_response.json(), list)
 
     feedback_response = client.get("/api/v1/admin/feedback/overview")
     assert feedback_response.status_code == 200

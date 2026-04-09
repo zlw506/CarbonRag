@@ -62,7 +62,8 @@ class SQLiteSessionStore(SessionStore):
                     s.updated_at,
                     COALESCE(m.message_count, 0) AS message_count,
                     COALESCE(f.file_count, 0) AS file_count,
-                    COALESCE(p.private_sample_count, 0) AS attached_private_sample_count
+                    COALESCE(k.attached_knowledge_item_count, 0) + COALESCE(p.private_sample_count, 0) AS attached_private_sample_count,
+                    COALESCE(k.attached_knowledge_item_count, 0) AS attached_knowledge_item_count
                 FROM sessions s
                 LEFT JOIN (
                     SELECT session_id, COUNT(*) AS message_count
@@ -74,6 +75,11 @@ class SQLiteSessionStore(SessionStore):
                     FROM files
                     GROUP BY session_id
                 ) f ON f.session_id = s.session_id
+                LEFT JOIN (
+                    SELECT session_id, COUNT(*) AS attached_knowledge_item_count
+                    FROM session_knowledge_items
+                    GROUP BY session_id
+                ) k ON k.session_id = s.session_id
                 LEFT JOIN (
                     SELECT session_id, COUNT(*) AS private_sample_count
                     FROM session_private_samples
@@ -100,6 +106,23 @@ class SQLiteSessionStore(SessionStore):
                 """,
                 (session_id, owner_user_id),
             ).fetchone()
+            knowledge_attachment_rows = connection.execute(
+                """
+                SELECT
+                    ski.knowledge_item_id,
+                    ki.title,
+                    ki.source_type,
+                    ki.source_ref,
+                    ki.file_id,
+                    ki.library_scope,
+                    ski.attached_at
+                FROM session_knowledge_items ski
+                LEFT JOIN knowledge_items ki ON ki.knowledge_item_id = ski.knowledge_item_id
+                WHERE ski.session_id = ?
+                ORDER BY ski.attachment_seq DESC
+                """,
+                (session_id,),
+            ).fetchall()
             message_rows = connection.execute(
                 """
                 SELECT message_id, role, content, status, trace_id, citations_json, created_at
@@ -130,6 +153,7 @@ class SQLiteSessionStore(SessionStore):
 
         uploaded_files = [self._row_to_uploaded_file(row) for row in file_rows]
         attached_files = [self._uploaded_file_to_attachment(file) for file in uploaded_files]
+        attached_files.extend(self._row_to_knowledge_attachment(row) for row in knowledge_attachment_rows)
         attached_files.extend(self._row_to_private_sample_attachment(row) for row in private_sample_rows)
         attached_files.sort(key=lambda item: item.attached_at, reverse=True)
 
@@ -322,18 +346,57 @@ class SQLiteSessionStore(SessionStore):
                 (attached_at, session_id),
             )
 
+    def replace_attached_knowledge_items(self, *, session_id: str, knowledge_item_ids: list[str], attached_at: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM session_knowledge_items WHERE session_id = ?",
+                (session_id,),
+            )
+            connection.execute(
+                "DELETE FROM session_private_samples WHERE session_id = ?",
+                (session_id,),
+            )
+            for knowledge_item_id in knowledge_item_ids:
+                connection.execute(
+                    """
+                    INSERT INTO session_knowledge_items (session_id, knowledge_item_id, attached_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (session_id, knowledge_item_id, attached_at),
+                )
+            connection.execute(
+                "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
+                (attached_at, session_id),
+            )
+
     def list_attached_private_sample_ids(self, *, session_id: str) -> list[str]:
+        return self.list_attached_knowledge_item_ids(session_id=session_id)
+
+    def list_attached_knowledge_item_ids(self, *, session_id: str) -> list[str]:
         with self._connect() as connection:
             rows = connection.execute(
+                """
+                SELECT knowledge_item_id
+                FROM session_knowledge_items
+                WHERE session_id = ?
+                ORDER BY attachment_seq ASC
+                """,
+                (session_id,),
+            ).fetchall()
+            legacy_rows = connection.execute(
                 """
                 SELECT doc_id
                 FROM session_private_samples
                 WHERE session_id = ?
-                ORDER BY attachment_seq DESC
+                ORDER BY attachment_seq ASC
                 """,
                 (session_id,),
             ).fetchall()
-        return [row["doc_id"] for row in rows]
+        knowledge_item_ids = [row["knowledge_item_id"] for row in rows]
+        for legacy_row in legacy_rows:
+            mapped = self._resolve_knowledge_item_id_from_legacy_doc_id(legacy_row["doc_id"])
+            knowledge_item_ids.append(mapped or legacy_row["doc_id"])
+        return list(dict.fromkeys(knowledge_item_ids))
 
     def _get_session_summary(self, *, owner_user_id: str, session_id: str) -> SessionSummary | None:
         with self._connect() as connection:
@@ -346,7 +409,8 @@ class SQLiteSessionStore(SessionStore):
                     s.updated_at,
                     COALESCE(m.message_count, 0) AS message_count,
                     COALESCE(f.file_count, 0) AS file_count,
-                    COALESCE(p.private_sample_count, 0) AS attached_private_sample_count
+                    COALESCE(k.attached_knowledge_item_count, 0) + COALESCE(p.private_sample_count, 0) AS attached_private_sample_count,
+                    COALESCE(k.attached_knowledge_item_count, 0) AS attached_knowledge_item_count
                 FROM sessions s
                 LEFT JOIN (
                     SELECT session_id, COUNT(*) AS message_count
@@ -358,6 +422,11 @@ class SQLiteSessionStore(SessionStore):
                     FROM files
                     GROUP BY session_id
                 ) f ON f.session_id = s.session_id
+                LEFT JOIN (
+                    SELECT session_id, COUNT(*) AS attached_knowledge_item_count
+                    FROM session_knowledge_items
+                    GROUP BY session_id
+                ) k ON k.session_id = s.session_id
                 LEFT JOIN (
                     SELECT session_id, COUNT(*) AS private_sample_count
                     FROM session_private_samples
@@ -389,9 +458,22 @@ class SQLiteSessionStore(SessionStore):
     def _uploaded_file_to_attachment(file: UploadedFile) -> SessionAttachment:
         return SessionAttachment(
             file_id=file.file_id,
+            knowledge_item_id=None,
             filename=file.filename,
             source_type="uploaded_file",
             attached_at=file.stored_at,
+        )
+
+    @staticmethod
+    def _row_to_knowledge_attachment(row: sqlite3.Row) -> SessionAttachment:
+        title = row["title"] or row["knowledge_item_id"]
+        source_type = "uploaded_file" if row["source_type"] == "uploaded_file" else "private_sample"
+        return SessionAttachment(
+            file_id=row["file_id"] or row["knowledge_item_id"],
+            knowledge_item_id=row["knowledge_item_id"],
+            filename=title,
+            source_type=source_type,
+            attached_at=row["attached_at"],
         )
 
     @staticmethod
@@ -402,10 +484,25 @@ class SQLiteSessionStore(SessionStore):
         filename = item.title if item else doc_id
         return SessionAttachment(
             file_id=doc_id,
+            knowledge_item_id=None,
             filename=filename,
             source_type="private_sample",
             attached_at=row["attached_at"],
         )
+
+    def _resolve_knowledge_item_id_from_legacy_doc_id(self, doc_id: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT knowledge_item_id
+                FROM knowledge_items
+                WHERE source_ref = ? AND source_type = 'private_sample_repo'
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (doc_id,),
+            ).fetchone()
+        return row["knowledge_item_id"] if row else None
 
 
 @lru_cache(maxsize=1)

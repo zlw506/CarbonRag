@@ -12,7 +12,8 @@ export interface UploadedFile {
 export interface SessionAttachment {
     file_id: string;
     filename: string;
-    source_type: "uploaded_file" | "private_sample";
+    source_type: "uploaded_file" | "private_sample" | "private_sample_repo" | "knowledge_item";
+    knowledge_item_id?: string | null;
     attached_at: string;
 }
 

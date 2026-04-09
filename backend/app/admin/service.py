@@ -21,14 +21,15 @@ from app.ai_runtime.providers.factory import get_chat_provider
 from app.auth.schemas import UserRole
 from app.auth.service import AuthService, get_auth_service
 from app.core.config import get_settings
+from app.knowledge import get_knowledge_service
 from app.private_samples.catalog import (
     list_admin_private_sample_catalog,
     refresh_private_sample_catalog,
 )
-from app.private_samples.overrides import update_private_sample_override
+from app.knowledge.schemas import KnowledgeItemSummary, KnowledgeTaskSummary
 from app.retrieval.mixed_retriever import get_mixed_scope_retriever
-from app.retrieval.private_corpus_loader import load_private_sample_documents
 from app.retrieval.private_retriever import get_private_sample_retriever
+from app.retrieval.private_corpus_loader import load_private_sample_documents
 from app.retrieval.public_corpus_loader import load_public_policy_documents
 from app.retrieval.public_retriever import get_public_policy_retriever
 from app.runtime_db.bootstrap import bootstrap_runtime_database, get_runtime_backend_kind
@@ -153,6 +154,12 @@ class AdminService:
         )
 
     def list_private_samples(self) -> list[AdminPrivateSampleItem]:
+        knowledge_service = get_knowledge_service()
+        refresh_private_sample_catalog()
+        try:
+            knowledge_service.run_queued_tasks()
+        except Exception:
+            pass
         return [
             AdminPrivateSampleItem.model_validate(item)
             for item in list_admin_private_sample_catalog(
@@ -162,93 +169,135 @@ class AdminService:
         ]
 
     def update_private_sample(self, *, doc_id: str, is_enabled: bool, session_attachable: bool, updated_by_user_id: str):
-        known_doc_ids = {item.doc_id for item in self.list_private_samples()}
-        if doc_id not in known_doc_ids:
+        knowledge_service = get_knowledge_service()
+        item = knowledge_service.store.get_item(doc_id)
+        if item is None or item.library_scope != "shared":
+            item = knowledge_service.store.get_item_by_source(
+                owner_user_id=None,
+                library_scope="shared",
+                source_type="private_sample_repo",
+                source_ref=doc_id,
+            )
+        if item is None:
             raise KeyError(doc_id)
-        update_private_sample_override(
-            doc_id=doc_id,
-            is_enabled=is_enabled,
-            session_attachable=session_attachable,
-            updated_by_user_id=updated_by_user_id,
-            database_url=self.database_url,
-            sqlite_db_path=self.sqlite_db_path,
+        knowledge_service.store.upsert_item(
+            {
+                **item.model_dump(mode="python"),
+                "is_enabled": is_enabled,
+                "session_attachable": session_attachable,
+                "updated_at": self._utcnow().isoformat(),
+            }
         )
         self._clear_retrieval_caches("private_sample")
-        return next(item for item in self.list_private_samples() if item.doc_id == doc_id)
+        refreshed = knowledge_service.store.get_item(item.knowledge_item_id) or item
+        return AdminPrivateSampleItem.model_validate(
+            {
+                "doc_id": refreshed.knowledge_item_id,
+                "title": refreshed.title,
+                "source_type": refreshed.source_type,
+                "sample_type": refreshed.sample_type or "doc",
+                "business_topic": refreshed.business_topic or "project_background",
+                "session_attachable": refreshed.session_attachable,
+                "is_enabled": refreshed.is_enabled,
+            }
+        )
+
+    def list_knowledge_items(self, *, owner_user_id: str | None = None, filters=None) -> list[KnowledgeItemSummary]:
+        knowledge_service = get_knowledge_service()
+        items = knowledge_service.list_visible_items(owner_user_id=owner_user_id, filters=filters)
+        return [KnowledgeItemSummary.model_validate(item.model_dump()) for item in items]
+
+    def update_knowledge_item(
+        self,
+        *,
+        knowledge_item_id: str,
+        is_enabled: bool | None = None,
+        session_attachable: bool | None = None,
+    ) -> KnowledgeItemSummary:
+        knowledge_service = get_knowledge_service()
+        item = knowledge_service.store.get_item(knowledge_item_id)
+        if item is None:
+            raise KeyError(knowledge_item_id)
+        updated_item = knowledge_service.store.upsert_item(
+            {
+                **item.model_dump(mode="python"),
+                "is_enabled": item.is_enabled if is_enabled is None else is_enabled,
+                "session_attachable": item.session_attachable if session_attachable is None else session_attachable,
+                "updated_at": self._utcnow().isoformat(),
+            }
+        )
+        self._clear_retrieval_caches("private_sample")
+        return KnowledgeItemSummary.model_validate(updated_item.model_dump())
+
+    def list_knowledge_tasks(self, *, owner_user_id: str | None = None) -> list[KnowledgeTaskSummary]:
+        knowledge_service = get_knowledge_service()
+        tasks = knowledge_service.list_tasks(owner_user_id=owner_user_id, include_shared=True)
+        return [KnowledgeTaskSummary.model_validate(task.model_dump()) for task in tasks]
+
+    def trigger_knowledge_scan(self, *, requested_by_user_id: str, scope: str = "all") -> list[KnowledgeTaskSummary]:
+        knowledge_service = get_knowledge_service()
+        discovered = knowledge_service.discover_pending_sources()
+        try:
+            knowledge_service.run_queued_tasks()
+        except Exception:
+            pass
+        self._clear_retrieval_caches("private_sample")
+        return [KnowledgeTaskSummary.model_validate(task.model_dump()) for task in discovered]
+
+    def trigger_knowledge_rebuild(self, *, requested_by_user_id: str, scope: str = "all") -> list[KnowledgeTaskSummary]:
+        del requested_by_user_id, scope
+        knowledge_service = get_knowledge_service()
+        tasks = knowledge_service.run_queued_tasks()
+        self._clear_retrieval_caches("private_sample")
+        return [KnowledgeTaskSummary.model_validate(task.model_dump()) for task in tasks]
+
+    def retry_knowledge_task(self, *, task_id: str, requested_by_user_id: str | None = None) -> KnowledgeTaskSummary:
+        knowledge_service = get_knowledge_service()
+        task = knowledge_service.retry_task(task_id=task_id, requested_by_user_id=requested_by_user_id)
+        try:
+            knowledge_service.run_queued_tasks()
+        except Exception:
+            pass
+        self._clear_retrieval_caches("private_sample")
+        latest = knowledge_service.get_task(task.task_id) or task
+        return KnowledgeTaskSummary.model_validate(latest.model_dump())
 
     def list_knowledge_refresh_tasks(self) -> list[KnowledgeRefreshTask]:
-        with self._connect() as connection:
-            if self.backend_kind == "postgresql":
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SELECT task_id, scope, status, requested_by_user_id, summary, created_at, started_at, finished_at
-                        FROM knowledge_refresh_tasks
-                        ORDER BY created_at DESC
-                        """
-                    )
-                    rows = cursor.fetchall()
-            else:
-                rows = connection.execute(
-                    """
-                    SELECT task_id, scope, status, requested_by_user_id, summary, created_at, started_at, finished_at
-                    FROM knowledge_refresh_tasks
-                    ORDER BY created_at DESC
-                    """
-                ).fetchall()
-        return [KnowledgeRefreshTask.model_validate(dict(row)) for row in rows]
+        return []
 
     def trigger_knowledge_refresh(self, *, scope: KnowledgeRefreshScope, requested_by_user_id: str) -> KnowledgeRefreshTask:
-        task_id = f"refresh-{uuid4().hex[:12]}"
-        created_at = self._utcnow()
-        self._persist_refresh_task(
-            task_id=task_id,
-            scope=scope,
-            status="running",
+        del scope
+        tasks = self.trigger_knowledge_scan(requested_by_user_id=requested_by_user_id)
+        if tasks:
+            return KnowledgeRefreshTask(
+                task_id=tasks[0].task_id,
+                scope="all",
+                status=tasks[0].status,
+                requested_by_user_id=requested_by_user_id,
+                summary=tasks[0].summary,
+                created_at=tasks[0].created_at,
+                started_at=tasks[0].started_at,
+                finished_at=tasks[0].finished_at,
+            )
+        return KnowledgeRefreshTask(
+            task_id=f"refresh-{uuid4().hex[:12]}",
+            scope="all",
+            status="succeeded",
             requested_by_user_id=requested_by_user_id,
-            summary="Knowledge refresh started.",
-            created_at=created_at,
-            started_at=created_at,
-            finished_at=None,
+            summary="Knowledge refresh completed.",
+            created_at=self._utcnow(),
+            started_at=self._utcnow(),
+            finished_at=self._utcnow(),
         )
-        try:
-            self._clear_retrieval_caches(scope)
-            summary = self._validate_reloaded_sources(scope)
-            finished_at = self._utcnow()
-            self._persist_refresh_task(
-                task_id=task_id,
-                scope=scope,
-                status="succeeded",
-                requested_by_user_id=requested_by_user_id,
-                summary=summary,
-                created_at=created_at,
-                started_at=created_at,
-                finished_at=finished_at,
-                replace=True,
-            )
-        except Exception as exc:
-            finished_at = self._utcnow()
-            self._persist_refresh_task(
-                task_id=task_id,
-                scope=scope,
-                status="failed",
-                requested_by_user_id=requested_by_user_id,
-                summary=str(exc),
-                created_at=created_at,
-                started_at=created_at,
-                finished_at=finished_at,
-                replace=True,
-            )
-            raise
-
-        return next(item for item in self.list_knowledge_refresh_tasks() if item.task_id == task_id)
 
     def get_system_status(self) -> AdminSystemStatus:
         settings = get_settings()
         provider = get_chat_provider().describe()
+        knowledge_service = get_knowledge_service()
         private_samples = self.list_private_samples()
-        refresh_tasks = self.list_knowledge_refresh_tasks()
-        latest_refresh_status = refresh_tasks[0].status if refresh_tasks else None
+        knowledge_items = knowledge_service.list_visible_items(owner_user_id=None)
+        knowledge_tasks = knowledge_service.list_tasks(owner_user_id=None, include_shared=True)
+        latest_refresh_status = knowledge_tasks[0].status if knowledge_tasks else None
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
@@ -260,11 +309,17 @@ class AdminService:
                     total_reports = cursor.fetchone()["count"]
                     cursor.execute("SELECT COUNT(*) AS count FROM feedback_entries")
                     total_feedback = cursor.fetchone()["count"]
+                    cursor.execute("SELECT COUNT(*) AS count FROM knowledge_items")
+                    total_knowledge_items = cursor.fetchone()["count"]
+                    cursor.execute("SELECT COUNT(*) AS count FROM knowledge_tasks")
+                    total_knowledge_tasks = cursor.fetchone()["count"]
             else:
                 total_users = connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
                 total_sessions = connection.execute("SELECT COUNT(*) AS count FROM sessions").fetchone()["count"]
                 total_reports = connection.execute("SELECT COUNT(*) AS count FROM reports").fetchone()["count"]
                 total_feedback = connection.execute("SELECT COUNT(*) AS count FROM feedback_entries").fetchone()["count"]
+                total_knowledge_items = connection.execute("SELECT COUNT(*) AS count FROM knowledge_items").fetchone()["count"]
+                total_knowledge_tasks = connection.execute("SELECT COUNT(*) AS count FROM knowledge_tasks").fetchone()["count"]
         return AdminSystemStatus(
             app_name=settings.app_name,
             version=settings.app_version,
@@ -279,6 +334,8 @@ class AdminService:
             total_private_samples=len(private_samples),
             enabled_private_samples=sum(1 for item in private_samples if item.is_enabled),
             latest_refresh_status=latest_refresh_status,
+            total_knowledge_items=int(total_knowledge_items),
+            total_knowledge_tasks=int(total_knowledge_tasks),
         )
 
     def _count_grouped_rows(self, table_name: str, column_name: str) -> dict[str, int]:

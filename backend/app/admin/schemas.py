@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.auth.schemas import UserRole
 
 KnowledgeRefreshScope = Literal["public_policy", "private_sample", "all"]
-KnowledgeRefreshStatus = Literal["running", "succeeded", "failed"]
+KnowledgeRefreshStatus = Literal["queued", "running", "succeeded", "failed"]
 
 
 class AdminUserSummary(BaseModel):
@@ -95,3 +95,5 @@ class AdminSystemStatus(BaseModel):
     total_private_samples: int
     enabled_private_samples: int
     latest_refresh_status: KnowledgeRefreshStatus | None = None
+    total_knowledge_items: int = 0
+    total_knowledge_tasks: int = 0

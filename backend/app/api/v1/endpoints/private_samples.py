@@ -24,10 +24,11 @@ def replace_attached_private_samples(
 ) -> SessionDetail:
     session_service = get_session_service()
     try:
-        session_service.replace_attached_private_samples(
+        knowledge_item_ids = payload.knowledge_item_ids or payload.doc_ids
+        session_service.replace_attached_knowledge_items(
             owner_user_id=current_user.user_id,
             session_id=session_id,
-            doc_ids=payload.doc_ids,
+            knowledge_item_ids=knowledge_item_ids,
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Session not found.")

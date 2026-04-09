@@ -26,6 +26,7 @@ class MixedScopeRetriever:
         *,
         question: str,
         top_k: int = 5,
+        allowed_knowledge_item_ids: set[str] | None = None,
         allowed_doc_ids: set[str] | None = None,
     ) -> RetrievalResult:
         public_quota, private_quota = _balanced_quota(top_k)
@@ -38,6 +39,7 @@ class MixedScopeRetriever:
             question=question,
             top_k=top_k,
             knowledge_scope="private_sample",
+            allowed_knowledge_item_ids=allowed_knowledge_item_ids,
             allowed_doc_ids=allowed_doc_ids,
         ).hits
 

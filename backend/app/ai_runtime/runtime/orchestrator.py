@@ -64,7 +64,7 @@ class AIRuntimeOrchestrator:
                     "user_input": request.user_input,
                     "top_k": request.payload.get("top_k", 5),
                     "knowledge_scope": request.payload.get("knowledge_scope_effective", "public"),
-                    "allowed_doc_ids": request.payload.get("attached_private_sample_ids", []),
+                    "allowed_knowledge_item_ids": request.payload.get("attached_knowledge_item_ids", []),
                     "payload": request.payload,
                 },
             )

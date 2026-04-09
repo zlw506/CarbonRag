@@ -4,9 +4,9 @@ import {
     Button,
     Card,
     Descriptions,
+    Empty,
     List,
     Modal,
-    Select,
     Space,
     Spin,
     Statistic,
@@ -21,22 +21,22 @@ import { useEffect, useMemo, useState } from "react";
 import {
     getAdminFeedbackOverview,
     getAdminSystemStatus,
-    listAdminPrivateSamples,
     listAdminUsers,
-    listKnowledgeRefreshTasks,
     resetAdminUserPassword,
-    triggerKnowledgeRefresh,
     updateAdminPrivateSample,
     updateAdminUser,
 } from "../../services/admin";
-import type {
-    AdminFeedbackOverview,
-    AdminPrivateSampleItem,
-    AdminSystemStatus,
-    AdminUserSummary,
-    KnowledgeRefreshScope,
-    KnowledgeRefreshTask,
-} from "../../types/admin";
+import {
+    listAdminKnowledgeItems,
+    listAdminKnowledgeTasks,
+    retryKnowledgeTask,
+    triggerKnowledgeRebuild,
+    triggerKnowledgeScan,
+} from "../../services/knowledge";
+import type { AdminFeedbackOverview, AdminSystemStatus, AdminUserSummary } from "../../types/admin";
+import type { KnowledgeItem, KnowledgeTask } from "../../types/knowledge";
+
+type KnowledgeTaskRefreshAction = "scan" | "rebuild" | null;
 
 export function AdminPlaceholderPage() {
     const [loading, setLoading] = useState(true);
@@ -44,12 +44,11 @@ export function AdminPlaceholderPage() {
     const [systemStatus, setSystemStatus] = useState<AdminSystemStatus | null>(null);
     const [users, setUsers] = useState<AdminUserSummary[]>([]);
     const [feedbackOverview, setFeedbackOverview] = useState<AdminFeedbackOverview | null>(null);
-    const [privateSamples, setPrivateSamples] = useState<AdminPrivateSampleItem[]>([]);
-    const [knowledgeTasks, setKnowledgeTasks] = useState<KnowledgeRefreshTask[]>([]);
-    const [knowledgeScope, setKnowledgeScope] = useState<KnowledgeRefreshScope>("all");
+    const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
+    const [knowledgeTasks, setKnowledgeTasks] = useState<KnowledgeTask[]>([]);
     const [userSavingId, setUserSavingId] = useState<string | null>(null);
-    const [privateSampleSavingId, setPrivateSampleSavingId] = useState<string | null>(null);
-    const [refreshingKnowledge, setRefreshingKnowledge] = useState(false);
+    const [knowledgeItemSavingId, setKnowledgeItemSavingId] = useState<string | null>(null);
+    const [refreshingKnowledge, setRefreshingKnowledge] = useState<KnowledgeTaskRefreshAction>(null);
 
     const userColumns = useMemo<ColumnsType<AdminUserSummary>>(
         () => [
@@ -68,16 +67,16 @@ export function AdminPlaceholderPage() {
                 title: "角色",
                 key: "role",
                 render: (_, record) => (
-                    <Select
-                        size="small"
-                        value={record.role}
-                        style={{ width: 120 }}
-                        options={[
-                            { label: "普通用户", value: "user" },
-                            { label: "管理员", value: "admin" },
-                        ]}
-                        onChange={(value) => void handleUpdateUser(record, value as "user" | "admin", record.is_active)}
-                    />
+                    <Space direction="vertical" size={4}>
+                        <Typography.Text>{roleLabelMap[record.role] ?? record.role}</Typography.Text>
+                        <Button
+                            size="small"
+                            disabled={userSavingId === record.user_id}
+                            onClick={() => void handleUpdateUser(record, record.role === "admin" ? "user" : "admin", record.is_active)}
+                        >
+                            切换角色
+                        </Button>
+                    </Space>
                 ),
             },
             {
@@ -120,7 +119,146 @@ export function AdminPlaceholderPage() {
                 ),
             },
         ],
-        [userSavingId, users],
+        [userSavingId],
+    );
+
+    const knowledgeColumns = useMemo<ColumnsType<KnowledgeItem>>(
+        () => [
+            {
+                title: "知识条目",
+                key: "title",
+                render: (_, record) => (
+                    <Space direction="vertical" size={2}>
+                        <Typography.Text strong>{record.title}</Typography.Text>
+                        <Typography.Text type="secondary">{record.source_label}</Typography.Text>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {record.source_ref}
+                        </Typography.Text>
+                    </Space>
+                ),
+            },
+            {
+                title: "层级",
+                key: "library_scope",
+                render: (_, record) => (
+                    <Tag color={record.library_scope === "shared" ? "blue" : "green"}>
+                        {libraryScopeLabelMap[record.library_scope]}
+                    </Tag>
+                ),
+            },
+            {
+                title: "来源类型",
+                key: "source_type",
+                render: (_, record) => <Tag>{sourceTypeLabelMap[record.source_type] ?? record.source_type}</Tag>,
+            },
+            {
+                title: "解析 / 入库 / 索引",
+                key: "pipeline",
+                render: (_, record) => (
+                    <Space size={6} wrap>
+                        <Tag color={statusColorMap[record.parse_status]}>{statusLabelMap[record.parse_status]}</Tag>
+                        <Tag color={statusColorMap[record.ingest_status]}>{statusLabelMap[record.ingest_status]}</Tag>
+                        <Tag color={statusColorMap[record.index_status]}>{statusLabelMap[record.index_status]}</Tag>
+                    </Space>
+                ),
+            },
+            {
+                title: "启用 / 可挂接",
+                key: "switches",
+                render: (_, record) => {
+                    const editable = record.library_scope === "shared";
+                    if (!editable) {
+                        return <Tag color="default">个人知识只读</Tag>;
+                    }
+                    return (
+                        <Space size={12} wrap>
+                            <Space size={6}>
+                                <Typography.Text type="secondary">启用</Typography.Text>
+                                <Switch
+                                    size="small"
+                                    checked={record.is_enabled}
+                                    loading={knowledgeItemSavingId === record.knowledge_item_id}
+                                    onChange={(checked) =>
+                                        void handleUpdateKnowledgeItem(record, {
+                                            is_enabled: checked,
+                                            session_attachable: record.session_attachable,
+                                        })
+                                    }
+                                />
+                            </Space>
+                            <Space size={6}>
+                                <Typography.Text type="secondary">可挂接</Typography.Text>
+                                <Switch
+                                    size="small"
+                                    checked={record.session_attachable}
+                                    loading={knowledgeItemSavingId === record.knowledge_item_id}
+                                    onChange={(checked) =>
+                                        void handleUpdateKnowledgeItem(record, {
+                                            is_enabled: record.is_enabled,
+                                            session_attachable: checked,
+                                        })
+                                    }
+                                />
+                            </Space>
+                        </Space>
+                    );
+                },
+            },
+            {
+                title: "更新时间",
+                key: "updated_at",
+                render: (_, record) => formatTimestamp(record.updated_at ?? ""),
+            },
+        ],
+        [knowledgeItemSavingId],
+    );
+
+    const taskColumns = useMemo<ColumnsType<KnowledgeTask>>(
+        () => [
+            { title: "任务编号", dataIndex: "task_id", key: "task_id", width: 220 },
+            {
+                title: "动作",
+                key: "task_type",
+                render: (_, record) => <Tag>{taskTypeLabelMap[record.task_type] ?? record.task_type}</Tag>,
+            },
+            {
+                title: "范围",
+                key: "scope",
+                render: (_, record) => <Tag>{taskScopeLabelMap[record.scope] ?? record.scope}</Tag>,
+            },
+            {
+                title: "状态",
+                key: "status",
+                render: (_, record) => <Tag color={taskStatusColorMap[record.status]}>{taskStatusLabelMap[record.status]}</Tag>,
+            },
+            {
+                title: "摘要",
+                key: "summary",
+                render: (_, record) => (
+                    <Typography.Text type="secondary">{record.summary ?? "暂无摘要。"}</Typography.Text>
+                ),
+            },
+            {
+                title: "对象",
+                key: "target_label",
+                render: (_, record) => record.target_label ?? "全部",
+            },
+            {
+                title: "时间",
+                key: "created_at",
+                render: (_, record) => formatTimestamp(record.created_at),
+            },
+            {
+                title: "操作",
+                key: "actions",
+                render: (_, record) => (
+                    <Button size="small" disabled={record.status === "running"} onClick={() => void handleRetryTask(record.task_id)}>
+                        重试
+                    </Button>
+                ),
+            },
+        ],
+        [],
     );
 
     useEffect(() => {
@@ -131,16 +269,16 @@ export function AdminPlaceholderPage() {
         setLoading(true);
         setErrorMessage(null);
         try {
-            const [nextUsers, nextFeedback, nextPrivateSamples, nextTasks, nextStatus] = await Promise.all([
+            const [nextUsers, nextFeedback, nextKnowledgeItems, nextTasks, nextStatus] = await Promise.all([
                 listAdminUsers(),
                 getAdminFeedbackOverview(),
-                listAdminPrivateSamples(),
-                listKnowledgeRefreshTasks(),
+                listAdminKnowledgeItems(),
+                listAdminKnowledgeTasks(),
                 getAdminSystemStatus(),
             ]);
             setUsers(nextUsers);
             setFeedbackOverview(nextFeedback);
-            setPrivateSamples(nextPrivateSamples);
+            setKnowledgeItems(nextKnowledgeItems);
             setKnowledgeTasks(nextTasks);
             setSystemStatus(nextStatus);
         } catch (error) {
@@ -190,39 +328,58 @@ export function AdminPlaceholderPage() {
         }
     }
 
-    async function handleUpdatePrivateSample(
-        record: AdminPrivateSampleItem,
-        patch: Partial<Pick<AdminPrivateSampleItem, "is_enabled" | "session_attachable">>,
+    async function handleUpdateKnowledgeItem(
+        record: KnowledgeItem,
+        patch: Pick<KnowledgeItem, "is_enabled" | "session_attachable">,
     ) {
-        setPrivateSampleSavingId(record.doc_id);
+        setKnowledgeItemSavingId(record.knowledge_item_id);
         setErrorMessage(null);
         try {
-            const updated = await updateAdminPrivateSample(record.doc_id, {
-                is_enabled: patch.is_enabled ?? record.is_enabled,
-                session_attachable: patch.session_attachable ?? record.session_attachable,
-            });
-            setPrivateSamples((current) => current.map((item) => (item.doc_id === updated.doc_id ? updated : item)));
-            message.success(`已更新样例「${updated.doc_id}」。`);
+            const updated = await updateAdminPrivateSample(record.knowledge_item_id, patch);
+            setKnowledgeItems((current) =>
+                current.map((item) =>
+                    item.knowledge_item_id === record.knowledge_item_id
+                        ? {
+                              ...item,
+                              is_enabled: updated.is_enabled,
+                              session_attachable: updated.session_attachable,
+                          }
+                        : item,
+                ),
+            );
+            message.success(`已更新知识条目「${record.title}」。`);
             void refreshSystemStatus();
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "更新企业样例失败。");
+            setErrorMessage(extractDetailMessage(error) ?? "更新知识条目失败。");
         } finally {
-            setPrivateSampleSavingId(null);
+            setKnowledgeItemSavingId(null);
         }
     }
 
-    async function handleTriggerKnowledgeRefresh() {
-        setRefreshingKnowledge(true);
+    async function handleRetryTask(taskId: string) {
         setErrorMessage(null);
         try {
-            const task = await triggerKnowledgeRefresh({ scope: knowledgeScope });
-            setKnowledgeTasks((current) => [task, ...current.filter((item) => item.task_id !== task.task_id)]);
-            message.success(`知识刷新已完成：${taskStatusLabelMap[task.status] ?? task.status}。`);
-            await refreshSystemStatus();
+            const updated = await retryKnowledgeTask(taskId);
+            setKnowledgeTasks((current) => [updated, ...current.filter((item) => item.task_id !== updated.task_id)]);
+            message.success("任务重试已提交。");
+            void refreshSystemStatus();
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "知识刷新失败。");
+            setErrorMessage(extractDetailMessage(error) ?? "重试任务失败。");
+        }
+    }
+
+    async function handleTriggerKnowledgeRefresh(action: KnowledgeTaskRefreshAction) {
+        setRefreshingKnowledge(action);
+        setErrorMessage(null);
+        try {
+            const task = action === "rebuild" ? await triggerKnowledgeRebuild() : await triggerKnowledgeScan();
+            setKnowledgeTasks((current) => [task, ...current.filter((item) => item.task_id !== task.task_id)]);
+            message.success(`知识任务已提交：${taskTypeLabelMap[task.task_type] ?? task.task_type}。`);
+            await loadAdminWorkspace();
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "知识任务触发失败。");
         } finally {
-            setRefreshingKnowledge(false);
+            setRefreshingKnowledge(null);
         }
     }
 
@@ -242,29 +399,26 @@ export function AdminPlaceholderPage() {
             <Card>
                 <Typography.Title level={2}>管理员控制台</Typography.Title>
                 <Typography.Paragraph>
-                    V1.0.0 增加了企业试用版所需的最小治理能力：本地身份、按用户隔离数据、系统状态查看、企业样例入口管理，以及手动知识刷新。
+                    这里汇总用户、知识条目、更新任务、反馈和系统状态。管理员可以在这里查看知识库条目、触发扫描与重建，并管理用户与反馈概览。
                 </Typography.Paragraph>
                 <Space size={12} wrap>
                     <Button icon={<ReloadOutlined />} onClick={() => void loadAdminWorkspace()} disabled={loading}>
                         刷新
                     </Button>
-                    <Select
-                        value={knowledgeScope}
-                        onChange={(value) => setKnowledgeScope(value)}
-                        style={{ width: 180 }}
-                        options={[
-                            { label: "全部来源", value: "all" },
-                            { label: "仅公共政策", value: "public_policy" },
-                            { label: "仅企业样例", value: "private_sample" },
-                        ]}
-                    />
+                    <Button
+                        icon={<SyncOutlined />}
+                        loading={refreshingKnowledge === "scan"}
+                        onClick={() => void handleTriggerKnowledgeRefresh("scan")}
+                    >
+                        扫描知识变动
+                    </Button>
                     <Button
                         type="primary"
                         icon={<SyncOutlined />}
-                        loading={refreshingKnowledge}
-                        onClick={() => void handleTriggerKnowledgeRefresh()}
+                        loading={refreshingKnowledge === "rebuild"}
+                        onClick={() => void handleTriggerKnowledgeRefresh("rebuild")}
                     >
-                        触发知识刷新
+                        重建知识索引
                     </Button>
                 </Space>
                 {errorMessage ? (
@@ -291,24 +445,24 @@ export function AdminPlaceholderPage() {
                             <Descriptions column={1} size="small" bordered>
                                 <Descriptions.Item label="应用名称">{systemStatus.app_name}</Descriptions.Item>
                                 <Descriptions.Item label="版本">{systemStatus.version}</Descriptions.Item>
-                                <Descriptions.Item label="环境">{resolveLabel(environmentLabelMap, systemStatus.env)}</Descriptions.Item>
+                                <Descriptions.Item label="环境">{environmentLabelMap[systemStatus.env] ?? systemStatus.env}</Descriptions.Item>
                                 <Descriptions.Item label="数据库">
-                                    {resolveLabel(databaseBackendLabelMap, systemStatus.database_backend)}
+                                    {databaseBackendLabelMap[systemStatus.database_backend] ?? systemStatus.database_backend}
                                 </Descriptions.Item>
                                 <Descriptions.Item label="模型">{systemStatus.model_name}</Descriptions.Item>
                                 <Descriptions.Item label="模型服务模式">
-                                    {resolveLabel(providerModeLabelMap, systemStatus.model_provider_mode)}
+                                    {providerModeLabelMap[systemStatus.model_provider_mode] ?? systemStatus.model_provider_mode}
                                 </Descriptions.Item>
                                 <Descriptions.Item label="用户数">{systemStatus.total_users}</Descriptions.Item>
                                 <Descriptions.Item label="会话数">{systemStatus.total_sessions}</Descriptions.Item>
                                 <Descriptions.Item label="报告数">{systemStatus.total_reports}</Descriptions.Item>
                                 <Descriptions.Item label="反馈数">{systemStatus.total_feedback_entries}</Descriptions.Item>
-                                <Descriptions.Item label="企业样例">
+                                <Descriptions.Item label="知识条目">
                                     {systemStatus.enabled_private_samples} / {systemStatus.total_private_samples}
                                 </Descriptions.Item>
                                 <Descriptions.Item label="最近刷新">
                                     {systemStatus.latest_refresh_status
-                                        ? resolveLabel(taskStatusLabelMap, systemStatus.latest_refresh_status)
+                                        ? taskStatusLabelMap[systemStatus.latest_refresh_status]
                                         : "暂无"}
                                 </Descriptions.Item>
                             </Descriptions>
@@ -335,11 +489,11 @@ export function AdminPlaceholderPage() {
                                         <List.Item>
                                             <Space direction="vertical" size={2} style={{ width: "100%" }}>
                                                 <Space size={8} wrap>
-                                                    <Tag>{resolveLabel(feedbackTargetLabelMap, item.target_type)}</Tag>
+                                                    <Tag>{feedbackTargetLabelMap[item.target_type] ?? item.target_type}</Tag>
                                                     <Tag color={item.rating === "up" ? "green" : "red"}>
-                                                        {resolveLabel(feedbackRatingLabelMap, item.rating)}
+                                                        {item.rating === "up" ? "正向" : "负向"}
                                                     </Tag>
-                                                    <Typography.Text type="secondary">{item.owner_user_id}</Typography.Text>
+                                                    <Typography.Text type="secondary">{item.owner_user_id ?? "匿名"}</Typography.Text>
                                                 </Space>
                                                 <Typography.Text type="secondary">{formatTimestamp(item.created_at)}</Typography.Text>
                                             </Space>
@@ -352,82 +506,37 @@ export function AdminPlaceholderPage() {
                         )}
                     </Card>
 
-                    <Card title="知识任务概览">
-                        <List
-                            size="small"
-                            dataSource={knowledgeTasks}
-                            locale={{ emptyText: "暂无刷新任务历史。" }}
-                            renderItem={(item) => (
-                                <List.Item>
-                                    <Space direction="vertical" size={2} style={{ width: "100%" }}>
-                                        <Space size={8} wrap>
-                                            <Tag>{resolveLabel(knowledgeScopeLabelMap, item.scope)}</Tag>
-                                            <Tag color={taskStatusColorMap[item.status]}>
-                                                {resolveLabel(taskStatusLabelMap, item.status)}
-                                            </Tag>
-                                        </Space>
-                                        <Typography.Text>{item.summary ?? "暂无摘要。"}</Typography.Text>
-                                        <Typography.Text type="secondary">{formatTimestamp(item.created_at)}</Typography.Text>
-                                    </Space>
-                                </List.Item>
-                            )}
-                        />
-                    </Card>
-
-                    <Card title="企业样例入口管理">
-                        <List
-                            size="small"
-                            dataSource={privateSamples}
-                            locale={{ emptyText: "暂无可用企业样例。" }}
-                            renderItem={(item) => (
-                                <List.Item>
-                                    <div className="admin-private-sample-row">
-                                        <Space direction="vertical" size={4} style={{ width: "100%" }}>
-                                            <Typography.Text strong>{item.title}</Typography.Text>
-                                            <Space size={8} wrap>
-                                                <Tag color="magenta">{resolveLabel(sampleTypeLabelMap, item.sample_type)}</Tag>
-                                                <Tag>{resolveLabel(businessTopicLabelMap, item.business_topic)}</Tag>
-                                                <Tag>{item.doc_id}</Tag>
-                                            </Space>
-                                        </Space>
-                                        <Space size={12} wrap>
-                                            <Space size={6}>
-                                                <Typography.Text type="secondary">启用</Typography.Text>
-                                                <Switch
-                                                    size="small"
-                                                    checked={item.is_enabled}
-                                                    loading={privateSampleSavingId === item.doc_id}
-                                                    onChange={(checked) =>
-                                                        void handleUpdatePrivateSample(item, { is_enabled: checked })
-                                                    }
-                                                />
-                                            </Space>
-                                            <Space size={6}>
-                                                <Typography.Text type="secondary">可挂接</Typography.Text>
-                                                <Switch
-                                                    size="small"
-                                                    checked={item.session_attachable}
-                                                    loading={privateSampleSavingId === item.doc_id}
-                                                    onChange={(checked) =>
-                                                        void handleUpdatePrivateSample(item, { session_attachable: checked })
-                                                    }
-                                                />
-                                            </Space>
-                                        </Space>
-                                    </div>
-                                </List.Item>
-                            )}
-                        />
-                    </Card>
-
-                    <Card title="用户管理">
+                    <Card
+                        title="知识条目 / 文档列表"
+                        extra={
+                            <Tag color="blue">
+                                {knowledgeItems.length} 个条目
+                            </Tag>
+                        }
+                    >
                         <Table
-                            rowKey="user_id"
-                            columns={userColumns}
-                            dataSource={users}
-                            pagination={false}
+                            rowKey="knowledge_item_id"
+                            columns={knowledgeColumns}
+                            dataSource={knowledgeItems}
+                            pagination={{ pageSize: 6 }}
                             size="small"
+                            locale={{ emptyText: <Empty description="暂无知识条目。" /> }}
                         />
+                    </Card>
+
+                    <Card title="更新任务列表">
+                        <Table
+                            rowKey="task_id"
+                            columns={taskColumns}
+                            dataSource={knowledgeTasks}
+                            pagination={{ pageSize: 6 }}
+                            size="small"
+                            locale={{ emptyText: <Empty description="暂无知识任务。" /> }}
+                        />
+                    </Card>
+
+                    <Card title="用户列表">
+                        <Table rowKey="user_id" columns={userColumns} dataSource={users} pagination={false} size="small" />
                     </Card>
                 </div>
             )}
@@ -435,66 +544,91 @@ export function AdminPlaceholderPage() {
     );
 }
 
-const taskStatusColorMap = {
+const statusLabelMap: Record<string, string> = {
+    pending: "待处理",
+    running: "处理中",
+    succeeded: "已完成",
+    failed: "失败",
+    ready: "已就绪",
+};
+
+const statusColorMap: Record<string, string> = {
+    pending: "default",
     running: "processing",
     succeeded: "green",
     failed: "red",
+    ready: "blue",
+};
+
+const roleLabelMap = {
+    user: "普通用户",
+    admin: "管理员",
 } as const;
 
-const taskStatusLabelMap = {
+const libraryScopeLabelMap = {
+    personal: "个人知识",
+    shared: "共享知识",
+} as const;
+
+const sourceTypeLabelMap: Record<string, string> = {
+    uploaded_file: "上传文件",
+    private_sample_repo: "共享知识条目",
+    knowledge_item: "知识条目",
+};
+
+const taskTypeLabelMap: Record<string, string> = {
+    upload_ingest: "上传入库",
+    rebuild: "重建索引",
+    rescan: "扫描变动",
+    retry: "重试任务",
+};
+
+const taskStatusLabelMap: Record<string, string> = {
+    queued: "排队中",
     running: "运行中",
     succeeded: "已完成",
     failed: "失败",
-} as const;
+};
 
-const knowledgeScopeLabelMap = {
-    all: "全部来源",
-    public_policy: "仅公共政策",
-    private_sample: "仅企业样例",
-} as const;
+const taskStatusColorMap: Record<string, string> = {
+    queued: "default",
+    running: "processing",
+    succeeded: "green",
+    failed: "red",
+};
 
-const feedbackRatingLabelMap = {
-    up: "正向",
-    down: "负向",
-} as const;
+const taskScopeLabelMap: Record<string, string> = {
+    public_policy: "公共政策",
+    private_sample: "私有知识",
+    all: "全部范围",
+};
 
-const feedbackTargetLabelMap = {
+const feedbackTargetLabelMap: Record<string, string> = {
     ask: "问答反馈",
     calc_carbon: "核算反馈",
-} as const;
+    report: "报告反馈",
+};
 
-const sampleTypeLabelMap = {
-    doc: "文档",
-    table: "表格",
-} as const;
-
-const businessTopicLabelMap = {
-    energy: "能耗",
-    production: "生产",
-    logistics: "物流",
-    project_background: "项目背景",
-} as const;
-
-const environmentLabelMap = {
+const environmentLabelMap: Record<string, string> = {
     development: "本地开发环境",
     production: "生产环境",
     staging: "预发布环境",
-} as const;
+};
 
-const databaseBackendLabelMap = {
+const databaseBackendLabelMap: Record<string, string> = {
     sqlite: "本地数据库",
     postgresql: "生产数据库",
-} as const;
+};
 
-const providerModeLabelMap = {
+const providerModeLabelMap: Record<string, string> = {
     openai_compatible: "兼容模式",
     stub: "模拟模式",
-} as const;
+};
 
 function formatTimestamp(value: string) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
-        return value;
+        return value || "暂无";
     }
     return date.toLocaleString("zh-CN", {
         hour12: false,
@@ -512,8 +646,4 @@ function extractDetailMessage(value: unknown): string | null {
     }
     const candidate = value as { detail?: unknown };
     return typeof candidate.detail === "string" ? candidate.detail : null;
-}
-
-function resolveLabel<T extends Record<string, string>>(map: T, value: string) {
-    return map[value as keyof T] ?? value;
 }

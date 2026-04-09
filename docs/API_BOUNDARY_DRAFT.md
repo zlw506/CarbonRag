@@ -1,7 +1,7 @@
 # API Boundary Draft
 
-Version: `V1.0.0`  
-Status: `identity, isolation, and admin foundation`
+Version: `V1.1.0`  
+Status: `private knowledge auto-update + admin mainline`
 
 ## Global Rules
 - `GET /healthz` stays public.
@@ -10,6 +10,7 @@ Status: `identity, isolation, and admin foundation`
 - Clients must never send `user_id`.
 - Cross-user reads return `404`.
 - Admin routes are prefixed with `/api/v1/admin/*` and require `role=admin`.
+- Private retrieval reads indexed `knowledge_items` / `knowledge_chunks`, not raw repo sample text.
 
 ## Auth
 
@@ -170,18 +171,21 @@ Response:
   "citations": [
     {
       "doc_id": "string",
+      "knowledge_item_id": "string | null",
       "title": "string",
-      "source_type": "public_policy | private_sample",
+      "source_type": "public_policy | private_sample | private_upload",
       "source": "string",
       "source_url": "string | null",
       "snippet": "string",
-      "chunk_id": "string"
+      "chunk_id": "string",
+      "library_scope": "personal | shared | null"
     }
   ],
   "source_summary": {
     "knowledge_scope": "public | private_sample | mixed",
     "public_policy_count": 0,
     "private_sample_count": 0,
+    "private_upload_count": 0,
     "total_citation_count": 0
   },
   "trace_id": "string"
@@ -194,6 +198,7 @@ Response:
 - requires auth
 - multipart upload
 - uploaded file is bound to the current user's session
+- upload success also creates a personal `knowledge_item` and queues an ingest task
 
 ### `GET /api/v1/private-samples`
 - requires auth
@@ -210,6 +215,51 @@ Request:
 
 - requires auth
 - replaces the current user's attached private sample set for that session
+
+## Knowledge Items and Tasks
+
+### `GET /api/v1/knowledge-items`
+- requires auth
+- returns visible knowledge items:
+  - the current user's personal items
+  - enabled shared items
+
+### `GET /api/v1/knowledge-items/{knowledge_item_id}`
+- requires auth
+- returns only visible item detail
+
+### `GET /api/v1/knowledge-tasks`
+- requires auth
+- ordinary users only see their own tasks and shared tasks relevant to visible items
+
+### `POST /api/v1/knowledge-tasks/{task_id}/retry`
+- requires auth
+- retries a visible failed task
+
+### `PUT /api/v1/sessions/{id}/knowledge-items`
+Request:
+
+```json
+{
+  "knowledge_item_ids": ["enterprise_doc_001", "file_abc123"]
+}
+```
+
+- requires auth
+- replaces the current user's attached knowledge item set for that session
+- private / mixed ask only searches these attached knowledge items
+
+### `GET /api/v1/me/uploads`
+- requires auth
+- returns the current user's uploaded files as personal knowledge items
+
+### `GET /api/v1/me/reports`
+- requires auth
+- returns the current user's reports
+
+### `GET /api/v1/me/feedback`
+- requires auth
+- returns the current user's feedback entries
 
 ## Calc Carbon
 
@@ -407,5 +457,36 @@ Request:
 ```
 
 Notes:
-- refresh is synchronous in V1.0.0
+- refresh is synchronous in V1.1.0
 - status transitions: `running -> succeeded | failed`
+
+### `GET /api/v1/admin/knowledge-items`
+- admin only
+- returns global knowledge item metadata, including shared and personal entries
+- admin still does not read ordinary users'正文内容 through this interface
+
+### `PATCH /api/v1/admin/knowledge-items/{knowledge_item_id}`
+Request:
+
+```json
+{
+  "is_enabled": true,
+  "session_attachable": true
+}
+```
+
+### `GET /api/v1/admin/knowledge-tasks`
+- admin only
+- returns global task list
+
+### `POST /api/v1/admin/knowledge-tasks/scan`
+- admin only
+- scans shared private knowledge sources and marks changed items for update
+
+### `POST /api/v1/admin/knowledge-tasks/rebuild`
+- admin only
+- runs queued rebuild tasks for pending / stale shared items
+
+### `POST /api/v1/admin/knowledge-tasks/{task_id}/retry`
+- admin only
+- retries a failed knowledge task

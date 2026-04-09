@@ -57,11 +57,14 @@ That means these differences are expected:
 - cloud sessions can sync across devices, while local and cloud do not sync with each other
 
 ## Authentication and Ownership
-V1.0.0 also introduces local identity and user isolation:
+V1.1.0 further extends this split with private knowledge items and knowledge tasks:
 
 - every session belongs to one authenticated user
-- reports, feedback, uploaded files, private sample bindings, and carbon calculations inherit that ownership
+- reports, feedback, uploaded files, knowledge item bindings, and carbon calculations inherit that ownership
 - cross-user reads return `404`
+- local uploaded files create local knowledge items only
+- cloud uploaded files create cloud knowledge items only
+- local and cloud do not share knowledge task queues or indexed private chunks
 
 This rule applies in both environments. The difference is only the backing runtime database and deployment surface.
 

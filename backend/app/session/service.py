@@ -14,9 +14,20 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _get_default_knowledge_service():
+    from app.knowledge.service import get_knowledge_service
+
+    return get_knowledge_service()
+
+
+def _get_knowledge_service():
+    return _get_default_knowledge_service()
+
+
 class SessionService:
-    def __init__(self, store: SessionStore | None = None) -> None:
+    def __init__(self, store: SessionStore | None = None, knowledge_service=None) -> None:
         self.store = store or get_session_store()
+        self.knowledge_service = knowledge_service
 
     def create_session(self, *, owner_user_id: str, title: str | None = None) -> SessionSummary:
         created_at = utcnow()
@@ -104,6 +115,7 @@ class SessionService:
             knowledge_scope=knowledge_scope,
             public_policy_count=sum(1 for citation in citations if citation.source_type == "public_policy"),
             private_sample_count=sum(1 for citation in citations if citation.source_type == "private_sample"),
+            private_upload_count=sum(1 for citation in citations if citation.source_type == "private_upload"),
             total_citation_count=len(citations),
         )
         self.store.update_session_runtime_state(
@@ -177,26 +189,92 @@ class SessionService:
         )
 
     def replace_attached_private_samples(self, *, owner_user_id: str, session_id: str, doc_ids: list[str]) -> None:
-        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
-        catalog = {item.doc_id: item for item in self.list_private_sample_catalog()}
-        normalized: list[str] = []
-        for doc_id in doc_ids:
-            candidate = doc_id.strip()
-            if not candidate:
-                continue
-            if candidate not in catalog:
-                raise ValueError(f"Unknown private sample: {candidate}")
-            normalized.append(candidate)
-        deduplicated = list(dict.fromkeys(normalized))
-        self.store.replace_attached_private_samples(
+        knowledge_item_ids = self._resolve_knowledge_item_ids(owner_user_id=owner_user_id, identifiers=doc_ids)
+        self.replace_attached_knowledge_items(
+            owner_user_id=owner_user_id,
             session_id=session_id,
-            doc_ids=deduplicated,
+            knowledge_item_ids=knowledge_item_ids,
+        )
+
+    def replace_attached_knowledge_items(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        knowledge_item_ids: list[str],
+    ) -> None:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
+        knowledge_service = self._get_knowledge_service()
+        allowed_items = {
+            item.knowledge_item_id
+            for item in knowledge_service.store.list_items(
+                owner_user_id=owner_user_id,
+                knowledge_item_ids=knowledge_item_ids,
+            )
+        }
+        missing_ids = [item_id for item_id in knowledge_item_ids if item_id not in allowed_items]
+        if missing_ids:
+            raise ValueError(f"Unknown knowledge item: {missing_ids[0]}")
+        deduplicated = list(dict.fromkeys(item_id for item_id in knowledge_item_ids if item_id.strip()))
+        self.store.replace_attached_knowledge_items(
+            session_id=session_id,
+            knowledge_item_ids=deduplicated,
             attached_at=utcnow().isoformat(),
         )
 
     def list_attached_private_sample_ids(self, *, owner_user_id: str, session_id: str) -> list[str]:
+        return self.list_attached_knowledge_item_ids(owner_user_id=owner_user_id, session_id=session_id)
+
+    def list_attached_knowledge_item_ids(self, *, owner_user_id: str, session_id: str) -> list[str]:
         self.require_session(owner_user_id=owner_user_id, session_id=session_id)
-        return self.store.list_attached_private_sample_ids(session_id=session_id)
+        return self.store.list_attached_knowledge_item_ids(session_id=session_id)
+
+    def list_session_knowledge_items(self, *, owner_user_id: str, session_id: str):
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
+        knowledge_service = self._get_knowledge_service()
+        item_ids = self.list_attached_knowledge_item_ids(owner_user_id=owner_user_id, session_id=session_id)
+        if not item_ids:
+            return []
+        return knowledge_service.list_visible_items(owner_user_id=owner_user_id, knowledge_item_ids=item_ids)
+
+    def _resolve_knowledge_item_ids(self, *, owner_user_id: str, identifiers: list[str]) -> list[str]:
+        normalized: list[str] = []
+        knowledge_service = self._get_knowledge_service()
+        catalog = {item.knowledge_item_id: item for item in knowledge_service.list_visible_items(owner_user_id=owner_user_id)}
+        for raw_identifier in identifiers:
+            candidate = raw_identifier.strip()
+            if not candidate:
+                continue
+            if candidate in catalog:
+                normalized.append(candidate)
+                continue
+
+            legacy_item = knowledge_service.store.get_item_by_source(
+                owner_user_id=None,
+                library_scope="shared",
+                source_type="private_sample_repo",
+                source_ref=candidate,
+            )
+            if legacy_item is not None and (
+                legacy_item.owner_user_id is None or legacy_item.owner_user_id == owner_user_id
+            ):
+                normalized.append(legacy_item.knowledge_item_id)
+                continue
+
+            personal_upload = knowledge_service.store.get_item_by_source(
+                owner_user_id=owner_user_id,
+                library_scope="personal",
+                source_type="uploaded_file",
+                source_ref=candidate,
+            )
+            if personal_upload is not None:
+                normalized.append(personal_upload.knowledge_item_id)
+                continue
+
+        return list(dict.fromkeys(normalized))
+
+    def _get_knowledge_service(self):
+        return self.knowledge_service or _get_knowledge_service()
 
 
 def get_session_service() -> SessionService:

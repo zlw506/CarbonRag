@@ -26,16 +26,15 @@ import type { ChangeEvent } from "react";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
 import { uploadSessionFile } from "../../services/files";
-import { listPrivateSamples } from "../../services/privateSamples";
+import { listAttachableKnowledgeItems, replaceAttachedKnowledgeItems } from "../../services/knowledge";
 import {
     createSession,
     getSession,
     listSessions,
-    replaceAttachedPrivateSamples,
     submitSessionAskRequest,
 } from "../../services/sessions";
 import type { AskCitation, AskResponse, AskSourceSummary, KnowledgeScope } from "../../types/ask";
-import type { PrivateSampleCatalogItem } from "../../types/privateSample";
+import type { KnowledgeItem } from "../../types/knowledge";
 import type { SessionAttachment, SessionDetail, SessionMessage, SessionSummary } from "../../types/session";
 
 export function AskPage() {
@@ -46,7 +45,7 @@ export function AskPage() {
     const [selectedCitationMessageId, setSelectedCitationMessageId] = useState<string | null>(null);
     const [question, setQuestion] = useState("");
     const [knowledgeScope, setKnowledgeScope] = useState<KnowledgeScope>("public");
-    const [privateSamples, setPrivateSamples] = useState<PrivateSampleCatalogItem[]>([]);
+    const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
     const [privateSampleDrawerOpen, setPrivateSampleDrawerOpen] = useState(false);
     const [draftAttachedDocIds, setDraftAttachedDocIds] = useState<string[]>([]);
     const [savingAttachedSamples, setSavingAttachedSamples] = useState(false);
@@ -75,8 +74,8 @@ export function AskPage() {
         setTransportError(null);
 
         try {
-            const [sessionList, sampleCatalog] = await Promise.all([listSessions(), listPrivateSamples()]);
-            setPrivateSamples(sampleCatalog);
+            const [sessionList, knowledgeCatalog] = await Promise.all([listSessions(), listAttachableKnowledgeItems()]);
+            setKnowledgeItems(knowledgeCatalog);
 
             if (sessionList.length === 0) {
                 const created = await createSession();
@@ -144,13 +143,13 @@ export function AskPage() {
         setSavingAttachedSamples(true);
         setTransportError(null);
         try {
-            const detail = await replaceAttachedPrivateSamples(activeSessionId, { doc_ids: draftAttachedDocIds });
+            const detail = await replaceAttachedKnowledgeItems(activeSessionId, draftAttachedDocIds);
             setActiveSession(detail);
             setDraftAttachedDocIds(getAttachedPrivateSampleIds(detail.attached_files));
             await refreshSessions(activeSessionId);
             setPrivateSampleDrawerOpen(false);
         } catch (error) {
-            setTransportError(extractDetailMessage(error) ?? "当前无法保存企业样例挂接状态。");
+            setTransportError(extractDetailMessage(error) ?? "当前无法保存知识条目挂接状态。");
         } finally {
             setSavingAttachedSamples(false);
         }
@@ -233,7 +232,7 @@ export function AskPage() {
                     extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession}>新建对话</Button>}
                 >
                     <Typography.Paragraph type="secondary">
-                        v0.1.8 继续沿用对话工作台，并把企业样例 / 混合范围接入当前问答。
+                        V1.1.0 继续沿用对话工作台，并把知识条目 / 混合范围接入当前问答。
                     </Typography.Paragraph>
                     {loadingSessions ? (
                         <div className="chat-workbench__loading"><Spin /></div>
@@ -253,7 +252,7 @@ export function AskPage() {
                                         <Space size={8} wrap>
                                             <Tag>{session.message_count} 条消息</Tag>
                                             <Tag>{session.file_count} 个上传附件</Tag>
-                                            <Tag color="magenta">{session.attached_private_sample_count} 个样例</Tag>
+                                            <Tag color="magenta">{session.attached_private_sample_count} 个知识条目</Tag>
                                         </Space>
                                     </div>
                                 </List.Item>
@@ -271,8 +270,8 @@ export function AskPage() {
                         type="info"
                         showIcon
                         className="chat-workbench__alert"
-                        message="当前范围已切到企业样例 / 混合"
-                        description="当前会话还没有挂接任何脱敏企业样例，因此该范围下可能检索为空。"
+                        message="当前范围已切到知识条目 / 混合"
+                        description="当前会话还没有挂接任何知识条目，因此该范围下可能检索为空。"
                     />
                 ) : null}
 
@@ -283,7 +282,7 @@ export function AskPage() {
                         <Space size={8} wrap>
                             <Tag color="blue">{scopeLabelMap[knowledgeScope]}</Tag>
                             <Tag color="green">{uploadedAttachments.length} 个上传附件</Tag>
-                            <Tag color="magenta">{privateAttachments.length} 个样例挂接</Tag>
+                            <Tag color="magenta">{privateAttachments.length} 个知识条目挂接</Tag>
                         </Space>
                     }
                 >
@@ -292,7 +291,7 @@ export function AskPage() {
                     ) : activeSession ? (
                         <>
                             <Typography.Paragraph type="secondary">
-                                当前问答会带最近 4 轮历史继续回答；范围可切到公共政策、企业样例或混合模式。
+                                当前问答会带最近 4 轮历史继续回答；范围可切到公共政策、知识条目或混合模式。
                             </Typography.Paragraph>
                             <div className="chat-message-stream">
                                 {activeSession.messages.length === 0 ? (
@@ -325,26 +324,26 @@ export function AskPage() {
                             onChange={(value) => setKnowledgeScope(value)}
                             options={[
                                 { label: "公共政策", value: "public" },
-                                { label: "企业样例", value: "private_sample" },
+                                { label: "知识条目", value: "private_sample" },
                                 { label: "混合", value: "mixed" },
                             ]}
                         />
                         <Typography.Paragraph type="secondary" className="chat-scope-bar__hint">
-                            公共政策只看政策样本；企业样例只看当前会话已挂接的脱敏企业样例；混合模式同时参考两类依据。
+                            公共政策只看政策样本；知识条目只看当前会话已挂接的脱敏知识条目；混合模式同时参考两类依据。
                         </Typography.Paragraph>
                     </div>
 
                     <div className="chat-session-state">
                         <Tag color="blue">当前范围：{scopeLabelMap[knowledgeScope]}</Tag>
                         <Tag color="green">上传附件：{uploadedAttachments.length}</Tag>
-                        <Tag color="magenta">挂接样例：{privateAttachments.length}</Tag>
+                        <Tag color="magenta">挂接知识条目：{privateAttachments.length}</Tag>
                         <Button icon={<TagsOutlined />} onClick={() => setPrivateSampleDrawerOpen(true)} disabled={loadingPrivateSamples}>
-                            管理样例挂接
+                            管理知识条目挂接
                         </Button>
                     </div>
 
                     <Typography.Paragraph type="secondary">
-                        当前上传入口继续只做会话绑定；上传文件不会进入问答检索。本轮企业样例检索只读取仓库内的脱敏样例。
+                        上传文件会进入知识任务流；只有索引完成并挂接到当前会话后，才会参与知识条目 / 混合检索。
                     </Typography.Paragraph>
 
                     {activeSession?.attached_files.length ? (
@@ -367,7 +366,7 @@ export function AskPage() {
                         onChange={(event) => setQuestion(event.target.value)}
                         rows={5}
                         maxLength={2000}
-                        placeholder="例如：结合当前样例，压缩空气系统的能耗问题是什么？或者：双碳目标对这家样例企业意味着什么？"
+                        placeholder="例如：结合当前知识条目，压缩空气系统的能耗问题是什么？或者：双碳目标对这家知识条目意味着什么？"
                     />
                     <Space className="chat-composer__actions" size={12} wrap>
                         <Button icon={<PaperClipOutlined />} onClick={() => fileInputRef.current?.click()} loading={uploading}>添加附件</Button>
@@ -391,17 +390,18 @@ export function AskPage() {
                         <Space size={8} wrap>
                             <Tag color="green">{currentSourceSummary.total_citation_count} 条依据</Tag>
                             <Tag color="blue">{currentSourceSummary.public_policy_count} 条政策</Tag>
-                            <Tag color="magenta">{currentSourceSummary.private_sample_count} 条样例</Tag>
+                            <Tag color="magenta">{currentSourceSummary.private_sample_count} 条知识条目</Tag>
                         </Space>
                     }
                 >
-                    <Typography.Paragraph type="secondary">
-                        当前依据来自本地公共政策样本与脱敏企业样例。企业样例不代表真实客户审计结果。
-                    </Typography.Paragraph>
+                <Typography.Paragraph type="secondary">
+                    当前依据来自本地公共政策样本、管理员共享知识条目和当前用户已挂接的个人上传知识。私有知识条目不代表真实客户审计结果。
+                </Typography.Paragraph>
                     {citationMessage?.citations.length ? (
                         <div className="chat-citation-groups">
                             {citationGroups.public_policy.length ? <CitationGroup title="政策依据" tagColor="blue" citations={citationGroups.public_policy} /> : null}
-                            {citationGroups.private_sample.length ? <CitationGroup title="企业样例依据" tagColor="magenta" citations={citationGroups.private_sample} /> : null}
+                            {citationGroups.private_sample.length ? <CitationGroup title="共享知识依据" tagColor="magenta" citations={citationGroups.private_sample} /> : null}
+                            {citationGroups.private_upload.length ? <CitationGroup title="个人上传依据" tagColor="green" citations={citationGroups.private_upload} /> : null}
                         </div>
                     ) : (
                         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选中一条带依据的助手消息后，这里会展示来源片段。" />
@@ -411,32 +411,32 @@ export function AskPage() {
             </div>
 
             <Drawer
-                title="管理当前会话的企业样例挂接"
+                title="管理当前会话的知识条目挂接"
                 width={420}
                 open={privateSampleDrawerOpen}
                 onClose={() => setPrivateSampleDrawerOpen(false)}
                 extra={<Button type="primary" onClick={handleSaveAttachedSamples} loading={savingAttachedSamples}>保存挂接</Button>}
             >
                 <Typography.Paragraph type="secondary">
-                    这里选择的是当前会话可用于企业样例 / 混合检索的脱敏样例。上传文件不会自动进入这一列表。
+                    这里选择的是当前会话可用于知识条目 / 混合检索的知识条目。共享样例和已入库的个人上传都会出现在这里。
                 </Typography.Paragraph>
                 {loadingPrivateSamples ? (
                     <div className="chat-workbench__loading"><Spin /></div>
                 ) : (
                     <List
                         className="private-sample-list"
-                        dataSource={privateSamples}
+                        dataSource={knowledgeItems}
                         renderItem={(item) => {
-                            const checked = draftAttachedDocIds.includes(item.doc_id);
+                            const checked = draftAttachedDocIds.includes(item.knowledge_item_id);
                             return (
-                                <List.Item key={item.doc_id}>
+                                <List.Item key={item.knowledge_item_id}>
                                     <div className="private-sample-list__item">
-                                        <Checkbox checked={checked} onChange={(event) => setDraftAttachedDocIds((current) => toggleDocId(current, item.doc_id, event.target.checked))}>
+                                        <Checkbox checked={checked} onChange={(event) => setDraftAttachedDocIds((current) => toggleDocId(current, item.knowledge_item_id, event.target.checked))}>
                                             <Typography.Text strong>{item.title}</Typography.Text>
                                         </Checkbox>
                                         <Space size={8} wrap>
-                                            <Tag color="magenta">{item.sample_type}</Tag>
-                                            <Tag>{item.business_topic}</Tag>
+                                            <Tag color="magenta">{item.source_label}</Tag>
+                                            <Tag>{item.library_scope === "shared" ? "共享" : "个人"}</Tag>
                                         </Space>
                                     </div>
                                 </List.Item>
@@ -509,7 +509,7 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
                             {hasCitations ? (
                                 <>
                                     <Tag color="blue">{messageSourceSummary.public_policy_count} 条政策</Tag>
-                                    <Tag color="magenta">{messageSourceSummary.private_sample_count} 条样例</Tag>
+                                    <Tag color="magenta">{messageSourceSummary.private_sample_count} 条知识条目</Tag>
                                     <Button type={activeCitation ? "primary" : "default"} size="small" icon={<FileTextOutlined />} onClick={onSelectCitations}>
                                         查看依据 {message.citations.length}
                                     </Button>
@@ -544,7 +544,7 @@ function CitationGroup({ title, tagColor, citations }: CitationGroupProps) {
                             <Space size={8} wrap>
                                 <Typography.Text strong>{citation.title}</Typography.Text>
                                 <Tag color={citation.source_type === "public_policy" ? "blue" : "magenta"}>
-                                    {citation.source_type === "public_policy" ? "公共政策" : "企业样例"}
+                                    {citation.source_type === "public_policy" ? "公共政策" : "知识条目"}
                                 </Tag>
                                 <Tag>{citation.source}</Tag>
                                 <Typography.Text type="secondary">{citation.chunk_id}</Typography.Text>
@@ -557,7 +557,7 @@ function CitationGroup({ title, tagColor, citations }: CitationGroupProps) {
                                     <LinkOutlined /> 查看来源
                                 </Typography.Link>
                             ) : (
-                                <Typography.Text type="secondary">该条依据来自仓库内脱敏企业样例。</Typography.Text>
+                                <Typography.Text type="secondary">该条依据来自仓库内脱敏知识条目。</Typography.Text>
                             )}
                         </div>
                     </List.Item>
@@ -575,12 +575,20 @@ const statusColorMap = {
 
 const scopeLabelMap: Record<KnowledgeScope, string> = {
     public: "公共政策",
-    private_sample: "企业样例",
+    private_sample: "知识条目",
     mixed: "混合",
 };
 
 function getAttachedPrivateSampleIds(attachedFiles: SessionAttachment[]) {
-    return attachedFiles.filter((item) => item.source_type === "private_sample").map((item) => item.file_id);
+    return attachedFiles
+        .filter(
+            (item) =>
+                item.source_type === "private_sample" ||
+                item.source_type === "private_sample_repo" ||
+                item.source_type === "knowledge_item",
+        )
+        .map((item) => item.knowledge_item_id ?? item.file_id)
+        .filter((value): value is string => Boolean(value));
 }
 
 function resolvePreferredCitationMessageId(detail: SessionDetail | null): string | null {
@@ -596,15 +604,22 @@ function groupCitationsBySource(citations: AskCitation[]) {
     return {
         public_policy: citations.filter((item) => item.source_type === "public_policy"),
         private_sample: citations.filter((item) => item.source_type === "private_sample"),
+        private_upload: citations.filter((item) => item.source_type === "private_upload"),
     };
 }
 
 function summarizeCitations(citations: AskCitation[]): AskSourceSummary {
     const groups = groupCitationsBySource(citations);
     return {
-        knowledge_scope: groups.public_policy.length && groups.private_sample.length ? "mixed" : groups.private_sample.length ? "private_sample" : "public",
+        knowledge_scope:
+            groups.public_policy.length && (groups.private_sample.length || groups.private_upload.length)
+                ? "mixed"
+                : groups.private_sample.length || groups.private_upload.length
+                    ? "private_sample"
+                    : "public",
         public_policy_count: groups.public_policy.length,
         private_sample_count: groups.private_sample.length,
+        private_upload_count: groups.private_upload.length,
         total_citation_count: citations.length,
     };
 }
@@ -617,6 +632,7 @@ function buildPanelSourceSummary(citations: AskCitation[], fallback?: AskSourceS
         knowledge_scope: "public",
         public_policy_count: 0,
         private_sample_count: 0,
+        private_upload_count: 0,
         total_citation_count: 0,
     };
 }

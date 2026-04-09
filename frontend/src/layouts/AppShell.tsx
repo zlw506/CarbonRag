@@ -1,6 +1,7 @@
 import {
     DesktopOutlined,
     ExperimentOutlined,
+    FolderOpenOutlined,
     FileTextOutlined,
     LogoutOutlined,
     SearchOutlined,
@@ -15,6 +16,7 @@ const { Header, Content, Sider } = Layout;
 
 const iconMap = {
     "/": <SearchOutlined />,
+    "/my-knowledge": <FolderOpenOutlined />,
     "/carbon-calc": <ExperimentOutlined />,
     "/report": <FileTextOutlined />,
     "/admin": <DesktopOutlined />,

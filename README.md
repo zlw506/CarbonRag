@@ -1,6 +1,6 @@
 # CarbonRag
 
-Current status: `V1.0.0 identity + isolation + admin foundation in progress`
+Current status: `V1.1.0 private knowledge auto-update + admin mainline in progress`
 
 ## Project Positioning
 CarbonRag is an SME-oriented carbon policy and enterprise application workbench. The current product line has already moved beyond a single-user prototype:
@@ -12,12 +12,12 @@ CarbonRag is an SME-oriented carbon policy and enterprise application workbench.
 - feedback persistence
 - local-dev and cloud-stable dual environment strategy
 
-V1.0.0 adds the minimum governance layer required for multi-user trial use:
+V1.1.0 adds the first manageable private knowledge flow on top of identity and isolation:
 
-- local account system
-- authenticated sessions with cookies
-- per-user data isolation
-- admin entry page
+- personal knowledge library
+- shared knowledge library
+- knowledge ingest / rebuild / retry task flow
+- admin console for users, feedback, knowledge items, and runtime status
 
 ## Runtime Modes
 
@@ -50,14 +50,16 @@ Users can:
 - run carbon calculations
 - generate reports
 - upload files
+- manage their own knowledge items
 - view only their own history
 
 Admins can additionally:
 - view system status
 - manage users
-- manage private sample entry visibility and attachability
+- manage shared private knowledge entry visibility and attachability
 - view feedback overview
-- trigger knowledge refresh tasks
+- monitor knowledge items and tasks
+- trigger scan / rebuild / retry for private knowledge updates
 
 Admins cannot read ordinary users' session or report body content through normal business APIs.
 
@@ -79,6 +81,14 @@ Admins cannot read ordinary users' session or report body content through normal
 - `PATCH /api/v1/sessions/{id}`
 - `POST /api/v1/sessions/{id}/ask`
 - `POST /api/v1/files`
+- `GET /api/v1/knowledge-items`
+- `GET /api/v1/knowledge-items/{knowledge_item_id}`
+- `GET /api/v1/knowledge-tasks`
+- `POST /api/v1/knowledge-tasks/{task_id}/retry`
+- `PUT /api/v1/sessions/{id}/knowledge-items`
+- `GET /api/v1/me/uploads`
+- `GET /api/v1/me/reports`
+- `GET /api/v1/me/feedback`
 - `GET /api/v1/private-samples`
 - `PUT /api/v1/sessions/{id}/attached-files/private-samples`
 - `POST /api/v1/calc-carbon`
@@ -100,13 +110,26 @@ Admins cannot read ordinary users' session or report body content through normal
 - `PATCH /api/v1/admin/private-samples/{doc_id}`
 - `GET /api/v1/admin/knowledge-refresh-tasks`
 - `POST /api/v1/admin/knowledge-refresh-tasks`
+- `GET /api/v1/admin/knowledge-items`
+- `PATCH /api/v1/admin/knowledge-items/{knowledge_item_id}`
+- `GET /api/v1/admin/knowledge-tasks`
+- `POST /api/v1/admin/knowledge-tasks/scan`
+- `POST /api/v1/admin/knowledge-tasks/rebuild`
+- `POST /api/v1/admin/knowledge-tasks/{task_id}/retry`
 
 ## Current Capability Boundaries
 
 ### Ask
 - supports `public`, `private_sample`, and `mixed`
 - uses grounded citations
+- private retrieval now reads indexed `knowledge_items` / `knowledge_chunks`
 - only returns the current authenticated user's sessions and bindings
+
+### Private Knowledge
+- uploaded files enter the knowledge task flow after upload
+- shared `data/private_sample/` entries are imported as shared knowledge items
+- private / mixed ask only searches knowledge items already attached to the current session
+- unsupported or non-extractable files fall into `parse_failed` and can be retried
 
 ### Calc Carbon
 - supports:
@@ -167,7 +190,9 @@ bash scripts/bootstrap.sh
 - [docs/DEVELOPMENT_BOOTSTRAP.md](/F:/Project\CarbonRag\CarbonRag/docs/DEVELOPMENT_BOOTSTRAP.md)
 - [docs/GIT_WORKFLOW.md](/F:/Project\CarbonRag\CarbonRag/docs/GIT_WORKFLOW.md)
 - [docs/GIT_RELEASE_FLOW.md](/F:/Project\CarbonRag\CarbonRag/docs/GIT_RELEASE_FLOW.md)
+- [docs/architecture/PRIVATE_KNOWLEDGE_TASK_FLOW.md](/F:/Project\CarbonRag\CarbonRag/docs/architecture/PRIVATE_KNOWLEDGE_TASK_FLOW.md)
 - [docs/deploy/LOCAL_DEV_VS_CLOUD_STABLE.md](/F:/Project\CarbonRag\CarbonRag/docs/deploy/LOCAL_DEV_VS_CLOUD_STABLE.md)
 - [docs/deploy/VPS_BACKEND_DEPLOY.md](/F:/Project\CarbonRag\CarbonRag/docs/deploy/VPS_BACKEND_DEPLOY.md)
 - [docs/deploy/NETLIFY_FRONTEND.md](/F:/Project\CarbonRag\CarbonRag/docs/deploy/NETLIFY_FRONTEND.md)
 - [docs/PLAN/V1.0.0.md](/F:/Project\CarbonRag\CarbonRag/docs/PLAN/V1.0.0.md)
+- [docs/PLAN/V1.1.0.md](/F:/Project\CarbonRag\CarbonRag/docs/PLAN/V1.1.0.md)

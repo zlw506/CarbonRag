@@ -8,4 +8,5 @@ export interface PrivateSampleCatalogItem {
     sample_type: PrivateSampleType;
     business_topic: PrivateSampleBusinessTopic;
     session_attachable: boolean;
+    is_enabled?: boolean;
 }

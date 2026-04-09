@@ -6,7 +6,11 @@ CORE_TABLES = (
     "sessions",
     "messages",
     "files",
+    "session_knowledge_items",
     "session_private_samples",
+    "knowledge_items",
+    "knowledge_chunks",
+    "knowledge_tasks",
     "feedback_entries",
     "carbon_calculations",
     "reports",
@@ -18,6 +22,7 @@ CORE_TABLES = (
 OWNER_TABLES = (
     "sessions",
     "files",
+    "knowledge_items",
     "feedback_entries",
     "carbon_calculations",
     "reports",
@@ -84,6 +89,15 @@ CREATE TABLE IF NOT EXISTS files (
     FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS session_knowledge_items (
+    attachment_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    knowledge_item_id TEXT NOT NULL,
+    attached_at TEXT NOT NULL,
+    UNIQUE (session_id, knowledge_item_id),
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS session_private_samples (
     attachment_seq INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -91,6 +105,76 @@ CREATE TABLE IF NOT EXISTS session_private_samples (
     attached_at TEXT NOT NULL,
     UNIQUE (session_id, doc_id),
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_items (
+    knowledge_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    knowledge_item_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
+    library_scope TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_ref TEXT,
+    file_id TEXT,
+    source TEXT,
+    source_url TEXT,
+    sample_type TEXT,
+    business_topic TEXT,
+    title TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    parse_status TEXT NOT NULL,
+    ingest_status TEXT NOT NULL,
+    index_status TEXT NOT NULL,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    session_attachable INTEGER NOT NULL DEFAULT 1,
+    source_hash TEXT,
+    source_mtime TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_indexed_at TEXT,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    chunk_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    knowledge_item_id TEXT NOT NULL,
+    chunk_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    library_scope TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_url TEXT,
+    issued_at TEXT,
+    region TEXT,
+    doc_type TEXT,
+    sample_type TEXT,
+    business_topic TEXT,
+    snippet TEXT NOT NULL,
+    order_index INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (knowledge_item_id, chunk_id),
+    FOREIGN KEY (knowledge_item_id) REFERENCES knowledge_items(knowledge_item_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_tasks (
+    task_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL UNIQUE,
+    knowledge_item_id TEXT,
+    owner_user_id TEXT,
+    requested_by_user_id TEXT,
+    task_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    summary TEXT,
+    error_detail TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    FOREIGN KEY (knowledge_item_id) REFERENCES knowledge_items(knowledge_item_id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    FOREIGN KEY (requested_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS feedback_entries (
@@ -186,8 +270,20 @@ CREATE INDEX IF NOT EXISTS idx_files_owner_session_seq
     ON files(owner_user_id, session_id, file_seq);
 CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at
     ON sessions(owner_user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_knowledge_items_session_seq
+    ON session_knowledge_items(session_id, attachment_seq DESC);
 CREATE INDEX IF NOT EXISTS idx_private_samples_session_seq
     ON session_private_samples(session_id, attachment_seq DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_owner_scope_updated_at
+    ON knowledge_items(owner_user_id, library_scope, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_status
+    ON knowledge_items(index_status, parse_status, ingest_status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_item_order
+    ON knowledge_chunks(knowledge_item_id, order_index ASC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_status_created_at
+    ON knowledge_tasks(status, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_item_created_at
+    ON knowledge_tasks(knowledge_item_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace
     ON feedback_entries(owner_user_id, trace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at
@@ -264,12 +360,88 @@ POSTGRES_SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS session_knowledge_items (
+        attachment_seq BIGSERIAL PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+        knowledge_item_id TEXT NOT NULL,
+        attached_at TEXT NOT NULL,
+        UNIQUE (session_id, knowledge_item_id)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS session_private_samples (
         attachment_seq BIGSERIAL PRIMARY KEY,
         session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
         doc_id TEXT NOT NULL,
         attached_at TEXT NOT NULL,
         UNIQUE (session_id, doc_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS knowledge_items (
+        knowledge_seq BIGSERIAL PRIMARY KEY,
+        knowledge_item_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        library_scope TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        source_ref TEXT,
+        file_id TEXT REFERENCES files(file_id) ON DELETE SET NULL,
+        source TEXT,
+        source_url TEXT,
+        sample_type TEXT,
+        business_topic TEXT,
+        title TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        parse_status TEXT NOT NULL,
+        ingest_status TEXT NOT NULL,
+        index_status TEXT NOT NULL,
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        session_attachable BOOLEAN NOT NULL DEFAULT TRUE,
+        source_hash TEXT,
+        source_mtime TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_indexed_at TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS knowledge_chunks (
+        chunk_seq BIGSERIAL PRIMARY KEY,
+        knowledge_item_id TEXT NOT NULL REFERENCES knowledge_items(knowledge_item_id) ON DELETE CASCADE,
+        chunk_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        library_scope TEXT NOT NULL,
+        source TEXT NOT NULL,
+        source_url TEXT,
+        issued_at TEXT,
+        region TEXT,
+        doc_type TEXT,
+        sample_type TEXT,
+        business_topic TEXT,
+        snippet TEXT NOT NULL,
+        order_index INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (knowledge_item_id, chunk_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS knowledge_tasks (
+        task_seq BIGSERIAL PRIMARY KEY,
+        task_id TEXT NOT NULL UNIQUE,
+        knowledge_item_id TEXT REFERENCES knowledge_items(knowledge_item_id) ON DELETE CASCADE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        requested_by_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        task_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT,
+        error_detail TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
     )
     """,
     """
@@ -352,6 +524,11 @@ POSTGRES_SCHEMA_STATEMENTS = (
     """,
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS source TEXT",
+    "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS source_url TEXT",
+    "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS sample_type TEXT",
+    "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS business_topic TEXT",
     "ALTER TABLE feedback_entries ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
@@ -361,7 +538,13 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, message_seq)",
     "CREATE INDEX IF NOT EXISTS idx_files_owner_session_seq ON files(owner_user_id, session_id, file_seq)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at ON sessions(owner_user_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_session_knowledge_items_session_seq ON session_knowledge_items(session_id, attachment_seq DESC)",
     "CREATE INDEX IF NOT EXISTS idx_private_samples_session_seq ON session_private_samples(session_id, attachment_seq DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_knowledge_items_owner_scope_updated_at ON knowledge_items(owner_user_id, library_scope, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_knowledge_items_status ON knowledge_items(index_status, parse_status, ingest_status)",
+    "CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_item_order ON knowledge_chunks(knowledge_item_id, order_index ASC)",
+    "CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_status_created_at ON knowledge_tasks(status, created_at ASC)",
+    "CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_item_created_at ON knowledge_tasks(knowledge_item_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace ON feedback_entries(owner_user_id, trace_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at ON carbon_calculations(owner_user_id, session_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_reports_owner_session_updated_at ON reports(owner_user_id, session_id, updated_at DESC)",
@@ -377,6 +560,11 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "sessions", "knowledge_scope_last_used", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "source_summary_json", "TEXT")
     _ensure_sqlite_column(connection, "files", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_items", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_items", "source", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_items", "source_url", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_items", "sample_type", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_items", "business_topic", "TEXT")
     _ensure_sqlite_column(connection, "feedback_entries", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "carbon_calculations", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "reports", "owner_user_id", "TEXT")

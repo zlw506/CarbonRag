@@ -16,13 +16,15 @@ def _extract_citations(tool_results: list[ToolResult]) -> list[dict]:
                 continue
             citations.append(
                 {
-                    "doc_id": hit.get("doc_id"),
+                    "doc_id": hit.get("doc_id") or hit.get("knowledge_item_id"),
+                    "knowledge_item_id": hit.get("knowledge_item_id"),
                     "title": hit.get("title"),
                     "source_type": hit.get("source_type"),
                     "source": hit.get("source"),
                     "source_url": hit.get("source_url"),
                     "snippet": hit.get("snippet"),
                     "chunk_id": hit.get("chunk_id"),
+                    "library_scope": hit.get("library_scope"),
                 }
             )
     return citations
@@ -31,10 +33,12 @@ def _extract_citations(tool_results: list[ToolResult]) -> list[dict]:
 def _build_source_summary(*, knowledge_scope: str, citations: list[dict]) -> dict:
     public_policy_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy")
     private_sample_count = sum(1 for citation in citations if citation.get("source_type") == "private_sample")
+    private_upload_count = sum(1 for citation in citations if citation.get("source_type") == "private_upload")
     return {
         "knowledge_scope": knowledge_scope,
         "public_policy_count": public_policy_count,
         "private_sample_count": private_sample_count,
+        "private_upload_count": private_upload_count,
         "total_citation_count": len(citations),
     }
 

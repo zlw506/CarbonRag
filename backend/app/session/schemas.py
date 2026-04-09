@@ -30,6 +30,7 @@ class UploadedFile(BaseModel):
 
 class SessionAttachment(BaseModel):
     file_id: str
+    knowledge_item_id: str | None = None
     filename: str
     source_type: AttachmentSourceType
     attached_at: datetime
@@ -43,6 +44,7 @@ class SessionSummary(BaseModel):
     message_count: int = 0
     file_count: int = 0
     attached_private_sample_count: int = 0
+    attached_knowledge_item_count: int = 0
 
 
 class SessionDetail(SessionSummary):
@@ -85,3 +87,4 @@ class ReplaceAttachedPrivateSamplesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     doc_ids: list[str] = Field(default_factory=list)
+    knowledge_item_ids: list[str] = Field(default_factory=list)

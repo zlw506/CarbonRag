@@ -84,6 +84,14 @@ class SessionStore(ABC):
     def list_attached_private_sample_ids(self, *, session_id: str) -> list[str]:
         raise NotImplementedError
 
+    @abstractmethod
+    def replace_attached_knowledge_items(self, *, session_id: str, knowledge_item_ids: list[str], attached_at: str) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_attached_knowledge_item_ids(self, *, session_id: str) -> list[str]:
+        raise NotImplementedError
+
 
 @lru_cache(maxsize=1)
 def get_session_store() -> SessionStore:

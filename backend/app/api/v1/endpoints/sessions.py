@@ -23,6 +23,7 @@ def build_error_response(*, status_code: int, answer: str, trace_id: str, knowle
             knowledge_scope=knowledge_scope,
             public_policy_count=0,
             private_sample_count=0,
+            private_upload_count=0,
             total_citation_count=0,
         ),
         trace_id=trace_id,
@@ -82,18 +83,18 @@ def ask_in_session(
         raise HTTPException(status_code=404, detail="Session not found.")
 
     requested_scope = payload.knowledge_scope
-    attached_private_sample_ids = session_service.list_attached_private_sample_ids(
+    attached_knowledge_item_ids = session_service.list_attached_knowledge_item_ids(
         owner_user_id=current_user.user_id,
         session_id=session_id,
     )
-    attached_private_sample_set = set(attached_private_sample_ids)
-    filtered_private_sample_ids = [
+    attached_knowledge_item_set = set(attached_knowledge_item_ids)
+    filtered_knowledge_item_ids = [
         item
-        for item in payload.attached_file_ids
-        if item in attached_private_sample_set
+        for item in (payload.attached_knowledge_item_ids or payload.attached_file_ids)
+        if item in attached_knowledge_item_set
     ]
-    effective_private_sample_ids = (
-        filtered_private_sample_ids if payload.attached_file_ids else attached_private_sample_ids
+    effective_knowledge_item_ids = (
+        filtered_knowledge_item_ids if (payload.attached_knowledge_item_ids or payload.attached_file_ids) else attached_knowledge_item_ids
     )
 
     chat_request = ChatRequest(
@@ -110,7 +111,7 @@ def ask_in_session(
             "knowledge_scope_effective": requested_scope,
             "top_k": payload.top_k,
             "attached_file_ids": payload.attached_file_ids,
-            "attached_private_sample_ids": effective_private_sample_ids,
+            "attached_knowledge_item_ids": effective_knowledge_item_ids,
         },
     )
 
@@ -137,6 +138,7 @@ def ask_in_session(
             knowledge_scope=requested_scope,
             public_policy_count=0,
             private_sample_count=0,
+            private_upload_count=0,
             total_citation_count=0,
         )
         session_service.record_exchange(
