@@ -13,6 +13,7 @@ from app.auth.schemas import (
 from app.auth.service import (
     AuthenticationError,
     InactiveUserError,
+    ReservedUsernameError,
     UserAlreadyExistsError,
     get_auth_service,
 )
@@ -40,6 +41,8 @@ def register(payload: RegisterRequest) -> AuthUserEnvelope:
         user = get_auth_service().register(payload)
     except UserAlreadyExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except ReservedUsernameError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return AuthUserEnvelope(user=user)

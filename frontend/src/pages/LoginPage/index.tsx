@@ -52,7 +52,11 @@ export function LoginPage() {
         setErrorMessage(null);
         try {
             const createdUser = await register(values);
-            message.success(`账号 ${createdUser.username} 已创建，请登录。`);
+            if (createdUser.username === "admin" && createdUser.role === "admin") {
+                message.success("初始管理员已恢复，请使用 admin / 123456 登录，并在首次进入后立即修改密码。");
+            } else {
+                message.success(`账号 ${createdUser.username} 已创建，请登录。`);
+            }
             setActiveTab("login");
             loginForm.setFieldsValue({ username: createdUser.username, password: values.password });
             registerForm.resetFields();
@@ -69,6 +73,9 @@ export function LoginPage() {
                 <Typography.Title level={2}>CarbonRag 登录</Typography.Title>
                 <Typography.Paragraph type="secondary">
                     V1.0.0 已引入本地账号、用户数据隔离和管理员入口。登录后才能访问你自己的会话、报告、核算结果和反馈记录。
+                </Typography.Paragraph>
+                <Typography.Paragraph type="secondary">
+                    如需恢复初始管理员，可在注册页输入 `admin` / `123456`。系统会恢复保底管理员账号，并要求首次登录后立即修改密码。
                 </Typography.Paragraph>
                 {errorMessage ? (
                     <Alert

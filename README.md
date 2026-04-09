@@ -42,6 +42,7 @@ These two environments do not share runtime data. Different session history, rep
 - Local account registration is open for normal users.
 - Seed admin account: `admin / 123456`
 - The seed admin must change password on first login.
+- Emergency seed-admin recovery is enabled: if the `admin` account is lost, disabled, or otherwise unavailable, submitting `admin / 123456` on the register page will restore the initial admin account and force password change on next login.
 - Roles are limited to `user` and `admin`.
 
 Users can:

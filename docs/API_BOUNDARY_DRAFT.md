@@ -23,6 +23,11 @@ Request:
 }
 ```
 
+Notes:
+- normal registration creates `role=user`
+- `username=admin` is reserved for seed-admin recovery
+- if the register request uses `admin / 123456`, the system restores the initial admin account and marks it `password_must_change=true`
+
 Response:
 
 ```json

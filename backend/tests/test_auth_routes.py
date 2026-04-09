@@ -76,3 +76,72 @@ def test_seed_admin_must_change_password_before_access(monkeypatch, tmp_path) ->
     assert sessions_response.status_code == 200
     system_response = client.get("/api/v1/system/info")
     assert system_response.status_code == 200
+
+
+def test_register_admin_with_seed_password_recovers_missing_seed_admin(monkeypatch, tmp_path) -> None:
+    session_service = build_session_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    auth_service = patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+    auth_service.ensure_seed_admin_and_backfill()
+
+    with auth_service._connect() as connection:  # noqa: SLF001 - test recovery path against actual runtime store
+        connection.execute("DELETE FROM auth_sessions")
+        connection.execute("DELETE FROM users WHERE username = ?", ("admin",))
+
+    client.cookies.clear()
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={"username": "admin", "password": "123456"},
+    )
+    assert register_response.status_code == 200
+    recovered_user = register_response.json()["user"]
+    assert recovered_user["username"] == "admin"
+    assert recovered_user["role"] == "admin"
+    assert recovered_user["password_must_change"] is True
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "123456"},
+    )
+    assert login_response.status_code == 200
+    assert login_response.json()["must_change_password"] is True
+
+
+def test_register_admin_with_seed_password_recovers_existing_broken_admin(monkeypatch, tmp_path) -> None:
+    session_service = build_session_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    auth_service = patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+    seed_admin = auth_service.ensure_seed_admin_and_backfill()
+    auth_service.update_user(user_id=seed_admin.user_id, role="user", is_active=False)
+
+    client.cookies.clear()
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={"username": "admin", "password": "123456"},
+    )
+    assert register_response.status_code == 200
+    recovered_user = register_response.json()["user"]
+    assert recovered_user["role"] == "admin"
+    assert recovered_user["is_active"] is True
+    assert recovered_user["password_must_change"] is True
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "123456"},
+    )
+    assert login_response.status_code == 200
+    assert login_response.json()["must_change_password"] is True
+
+
+def test_register_admin_with_non_seed_password_is_rejected(monkeypatch, tmp_path) -> None:
+    session_service = build_session_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+
+    client.cookies.clear()
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={"username": "admin", "password": "otherpass123"},
+    )
+    assert register_response.status_code == 422
+    assert "admin / 123456" in register_response.json()["detail"]

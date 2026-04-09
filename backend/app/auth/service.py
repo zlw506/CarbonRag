@@ -43,6 +43,10 @@ class UserAlreadyExistsError(ValueError):
     pass
 
 
+class ReservedUsernameError(ValueError):
+    pass
+
+
 class AuthService:
     def __init__(
         self,
@@ -139,40 +143,24 @@ class AuthService:
     def ensure_seed_admin_and_backfill(self) -> AuthenticatedUser:
         seed_row = self._fetch_user_by_username(SEED_ADMIN_USERNAME)
         if seed_row is None:
-            created_at = self._utcnow().isoformat()
-            user_id = f"user-{uuid4().hex[:12]}"
-            password_hash = self.password_hasher.hash(SEED_ADMIN_PASSWORD)
-            with self._connect() as connection:
-                if self.backend_kind == "postgresql":
-                    with connection.cursor() as cursor:
-                        cursor.execute(
-                            """
-                            INSERT INTO users (
-                                user_id,
-                                username,
-                                password_hash,
-                                role,
-                                is_active,
-                                password_must_change,
-                                created_at,
-                                updated_at,
-                                last_login_at
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
-                            """,
-                            (
-                                user_id,
-                                SEED_ADMIN_USERNAME,
-                                password_hash,
-                                "admin",
-                                True,
-                                True,
-                                created_at,
-                                created_at,
-                            ),
-                        )
-                else:
-                    connection.execute(
+            self._create_seed_admin()
+            seed_row = self._fetch_user_by_username(SEED_ADMIN_USERNAME)
+
+        if seed_row is None:
+            raise RuntimeError("Seed admin could not be created.")
+
+        seed_user = self._row_to_user(seed_row)
+        self._backfill_owner_fields(seed_user.user_id)
+        return seed_user
+
+    def _create_seed_admin(self) -> None:
+        created_at = self._utcnow().isoformat()
+        user_id = f"user-{uuid4().hex[:12]}"
+        password_hash = self.password_hasher.hash(SEED_ADMIN_PASSWORD)
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
                         """
                         INSERT INTO users (
                             user_id,
@@ -185,27 +173,98 @@ class AuthService:
                             updated_at,
                             last_login_at
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
                         """,
                         (
                             user_id,
                             SEED_ADMIN_USERNAME,
                             password_hash,
                             "admin",
-                            1,
-                            1,
+                            True,
+                            True,
                             created_at,
                             created_at,
                         ),
                     )
-            seed_row = self._fetch_user_by_username(SEED_ADMIN_USERNAME)
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO users (
+                        user_id,
+                        username,
+                        password_hash,
+                        role,
+                        is_active,
+                        password_must_change,
+                        created_at,
+                        updated_at,
+                        last_login_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    """,
+                    (
+                        user_id,
+                        SEED_ADMIN_USERNAME,
+                        password_hash,
+                        "admin",
+                        1,
+                        1,
+                        created_at,
+                        created_at,
+                    ),
+                )
 
-        if seed_row is None:
-            raise RuntimeError("Seed admin could not be created.")
+    def recover_seed_admin(self) -> AuthenticatedUser:
+        existing_row = self._fetch_user_by_username(SEED_ADMIN_USERNAME)
+        if existing_row is None:
+            self._create_seed_admin()
+            recovered_row = self._fetch_user_by_username(SEED_ADMIN_USERNAME)
+            if recovered_row is None:
+                raise RuntimeError("Seed admin could not be recovered.")
+            recovered_user = self._row_to_user(recovered_row)
+            self._backfill_owner_fields(recovered_user.user_id)
+            return recovered_user
 
-        seed_user = self._row_to_user(seed_row)
-        self._backfill_owner_fields(seed_user.user_id)
-        return seed_user
+        updated_at = self._utcnow().isoformat()
+        password_hash = self.password_hasher.hash(SEED_ADMIN_PASSWORD)
+        user_id = existing_row["user_id"]
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE users
+                        SET password_hash = %s,
+                            role = %s,
+                            is_active = %s,
+                            password_must_change = %s,
+                            updated_at = %s
+                        WHERE user_id = %s
+                        """,
+                        (password_hash, "admin", True, True, updated_at, user_id),
+                    )
+                    cursor.execute("DELETE FROM auth_sessions WHERE user_id = %s", (user_id,))
+            else:
+                connection.execute(
+                    """
+                    UPDATE users
+                    SET password_hash = ?,
+                        role = ?,
+                        is_active = ?,
+                        password_must_change = ?,
+                        updated_at = ?
+                    WHERE user_id = ?
+                    """,
+                    (password_hash, "admin", 1, 1, updated_at, user_id),
+                )
+                connection.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+
+        recovered_row = self._fetch_user_by_id(user_id)
+        if recovered_row is None:
+            raise RuntimeError("Recovered seed admin could not be reloaded.")
+        recovered_user = self._row_to_user(recovered_row)
+        self._backfill_owner_fields(recovered_user.user_id)
+        return recovered_user
 
     def _backfill_owner_fields(self, owner_user_id: str) -> None:
         statements = {
@@ -235,6 +294,13 @@ class AuthService:
 
     def register(self, payload: RegisterRequest | dict) -> AuthenticatedUser:
         request = payload if isinstance(payload, RegisterRequest) else RegisterRequest.model_validate(payload)
+        if request.username == SEED_ADMIN_USERNAME:
+            if request.password != SEED_ADMIN_PASSWORD:
+                raise ReservedUsernameError(
+                    "用户名 admin 为系统保留账号；如需恢复初始管理员，请在注册页使用 admin / 123456。"
+                )
+            return self.recover_seed_admin()
+
         if self._fetch_user_by_username(request.username) is not None:
             raise UserAlreadyExistsError("username already exists.")
 
