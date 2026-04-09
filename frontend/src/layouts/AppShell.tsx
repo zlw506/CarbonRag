@@ -1,8 +1,15 @@
-import { DesktopOutlined, ExperimentOutlined, FileTextOutlined, SearchOutlined } from "@ant-design/icons";
-import { Layout, Menu, Typography } from "antd";
+import {
+    DesktopOutlined,
+    ExperimentOutlined,
+    FileTextOutlined,
+    LogoutOutlined,
+    SearchOutlined,
+} from "@ant-design/icons";
+import { Avatar, Button, Layout, Menu, Space, Tag, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../app/AuthContext";
 import env from "../app/env";
-import { navigationItems } from "../constants/navigation";
+import { getNavigationItems } from "../constants/navigation";
 
 const { Header, Content, Sider } = Layout;
 
@@ -16,6 +23,18 @@ const iconMap = {
 export function AppShell() {
     const location = useLocation();
     const navigate = useNavigate();
+    const { user, logout } = useAuth();
+
+    if (!user) {
+        return null;
+    }
+
+    const navigationItems = getNavigationItems(user.role);
+
+    async function handleLogout() {
+        await logout();
+        navigate("/login", { replace: true });
+    }
 
     return (
         <Layout className="app-shell">
@@ -23,8 +42,8 @@ export function AppShell() {
                 <div className="app-shell__brand">
                     <Typography.Title level={4}>{env.appTitle}</Typography.Title>
                     <Typography.Paragraph>
-                        v0.2.0 report generation first closure。当前 ask 已支持 public/private/mixed grounding，
-                        calc-carbon 与 feedback 已落地，本轮新增 session 关联报告生成与回看能力。
+                        Enterprise trial baseline with user isolation, protected workspaces, and an initial admin
+                        console.
                     </Typography.Paragraph>
                 </div>
                 <Menu
@@ -40,7 +59,22 @@ export function AppShell() {
             </Sider>
             <Layout>
                 <Header className="app-shell__header">
-                    <Typography.Title level={3}>CarbonRag Conversation Workbench</Typography.Title>
+                    <div className="app-shell__header-bar">
+                        <div>
+                            <Typography.Title level={3}>CarbonRag Workbench</Typography.Title>
+                            <Typography.Paragraph>
+                                Local accounts, role-aware access, and isolated data per signed-in user.
+                            </Typography.Paragraph>
+                        </div>
+                        <Space size={12} wrap>
+                            <Avatar>{user.username.slice(0, 1).toUpperCase()}</Avatar>
+                            <Typography.Text strong>{user.username}</Typography.Text>
+                            <Tag color={user.role === "admin" ? "purple" : "blue"}>{user.role}</Tag>
+                            <Button icon={<LogoutOutlined />} onClick={() => void handleLogout()}>
+                                Logout
+                            </Button>
+                        </Space>
+                    </div>
                 </Header>
                 <Content className="app-shell__content">
                     <Outlet />

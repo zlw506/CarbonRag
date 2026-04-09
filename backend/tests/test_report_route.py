@@ -4,12 +4,12 @@ from fastapi.testclient import TestClient
 
 from app.carbon.factor_loader import CarbonFactorLoader
 from app.carbon.service import CarbonService
-from app.carbon.schemas import CalcCarbonRequest
 from app.main import app
 from app.report.service import ReportService
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
 from app.schemas.ask import AskCitation
+from tests.test_helpers import patch_test_auth_service, register_and_login
 
 client = TestClient(app)
 
@@ -18,10 +18,14 @@ class FakeChatProvider:
     def generate_response(self, *, system_prompt: str, user_input: str):
         payload = json.loads(user_input)
         sections = [
-            {"heading": heading, "body": f"{heading}：来自报告路由测试。"}
+            {"heading": heading, "body": f"{heading}: generated in report route test."}
             for heading in payload["template_sections"]
         ]
-        return type("Result", (), {"content": json.dumps({"title": payload["template_name"], "sections": sections}, ensure_ascii=False)})()
+        return type(
+            "Result",
+            (),
+            {"content": json.dumps({"title": payload["template_name"], "sections": sections}, ensure_ascii=False)},
+        )()
 
 
 def build_factor_file(tmp_path):
@@ -88,27 +92,31 @@ def test_report_route_creates_policy_summary(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.reports.get_report_service", lambda: report_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    register_and_login(client, prefix="report-policy")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
+    current_user = client.get("/api/v1/auth/me").json()["user"]
     session_service.record_exchange(
+        owner_user_id=current_user["user_id"],
         session_id=session_id,
-        user_content="什么是双碳目标？",
-        assistant_content="双碳目标解释。",
+        user_content="What is the dual-carbon target?",
+        assistant_content="Dual-carbon target explanation.",
         assistant_status="ok",
         trace_id="trace-ask-001",
         citations=[
             AskCitation(
                 doc_id="policy_001",
-                title="政策依据",
+                title="Policy Basis",
                 source_type="public_policy",
-                source="国务院",
+                source="State Council",
                 source_url="https://example.com/policy",
-                snippet="政策片段",
+                snippet="Policy snippet",
                 chunk_id="policy_001_chunk_01",
             )
         ],
     )
-    session = session_service.get_session(session_id)
+    session = session_service.get_session(owner_user_id=current_user["user_id"], session_id=session_id)
 
     response = client.post(
         "/api/v1/reports",
@@ -133,7 +141,9 @@ def test_report_route_creates_carbon_summary(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)
     monkeypatch.setattr("app.api.v1.endpoints.reports.get_report_service", lambda: report_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    register_and_login(client, prefix="report-carbon")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
     calc_result = client.post(
         "/api/v1/calc-carbon",

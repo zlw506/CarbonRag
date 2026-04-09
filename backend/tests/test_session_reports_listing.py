@@ -1,22 +1,27 @@
 import json
 
 from app.carbon.factor_loader import CarbonFactorLoader
-from app.carbon.service import CarbonService
 from app.carbon.schemas import CalcCarbonRequest
+from app.carbon.service import CarbonService
 from app.report.service import ReportService
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
 from app.schemas.ask import AskCitation
+from tests.test_helpers import create_test_user_id
 
 
 class FakeChatProvider:
     def generate_response(self, *, system_prompt: str, user_input: str):
         payload = json.loads(user_input)
         sections = [
-            {"heading": heading, "body": f"{heading}：session reports listing 测试。"}
+            {"heading": heading, "body": f"{heading}: session reports listing test."}
             for heading in payload["template_sections"]
         ]
-        return type("Result", (), {"content": json.dumps({"title": payload["template_name"], "sections": sections}, ensure_ascii=False)})()
+        return type(
+            "Result",
+            (),
+            {"content": json.dumps({"title": payload["template_name"], "sections": sections}, ensure_ascii=False)},
+        )()
 
 
 def build_factor_file(tmp_path):
@@ -77,37 +82,49 @@ def test_session_reports_listing_and_carbon_results(monkeypatch, tmp_path) -> No
     )
     monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
 
-    session = session_service.create_session()
+    owner_user_id = create_test_user_id(store.db_path, prefix="report-list")
+    session = session_service.create_session(owner_user_id=owner_user_id)
     session_service.record_exchange(
+        owner_user_id=owner_user_id,
         session_id=session.session_id,
-        user_content="解释双碳目标",
-        assistant_content="政策摘要回答。",
+        user_content="Explain the dual-carbon target",
+        assistant_content="Policy summary answer.",
         assistant_status="ok",
         trace_id="trace-ask-001",
         citations=[
             AskCitation(
                 doc_id="policy_001",
-                title="政策依据",
+                title="Policy Basis",
                 source_type="public_policy",
-                source="国务院",
+                source="State Council",
                 source_url="https://example.com/policy",
-                snippet="政策片段",
+                snippet="Policy snippet",
                 chunk_id="policy_001_chunk_01",
             )
         ],
     )
-    session_detail = session_service.get_session(session.session_id)
+    session_detail = session_service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
     report_service.create_report(
-        {
+        owner_user_id=owner_user_id,
+        payload={
             "session_id": session.session_id,
             "report_type": "policy_summary",
             "source_message_ids": [session_detail.messages[-1].message_id],
-        }
+        },
     )
-    carbon_service.calculate(CalcCarbonRequest(session_id=session.session_id, electricity_kwh=100))
+    carbon_service.calculate(
+        owner_user_id=owner_user_id,
+        payload=CalcCarbonRequest(session_id=session.session_id, electricity_kwh=100),
+    )
 
-    reports = report_service.list_session_reports(session.session_id)
-    carbon_results = report_service.list_session_carbon_results(session.session_id)
+    reports = report_service.list_session_reports(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+    )
+    carbon_results = report_service.list_session_carbon_results(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+    )
 
     assert len(reports) == 1
     assert reports[0].source_count >= 1

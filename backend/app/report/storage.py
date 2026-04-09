@@ -36,7 +36,7 @@ class ReportStorage:
         connection.row_factory = sqlite3.Row
         return connection
 
-    def create_report(self, report: StoredReport) -> ReportDetail:
+    def create_report(self, *, owner_user_id: str, report: StoredReport) -> ReportDetail:
         citations_json = json.dumps([item.model_dump() for item in report.citations], ensure_ascii=False)
         source_summary_json = json.dumps(report.source_summary.model_dump(), ensure_ascii=False)
 
@@ -46,13 +46,14 @@ class ReportStorage:
                     cursor.execute(
                         """
                         INSERT INTO reports (
-                            report_id, session_id, report_type, title, content, output_format,
+                            report_id, owner_user_id, session_id, report_type, title, content, output_format,
                             citations_json, source_summary_json, trace_id, created_at, updated_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             report.report_id,
+                            owner_user_id,
                             report.session_id,
                             report.report_type,
                             report.title,
@@ -83,13 +84,14 @@ class ReportStorage:
                 connection.execute(
                     """
                     INSERT INTO reports (
-                        report_id, session_id, report_type, title, content, output_format,
+                        report_id, owner_user_id, session_id, report_type, title, content, output_format,
                         citations_json, source_summary_json, trace_id, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         report.report_id,
+                        owner_user_id,
                         report.session_id,
                         report.report_type,
                         report.title,
@@ -117,16 +119,19 @@ class ReportStorage:
                         ),
                     )
 
-        created = self.get_report(report.report_id)
+        created = self.get_report(owner_user_id=owner_user_id, report_id=report.report_id)
         if created is None:
             raise RuntimeError("Stored report could not be reloaded.")
         return created
 
-    def get_report(self, report_id: str) -> ReportDetail | None:
+    def get_report(self, *, owner_user_id: str, report_id: str) -> ReportDetail | None:
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
-                    cursor.execute("SELECT * FROM reports WHERE report_id = %s", (report_id,))
+                    cursor.execute(
+                        "SELECT * FROM reports WHERE report_id = %s AND owner_user_id = %s",
+                        (report_id, owner_user_id),
+                    )
                     row = cursor.fetchone()
                     if row is None:
                         return None
@@ -141,7 +146,10 @@ class ReportStorage:
                     )
                     source_rows = cursor.fetchall()
             else:
-                row = connection.execute("SELECT * FROM reports WHERE report_id = ?", (report_id,)).fetchone()
+                row = connection.execute(
+                    "SELECT * FROM reports WHERE report_id = ? AND owner_user_id = ?",
+                    (report_id, owner_user_id),
+                ).fetchone()
                 if row is None:
                     return None
                 source_rows = connection.execute(
@@ -156,7 +164,15 @@ class ReportStorage:
 
         return self._row_to_report_detail(row, source_rows)
 
-    def update_report(self, *, report_id: str, title: str | None, content: str, updated_at: datetime) -> ReportDetail | None:
+    def update_report(
+        self,
+        *,
+        owner_user_id: str,
+        report_id: str,
+        title: str | None,
+        content: str,
+        updated_at: datetime,
+    ) -> ReportDetail | None:
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
@@ -167,8 +183,9 @@ class ReportStorage:
                             content = %s,
                             updated_at = %s
                         WHERE report_id = %s
+                          AND owner_user_id = %s
                         """,
-                        (title, content, updated_at.isoformat(), report_id),
+                        (title, content, updated_at.isoformat(), report_id, owner_user_id),
                     )
                     if cursor.rowcount == 0:
                         return None
@@ -180,15 +197,16 @@ class ReportStorage:
                         content = ?,
                         updated_at = ?
                     WHERE report_id = ?
+                      AND owner_user_id = ?
                     """,
-                    (title, content, updated_at.isoformat(), report_id),
+                    (title, content, updated_at.isoformat(), report_id, owner_user_id),
                 )
                 if cursor.rowcount == 0:
                     return None
 
-        return self.get_report(report_id)
+        return self.get_report(owner_user_id=owner_user_id, report_id=report_id)
 
-    def list_session_reports(self, session_id: str) -> list[ReportSummary]:
+    def list_session_reports(self, *, owner_user_id: str, session_id: str) -> list[ReportSummary]:
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
@@ -204,10 +222,11 @@ class ReportStorage:
                         FROM reports r
                         LEFT JOIN report_sources rs ON rs.report_id = r.report_id
                         WHERE r.session_id = %s
+                          AND r.owner_user_id = %s
                         GROUP BY r.report_id
                         ORDER BY r.updated_at DESC, r.created_at DESC
                         """,
-                        (session_id,),
+                        (session_id, owner_user_id),
                     )
                     rows = cursor.fetchall()
             else:
@@ -223,10 +242,11 @@ class ReportStorage:
                     FROM reports r
                     LEFT JOIN report_sources rs ON rs.report_id = r.report_id
                     WHERE r.session_id = ?
+                      AND r.owner_user_id = ?
                     GROUP BY r.report_id
                     ORDER BY r.updated_at DESC, r.created_at DESC
                     """,
-                    (session_id,),
+                    (session_id, owner_user_id),
                 ).fetchall()
 
         return [

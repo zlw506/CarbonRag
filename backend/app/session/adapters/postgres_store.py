@@ -4,7 +4,7 @@ from functools import lru_cache
 import psycopg
 from psycopg.rows import dict_row
 
-from app.retrieval.private_corpus_loader import load_private_sample_catalog
+from app.retrieval.private_corpus_loader import load_private_sample_manifest
 from app.runtime_db.bootstrap import bootstrap_runtime_database
 from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 from app.session.schemas import (
@@ -25,26 +25,27 @@ class PostgreSQLSessionStore(SessionStore):
     def _connect(self):
         return psycopg.connect(self.database_url, row_factory=dict_row)
 
-    def create_session(self, *, session_id: str, title: str, created_at: str) -> SessionSummary:
+    def create_session(self, *, session_id: str, owner_user_id: str, title: str, created_at: str) -> SessionSummary:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
                     INSERT INTO sessions (
                         session_id,
+                        owner_user_id,
                         title,
                         created_at,
                         updated_at,
                         knowledge_scope_last_used,
                         source_summary_json
                     )
-                    VALUES (%s, %s, %s, %s, NULL, NULL)
+                    VALUES (%s, %s, %s, %s, %s, NULL, NULL)
                     """,
-                    (session_id, title, created_at, created_at),
+                    (session_id, owner_user_id, title, created_at, created_at),
                 )
-        return self._get_session_summary(session_id)
+        return self._get_session_summary(owner_user_id=owner_user_id, session_id=session_id)
 
-    def list_sessions(self) -> list[SessionSummary]:
+    def list_sessions(self, *, owner_user_id: str) -> list[SessionSummary]:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -73,14 +74,15 @@ class PostgreSQLSessionStore(SessionStore):
                         FROM session_private_samples
                         GROUP BY session_id
                     ) p ON p.session_id = s.session_id
+                    WHERE s.owner_user_id = %s
                     ORDER BY s.updated_at DESC, s.created_at DESC
                     """
-                )
+                , (owner_user_id,))
                 rows = cursor.fetchall()
         return [self._row_to_session_summary(row) for row in rows]
 
-    def get_session(self, session_id: str) -> SessionDetail | None:
-        summary = self._get_session_summary(session_id)
+    def get_session(self, *, owner_user_id: str, session_id: str) -> SessionDetail | None:
+        summary = self._get_session_summary(owner_user_id=owner_user_id, session_id=session_id)
         if summary is None:
             return None
 
@@ -90,9 +92,9 @@ class PostgreSQLSessionStore(SessionStore):
                     """
                     SELECT knowledge_scope_last_used, source_summary_json
                     FROM sessions
-                    WHERE session_id = %s
+                    WHERE session_id = %s AND owner_user_id = %s
                     """,
-                    (session_id,),
+                    (session_id, owner_user_id),
                 )
                 session_row = cursor.fetchone()
                 cursor.execute(
@@ -109,10 +111,10 @@ class PostgreSQLSessionStore(SessionStore):
                     """
                     SELECT file_id, session_id, filename, size, mime_type, stored_at
                     FROM files
-                    WHERE session_id = %s
+                    WHERE session_id = %s AND owner_user_id = %s
                     ORDER BY file_seq DESC
                     """,
-                    (session_id,),
+                    (session_id, owner_user_id),
                 )
                 file_rows = cursor.fetchall()
                 cursor.execute(
@@ -148,6 +150,11 @@ class PostgreSQLSessionStore(SessionStore):
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
+                    "SELECT owner_user_id FROM sessions WHERE session_id = %s",
+                    (session_id,),
+                )
+                owner_row = cursor.fetchone()
+                cursor.execute(
                     """
                     UPDATE sessions
                     SET title = %s, updated_at = %s
@@ -155,9 +162,9 @@ class PostgreSQLSessionStore(SessionStore):
                     """,
                     (title, updated_at, session_id),
                 )
-                if cursor.rowcount == 0:
+                if cursor.rowcount == 0 or owner_row is None:
                     return None
-        return self._get_session_summary(session_id)
+        return self._get_session_summary(owner_user_id=owner_row["owner_user_id"], session_id=session_id)
 
     def update_session_runtime_state(
         self,
@@ -169,6 +176,11 @@ class PostgreSQLSessionStore(SessionStore):
     ) -> SessionSummary | None:
         with self._connect() as connection:
             with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT owner_user_id FROM sessions WHERE session_id = %s",
+                    (session_id,),
+                )
+                owner_row = cursor.fetchone()
                 cursor.execute(
                     """
                     UPDATE sessions
@@ -182,9 +194,9 @@ class PostgreSQLSessionStore(SessionStore):
                         session_id,
                     ),
                 )
-                if cursor.rowcount == 0:
+                if cursor.rowcount == 0 or owner_row is None:
                     return None
-        return self._get_session_summary(session_id)
+        return self._get_session_summary(owner_user_id=owner_row["owner_user_id"], session_id=session_id)
 
     def append_message(
         self,
@@ -250,10 +262,13 @@ class PostgreSQLSessionStore(SessionStore):
         messages.reverse()
         return messages
 
-    def session_exists(self, session_id: str) -> bool:
+    def session_exists(self, *, owner_user_id: str, session_id: str) -> bool:
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SELECT 1 FROM sessions WHERE session_id = %s", (session_id,))
+                cursor.execute(
+                    "SELECT 1 FROM sessions WHERE session_id = %s AND owner_user_id = %s",
+                    (session_id, owner_user_id),
+                )
                 row = cursor.fetchone()
         return row is not None
 
@@ -270,12 +285,15 @@ class PostgreSQLSessionStore(SessionStore):
     ) -> UploadedFile:
         with self._connect() as connection:
             with connection.cursor() as cursor:
+                cursor.execute("SELECT owner_user_id FROM sessions WHERE session_id = %s", (session_id,))
+                owner_row = cursor.fetchone()
+                owner_user_id = owner_row["owner_user_id"] if owner_row else None
                 cursor.execute(
                     """
-                    INSERT INTO files (file_id, session_id, filename, size, mime_type, stored_at, storage_path)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO files (file_id, owner_user_id, session_id, filename, size, mime_type, stored_at, storage_path)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (file_id, session_id, filename, size, mime_type, stored_at, storage_path),
+                    (file_id, owner_user_id, session_id, filename, size, mime_type, stored_at, storage_path),
                 )
                 cursor.execute(
                     "UPDATE sessions SET updated_at = %s WHERE session_id = %s",
@@ -327,7 +345,7 @@ class PostgreSQLSessionStore(SessionStore):
                 rows = cursor.fetchall()
         return [row["doc_id"] for row in rows]
 
-    def _get_session_summary(self, session_id: str) -> SessionSummary | None:
+    def _get_session_summary(self, *, owner_user_id: str, session_id: str) -> SessionSummary | None:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -356,9 +374,9 @@ class PostgreSQLSessionStore(SessionStore):
                         FROM session_private_samples
                         GROUP BY session_id
                     ) p ON p.session_id = s.session_id
-                    WHERE s.session_id = %s
+                    WHERE s.session_id = %s AND s.owner_user_id = %s
                     """,
-                    (session_id,),
+                    (session_id, owner_user_id),
                 )
                 row = cursor.fetchone()
         if row is None:
@@ -390,7 +408,7 @@ class PostgreSQLSessionStore(SessionStore):
 
     @staticmethod
     def _row_to_private_sample_attachment(row) -> SessionAttachment:
-        catalog_map = {item.doc_id: item for item in load_private_sample_catalog()}
+        catalog_map = {item.doc_id: item for item in load_private_sample_manifest()}
         doc_id = row["doc_id"]
         item = catalog_map.get(doc_id)
         filename = item.title if item else doc_id

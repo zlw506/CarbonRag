@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from app.retrieval.private_corpus_loader import load_private_sample_catalog
+from app.private_samples.catalog import list_attachable_private_sample_catalog
 from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
 from app.session.store import SessionStore, get_session_store
@@ -18,36 +18,45 @@ class SessionService:
     def __init__(self, store: SessionStore | None = None) -> None:
         self.store = store or get_session_store()
 
-    def create_session(self, title: str | None = None) -> SessionSummary:
+    def create_session(self, *, owner_user_id: str, title: str | None = None) -> SessionSummary:
         created_at = utcnow()
         session_id = f"session-{uuid4().hex[:12]}"
         session_title = title or f"{DEFAULT_TITLE_PREFIX} {created_at.astimezone().strftime('%Y-%m-%d %H:%M')}"
         return self.store.create_session(
             session_id=session_id,
+            owner_user_id=owner_user_id,
             title=session_title,
             created_at=created_at.isoformat(),
         )
 
-    def list_sessions(self) -> list[SessionSummary]:
-        return self.store.list_sessions()
+    def list_sessions(self, *, owner_user_id: str) -> list[SessionSummary]:
+        return self.store.list_sessions(owner_user_id=owner_user_id)
 
-    def get_session(self, session_id: str) -> SessionDetail | None:
-        return self.store.get_session(session_id)
+    def get_session(self, *, owner_user_id: str, session_id: str) -> SessionDetail | None:
+        return self.store.get_session(owner_user_id=owner_user_id, session_id=session_id)
 
-    def require_session(self, session_id: str) -> SessionDetail:
-        session = self.get_session(session_id)
+    def require_session(self, *, owner_user_id: str, session_id: str) -> SessionDetail:
+        session = self.get_session(owner_user_id=owner_user_id, session_id=session_id)
         if session is None:
             raise KeyError(f"Unknown session: {session_id}")
         return session
 
-    def update_session_title(self, session_id: str, title: str) -> SessionSummary | None:
+    def update_session_title(self, *, owner_user_id: str, session_id: str, title: str) -> SessionSummary | None:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         return self.store.update_session_title(
             session_id=session_id,
             title=title,
             updated_at=utcnow().isoformat(),
         )
 
-    def build_session_context(self, session_id: str, *, max_turns: int = DEFAULT_CONTEXT_TURNS) -> list[dict[str, str]]:
+    def build_session_context(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        max_turns: int = DEFAULT_CONTEXT_TURNS,
+    ) -> list[dict[str, str]]:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         recent_messages = self.store.list_recent_messages(session_id=session_id, limit=max_turns * 4)
         conversation_messages = [
             {
@@ -62,6 +71,7 @@ class SessionService:
     def record_exchange(
         self,
         *,
+        owner_user_id: str,
         session_id: str,
         user_content: str,
         assistant_content: str,
@@ -71,6 +81,7 @@ class SessionService:
         knowledge_scope: KnowledgeScope = "public",
         source_summary: AskSourceSummary | None = None,
     ) -> tuple[SessionMessage, SessionMessage]:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         timestamp = utcnow()
         user_message = self.store.append_message(
             session_id=session_id,
@@ -103,8 +114,14 @@ class SessionService:
         )
         return user_message, assistant_message
 
-    def maybe_promote_title_from_first_question(self, session_id: str, question: str) -> SessionSummary | None:
-        session = self.get_session(session_id)
+    def maybe_promote_title_from_first_question(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        question: str,
+    ) -> SessionSummary | None:
+        session = self.get_session(owner_user_id=owner_user_id, session_id=session_id)
         if session is None:
             return None
         if not session.title.startswith(DEFAULT_TITLE_PREFIX):
@@ -118,10 +135,10 @@ class SessionService:
 
         max_length = 24
         promoted = trimmed if len(trimmed) <= max_length else f"{trimmed[:max_length].rstrip()}..."
-        return self.update_session_title(session_id, promoted)
+        return self.update_session_title(owner_user_id=owner_user_id, session_id=session_id, title=promoted)
 
-    def record_system_message(self, *, session_id: str, content: str) -> SessionMessage:
-        self.require_session(session_id)
+    def record_system_message(self, *, owner_user_id: str, session_id: str, content: str) -> SessionMessage:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         return self.store.append_message(
             session_id=session_id,
             message_id=f"msg-{uuid4().hex[:12]}",
@@ -133,6 +150,7 @@ class SessionService:
     def record_uploaded_file(
         self,
         *,
+        owner_user_id: str,
         file_id: str | None = None,
         session_id: str,
         filename: str,
@@ -140,6 +158,7 @@ class SessionService:
         mime_type: str,
         storage_path: str,
     ) -> UploadedFile:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         stored_at = utcnow().isoformat()
         return self.store.create_uploaded_file(
             file_id=file_id or f"file-{uuid4().hex[:12]}",
@@ -152,18 +171,21 @@ class SessionService:
         )
 
     def list_private_sample_catalog(self):
-        return [item for item in load_private_sample_catalog() if item.session_attachable]
+        return list_attachable_private_sample_catalog(
+            database_url=getattr(self.store, "database_url", None),
+            sqlite_db_path=getattr(self.store, "db_path", None),
+        )
 
-    def replace_attached_private_samples(self, *, session_id: str, doc_ids: list[str]) -> None:
-        self.require_session(session_id)
+    def replace_attached_private_samples(self, *, owner_user_id: str, session_id: str, doc_ids: list[str]) -> None:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         catalog = {item.doc_id: item for item in self.list_private_sample_catalog()}
-        normalized = []
+        normalized: list[str] = []
         for doc_id in doc_ids:
             candidate = doc_id.strip()
             if not candidate:
                 continue
             if candidate not in catalog:
-                raise ValueError(f"未知的 private sample：{candidate}")
+                raise ValueError(f"Unknown private sample: {candidate}")
             normalized.append(candidate)
         deduplicated = list(dict.fromkeys(normalized))
         self.store.replace_attached_private_samples(
@@ -172,8 +194,8 @@ class SessionService:
             attached_at=utcnow().isoformat(),
         )
 
-    def list_attached_private_sample_ids(self, session_id: str) -> list[str]:
-        self.require_session(session_id)
+    def list_attached_private_sample_ids(self, *, owner_user_id: str, session_id: str) -> list[str]:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         return self.store.list_attached_private_sample_ids(session_id=session_id)
 
 

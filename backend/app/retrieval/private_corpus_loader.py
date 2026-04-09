@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.ai_runtime.config import get_ai_runtime_config
 from app.core.config import REPO_ROOT
+from app.private_samples.overrides import load_private_sample_override_map
 from app.retrieval.private_schemas import (
     PrivateSampleCatalogItem,
     PrivateSampleDocument,
@@ -51,6 +52,7 @@ def load_private_sample_manifest() -> list[PrivateSampleDocumentMetadata]:
 
 @lru_cache(maxsize=1)
 def load_private_sample_catalog() -> list[PrivateSampleCatalogItem]:
+    overrides = load_private_sample_override_map()
     return [
         PrivateSampleCatalogItem(
             doc_id=item.doc_id,
@@ -58,9 +60,10 @@ def load_private_sample_catalog() -> list[PrivateSampleCatalogItem]:
             source_type=item.source_type,
             sample_type=item.sample_type,
             business_topic=item.business_topic,
-            session_attachable=item.session_attachable,
+            session_attachable=overrides.get(item.doc_id, {}).get("session_attachable", item.session_attachable),
         )
         for item in load_private_sample_manifest()
+        if overrides.get(item.doc_id, {}).get("is_enabled", True)
     ]
 
 
@@ -78,8 +81,11 @@ def _load_csv_as_text(doc_path: Path, title: str) -> str:
 @lru_cache(maxsize=1)
 def load_private_sample_documents() -> list[PrivateSampleDocument]:
     corpus_dir = resolve_private_corpus_dir()
+    overrides = load_private_sample_override_map()
     documents: list[PrivateSampleDocument] = []
     for metadata in load_private_sample_manifest():
+        if not overrides.get(metadata.doc_id, {}).get("is_enabled", True):
+            continue
         doc_path = corpus_dir / metadata.filepath
         if not doc_path.exists():
             raise FileNotFoundError(f"Private sample is missing: {doc_path}")

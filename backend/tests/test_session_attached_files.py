@@ -7,6 +7,7 @@ from app.files.storage import FileStorage
 from app.main import app
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
+from tests.test_helpers import patch_test_auth_service, register_and_login
 
 client = TestClient(app)
 
@@ -25,7 +26,9 @@ def test_session_attached_files_support_uploaded_and_private_samples(monkeypatch
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
     monkeypatch.setattr("app.api.v1.endpoints.private_samples.get_session_service", lambda: session_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    register_and_login(client, prefix="attachments")
     catalog_response = client.get("/api/v1/private-samples")
     assert catalog_response.status_code == 200
     assert any(item["doc_id"] == "enterprise_doc_001" for item in catalog_response.json())

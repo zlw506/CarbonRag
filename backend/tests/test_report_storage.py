@@ -3,33 +3,37 @@ from datetime import datetime, timezone
 from app.report.schemas import ReportCitation, ReportSourceEntry, ReportSourceSummary, StoredReport
 from app.report.storage import ReportStorage
 from app.session.adapters.sqlite_store import SQLiteSessionStore
+from tests.test_helpers import create_test_user_id
 
 
 def test_report_storage_persists_and_reload_report(tmp_path) -> None:
-    store = SQLiteSessionStore(tmp_path / "carbonrag.sqlite3")
+    db_path = tmp_path / "carbonrag.sqlite3"
+    store = SQLiteSessionStore(db_path)
+    owner_user_id = create_test_user_id(db_path, prefix="report-storage")
     created_session = store.create_session(
         session_id="session-demo",
+        owner_user_id=owner_user_id,
         title="新对话 2026-04-09 12:00",
         created_at="2026-04-09T12:00:00+00:00",
     )
     storage = ReportStorage(store=store)
-    timestamp = datetime.now(timezone.utc)
 
-    stored = storage.create_report(
-        StoredReport(
-            report_id="report-001",
+    created = storage.create_report(
+        owner_user_id=owner_user_id,
+        report=StoredReport(
+            report_id="report-demo",
             session_id=created_session.session_id,
             report_type="policy_summary",
-            title="政策解读摘要 - 新对话",
-            content="# Demo report\n",
+            title="Policy Summary",
+            content="# Policy Summary\n\nGenerated content.",
             output_format="markdown",
             citations=[
                 ReportCitation(
                     source_type="public_policy",
-                    title="政策标题",
-                    source="国务院",
+                    title="Policy Basis",
+                    source="State Council",
                     source_url="https://example.com/policy",
-                    snippet="政策片段",
+                    snippet="Policy snippet",
                     chunk_id="policy_001_chunk_01",
                 )
             ],
@@ -43,21 +47,20 @@ def test_report_storage_persists_and_reload_report(tmp_path) -> None:
                 ReportSourceEntry(
                     source_type="message",
                     source_ref="msg-001",
-                    label="消息来源",
-                    order_index=0,
+                    label="Assistant message",
+                    order_index=1,
                 )
             ],
             trace_id="report-trace-001",
-            created_at=timestamp,
-            updated_at=timestamp,
-        )
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        ),
     )
 
-    assert stored.report_id == "report-001"
-    assert stored.citations[0].source_type == "public_policy"
-    assert stored.sources[0].source_type == "message"
+    reloaded = storage.get_report(owner_user_id=owner_user_id, report_id=created.report_id)
 
-    reloaded = storage.get_report("report-001")
     assert reloaded is not None
-    assert reloaded.title == "政策解读摘要 - 新对话"
-    assert reloaded.source_summary.total_citation_count == 1
+    assert reloaded.report_id == created.report_id
+    assert reloaded.session_id == created_session.session_id
+    assert reloaded.source_summary.public_policy_count == 1
+    assert reloaded.sources[0].source_type == "message"

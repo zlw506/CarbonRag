@@ -47,18 +47,22 @@ class ReportService:
         self.storage = storage or ReportStorage()
         self.composer = composer or ReportComposer()
 
-    def create_report(self, payload: CreateReportRequest | dict) -> ReportDetail:
+    def create_report(self, *, owner_user_id: str, payload: CreateReportRequest | dict) -> ReportDetail:
         payload = (
             payload
             if isinstance(payload, CreateReportRequest)
             else CreateReportRequest.model_validate(payload)
         )
-        session = self.session_service.get_session(payload.session_id)
+        session = self.session_service.get_session(owner_user_id=owner_user_id, session_id=payload.session_id)
         if session is None:
             raise KeyError(payload.session_id)
 
         selected_messages = self._resolve_selected_messages(session, payload.source_message_ids)
-        carbon_result = self._resolve_carbon_result(payload.session_id, payload.carbon_result_id)
+        carbon_result = self._resolve_carbon_result(
+            owner_user_id=owner_user_id,
+            session_id=payload.session_id,
+            carbon_result_id=payload.carbon_result_id,
+        )
         self._validate_sources(
             report_type=payload.report_type,
             selected_messages=selected_messages,
@@ -110,8 +114,9 @@ class ReportService:
             created_at=timestamp,
             updated_at=timestamp,
         )
-        created = self.storage.create_report(report)
+        created = self.storage.create_report(owner_user_id=owner_user_id, report=report)
         self.session_service.record_system_message(
+            owner_user_id=owner_user_id,
             session_id=payload.session_id,
             content=(
                 f"已生成报告：{created.title}\n"
@@ -121,24 +126,25 @@ class ReportService:
         )
         return created
 
-    def get_report(self, report_id: str) -> ReportDetail | None:
-        return self.storage.get_report(report_id)
+    def get_report(self, *, owner_user_id: str, report_id: str) -> ReportDetail | None:
+        return self.storage.get_report(owner_user_id=owner_user_id, report_id=report_id)
 
-    def update_report(self, report_id: str, payload: UpdateReportRequest) -> ReportDetail | None:
+    def update_report(self, *, owner_user_id: str, report_id: str, payload: UpdateReportRequest) -> ReportDetail | None:
         return self.storage.update_report(
+            owner_user_id=owner_user_id,
             report_id=report_id,
             title=payload.title,
             content=payload.content,
             updated_at=utcnow(),
         )
 
-    def list_session_reports(self, session_id: str) -> list[ReportSummary]:
-        self.session_service.require_session(session_id)
-        return self.storage.list_session_reports(session_id)
+    def list_session_reports(self, *, owner_user_id: str, session_id: str) -> list[ReportSummary]:
+        self.session_service.require_session(owner_user_id=owner_user_id, session_id=session_id)
+        return self.storage.list_session_reports(owner_user_id=owner_user_id, session_id=session_id)
 
-    def list_session_carbon_results(self, session_id: str):
-        self.session_service.require_session(session_id)
-        return self.carbon_service.list_session_calculations(session_id)
+    def list_session_carbon_results(self, *, owner_user_id: str, session_id: str):
+        self.session_service.require_session(owner_user_id=owner_user_id, session_id=session_id)
+        return self.carbon_service.list_session_calculations(owner_user_id=owner_user_id, session_id=session_id)
 
     @staticmethod
     def _resolve_selected_messages(session: SessionDetail, source_message_ids: list[str]) -> list[SessionMessage]:
@@ -156,11 +162,17 @@ class ReportService:
             selected_messages.append(message)
         return selected_messages
 
-    def _resolve_carbon_result(self, session_id: str, carbon_result_id: str | None) -> StoredCarbonCalculation | None:
+    def _resolve_carbon_result(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        carbon_result_id: str | None,
+    ) -> StoredCarbonCalculation | None:
         if not carbon_result_id:
             return None
 
-        stored = self.carbon_service.get_stored_calculation(carbon_result_id)
+        stored = self.carbon_service.get_stored_calculation(owner_user_id=owner_user_id, trace_id=carbon_result_id)
         if stored is None:
             raise ReportValidationError(f"Unknown carbon result: {carbon_result_id}")
         if stored.session_id != session_id:

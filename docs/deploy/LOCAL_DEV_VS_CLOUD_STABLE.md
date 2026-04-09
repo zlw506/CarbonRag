@@ -1,79 +1,79 @@
 # Local Dev vs Cloud Stable
 
-## 这份文档解决什么问题
-CarbonRag 从 v0.1.9F 开始，明确采用双环境双节奏：
-- `local-dev`：最新开发环境
-- `cloud-stable`：稳定展示环境
+## Purpose
+CarbonRag now runs in two intentionally different modes:
 
-进入 v0.2.0 后，这条规则继续保持，并同时覆盖 ask、calc-carbon、feedback 和 report。
+- `local-dev`: latest development environment
+- `cloud-stable`: stable validation environment
 
-## local-dev
-- 用途：代码开发、联调、破坏性验证
-- 前端：`http://127.0.0.1:5173`
-- 后端：`http://127.0.0.1:8000`
-- 前端 API 基址：`http://127.0.0.1:8000/api`
-- 后端数据库：SQLite fallback
-- 报告数据：本地实验报告
+This split is required to keep daily feature work from polluting the shared demo and test surface.
 
-启动方式：
+## `local-dev`
+- Frontend: `http://127.0.0.1:5173`
+- Backend: `http://127.0.0.1:8000`
+- Frontend API base: `http://127.0.0.1:8000/api`
+- Runtime database: SQLite fallback
+- Typical use:
+  - feature development
+  - debugging
+  - destructive verification
+  - temporary or experimental data
 
-Windows：
+Recommended start:
+
+Windows:
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1
 ```
 
-macOS / Linux：
+macOS / Linux:
+
 ```bash
 bash scripts/dev-local.sh
 ```
 
-## cloud-stable
-- 用途：稳定展示、外部测试、版本验收
-- 前端：Netlify
-- 后端：VPS
-- 前端 API 基址：`/api`
-- 后端数据库：PostgreSQL
-- 发布分支：`release/cloud-stable`
-- 报告数据：稳定可测报告
+## `cloud-stable`
+- Frontend: Netlify
+- Backend: VPS
+- Frontend API base: `/api`
+- Backend runtime database: PostgreSQL
+- Typical use:
+  - stable demo
+  - external validation
+  - release acceptance
 
-## 两边数据库是否共享
-不共享。
+## Do Local and Cloud Share Data?
+No.
 
-当前固定口径：
-- 本地开发：SQLite fallback
-- 云端稳定：PostgreSQL
+Current rule:
+- local development uses SQLite fallback
+- cloud-stable uses PostgreSQL
 
-因此下面这些现象都属于正常情况：
-- 本地聊天记录和云端聊天记录不同
-- 本地 calc 记录和云端 calc 记录不同
-- 本地报告列表和云端报告列表不同
-- 云端多个设备能同步会话、calc 与报告，而本地和云端不同步
+That means these differences are expected:
+- local chat history is not the same as cloud chat history
+- local reports are not the same as cloud reports
+- local carbon calculations are not the same as cloud carbon calculations
+- cloud sessions can sync across devices, while local and cloud do not sync with each other
 
-## 为什么历史记录会不同
-因为两边不是同一个运行时数据库。
+## Authentication and Ownership
+V1.0.0 also introduces local identity and user isolation:
 
-本地：
-- 侧重快速开发
-- 数据可随时重置
-- 允许做破坏性试验
-- 不作为外部展示依据
+- every session belongs to one authenticated user
+- reports, feedback, uploaded files, private sample bindings, and carbon calculations inherit that ownership
+- cross-user reads return `404`
 
-云端：
-- 侧重稳定展示
-- 供项目负责人和测试者验证
-- 不应被未完成 feature 污染
+This rule applies in both environments. The difference is only the backing runtime database and deployment surface.
 
-## 哪一边用于什么
-- 本地：开发、试错、临时验证
-- 云端：稳定展示、外部验证、可回溯版本
+## Which Environment Is For What?
+- `local-dev` is for fast iteration and trial-and-error
+- `cloud-stable` is for stable demo and external validation
 
-## report 在双环境里的含义
-- 本地生成的报告：用于验证模板、来源拼装、Markdown 渲染和编辑保存
-- 云端生成的报告：用于稳定展示和外部测试
-- 两边报告都属于某个 session，但 session 容器本身也不共享
+Do not use the shared cloud environment for unfinished daily development noise.
 
-## 纪律要求
-- 不允许把本地实验数据伪装成稳定结果
-- 不允许让共享云端环境承受日常半成品开发噪声
-- 云端更新必须通过 `release/cloud-stable`
-- 报告功能在本地通过验收后，才允许合入云端稳定线
+## Release Discipline
+- active work happens on `feature/*`
+- stable cloud publishing happens from `release/cloud-stable`
+- Netlify production should track `release/cloud-stable`
+- VPS production should deploy `release/cloud-stable`
+- do not publish every commit

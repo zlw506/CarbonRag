@@ -1,5 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth.dependencies import require_authenticated_user
+from app.auth.schemas import AuthenticatedUser
 from app.retrieval.private_schemas import PrivateSampleCatalogItem
 from app.session.schemas import ReplaceAttachedPrivateSamplesRequest, SessionDetail
 from app.session.service import get_session_service
@@ -8,7 +10,9 @@ router = APIRouter()
 
 
 @router.get("/private-samples", response_model=list[PrivateSampleCatalogItem])
-def list_private_samples() -> list[PrivateSampleCatalogItem]:
+def list_private_samples(
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> list[PrivateSampleCatalogItem]:
     return get_session_service().list_private_sample_catalog()
 
 
@@ -16,16 +20,21 @@ def list_private_samples() -> list[PrivateSampleCatalogItem]:
 def replace_attached_private_samples(
     session_id: str,
     payload: ReplaceAttachedPrivateSamplesRequest,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> SessionDetail:
     session_service = get_session_service()
     try:
-        session_service.replace_attached_private_samples(session_id=session_id, doc_ids=payload.doc_ids)
+        session_service.replace_attached_private_samples(
+            owner_user_id=current_user.user_id,
+            session_id=session_id,
+            doc_ids=payload.doc_ids,
+        )
     except KeyError:
-        raise HTTPException(status_code=404, detail="会话不存在。")
+        raise HTTPException(status_code=404, detail="Session not found.")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    session = session_service.get_session(session_id)
+    session = session_service.get_session(owner_user_id=current_user.user_id, session_id=session_id)
     if session is None:
-        raise HTTPException(status_code=404, detail="会话不存在。")
+        raise HTTPException(status_code=404, detail="Session not found.")
     return session

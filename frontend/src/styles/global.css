@@ -17,6 +17,32 @@ body {
     min-height: 100vh;
 }
 
+.auth-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.auth-card {
+    width: min(100%, 480px);
+    border-radius: 20px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.1);
+}
+
+.auth-card__alert {
+    margin-bottom: 16px;
+}
+
+.auth-loading {
+    min-height: 240px;
+    width: min(100%, 480px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .app-shell {
     min-height: 100vh;
 }
@@ -39,6 +65,17 @@ body {
 .app-shell__header {
     background: transparent;
     padding: 24px 24px 0;
+}
+
+.app-shell__header-bar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.app-shell__header-bar .ant-typography-paragraph {
+    margin-bottom: 0;
 }
 
 .app-shell__content {
@@ -301,6 +338,27 @@ body {
     white-space: pre-wrap;
 }
 
+.admin-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+
+.admin-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.admin-private-sample-row {
+    width: 100%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
 .private-sample-list__item {
     display: flex;
     flex-direction: column;
@@ -318,6 +376,16 @@ body {
     }
 
     .calc-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .app-shell__header-bar,
+    .admin-private-sample-row {
+        flex-direction: column;
+    }
+
+    .admin-grid,
+    .admin-stats {
         grid-template-columns: 1fr;
     }
 }

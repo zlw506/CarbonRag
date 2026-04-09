@@ -1,4 +1,5 @@
 import httpx
+
 from fastapi.testclient import TestClient
 
 from app.files.service import FileService
@@ -6,6 +7,7 @@ from app.files.storage import FileStorage
 from app.main import app
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
+from tests.test_helpers import patch_test_auth_service, register_and_login
 
 client = TestClient(app)
 
@@ -39,6 +41,7 @@ def test_session_ask_route_persists_history_and_citations(monkeypatch, tmp_path)
     session_service, file_service = build_test_services(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
     captured: dict[str, dict] = {}
 
@@ -55,8 +58,8 @@ def test_session_ask_route_persists_history_and_citations(monkeypatch, tmp_path)
 
     monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", fake_stream)
 
-    session = client.post("/api/v1/sessions", json={}).json()
-    session_id = session["session_id"]
+    register_and_login(client, prefix="ask-history")
+    session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
 
     first_response = client.post(
         f"/api/v1/sessions/{session_id}/ask",
@@ -82,14 +85,16 @@ def test_session_ask_route_persists_history_and_citations(monkeypatch, tmp_path)
     assert detail["messages"][1]["role"] == "assistant"
     assert detail["messages"][-1]["role"] == "assistant"
     assert detail["messages"][-1]["citations"]
-    assert "最近单会话历史如下" in captured["payload"]["messages"][0]["content"]
+    assert "history-1" in captured["payload"]["messages"][0]["content"]
 
 
 def test_session_ask_route_supports_mixed_scope_without_private_hits(monkeypatch, tmp_path) -> None:
     session_service, file_service = build_test_services(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    register_and_login(client, prefix="ask-mixed")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
     response = client.post(
         f"/api/v1/sessions/{session_id}/ask",
@@ -109,12 +114,14 @@ def test_session_ask_route_records_provider_error_message(monkeypatch, tmp_path)
     session_service, file_service = build_test_services(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
     def failing_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
         raise httpx.ConnectError("provider down")
 
     monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", failing_stream)
 
+    register_and_login(client, prefix="ask-provider")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
     response = client.post(
         f"/api/v1/sessions/{session_id}/ask",

@@ -13,15 +13,15 @@ DEFAULT_SESSION_DB_PATH = RUNTIME_DIR / "carbonrag.sqlite3"
 
 class SessionStore(ABC):
     @abstractmethod
-    def create_session(self, *, session_id: str, title: str, created_at: str) -> SessionSummary:
+    def create_session(self, *, session_id: str, owner_user_id: str, title: str, created_at: str) -> SessionSummary:
         raise NotImplementedError
 
     @abstractmethod
-    def list_sessions(self) -> list[SessionSummary]:
+    def list_sessions(self, *, owner_user_id: str) -> list[SessionSummary]:
         raise NotImplementedError
 
     @abstractmethod
-    def get_session(self, session_id: str) -> SessionDetail | None:
+    def get_session(self, *, owner_user_id: str, session_id: str) -> SessionDetail | None:
         raise NotImplementedError
 
     @abstractmethod
@@ -59,7 +59,7 @@ class SessionStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def session_exists(self, session_id: str) -> bool:
+    def session_exists(self, *, owner_user_id: str, session_id: str) -> bool:
         raise NotImplementedError
 
     @abstractmethod

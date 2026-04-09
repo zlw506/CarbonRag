@@ -61,9 +61,9 @@ class CarbonService:
     def _utcnow() -> datetime:
         return datetime.now(timezone.utc)
 
-    def calculate(self, payload: CalcCarbonRequest) -> CalcCarbonResponse:
-        if payload.session_id is not None and self.session_service.get_session(payload.session_id) is None:
-            raise KeyError(f"Unknown session: {payload.session_id}")
+    def calculate(self, *, owner_user_id: str, payload: CalcCarbonRequest) -> CalcCarbonResponse:
+        if payload.session_id is not None:
+            self.session_service.require_session(owner_user_id=owner_user_id, session_id=payload.session_id)
 
         factors = self.factor_loader.load()
         breakdown, total = self.calculator.calculate(request=payload, factors=factors)
@@ -72,7 +72,8 @@ class CarbonService:
         trace_id = f"calc-{uuid4().hex[:12]}"
 
         self._persist(
-            StoredCarbonCalculation(
+            owner_user_id=owner_user_id,
+            calculation=StoredCarbonCalculation(
                 trace_id=trace_id,
                 session_id=payload.session_id,
                 period_label=payload.period_label,
@@ -83,7 +84,7 @@ class CarbonService:
                 breakdown=breakdown,
                 citations=citations,
                 created_at=self._utcnow(),
-            )
+            ),
         )
 
         return CalcCarbonResponse(
@@ -95,7 +96,7 @@ class CarbonService:
             citations=citations,
         )
 
-    def _persist(self, calculation: StoredCarbonCalculation) -> None:
+    def _persist(self, *, owner_user_id: str, calculation: StoredCarbonCalculation) -> None:
         breakdown_json = json.dumps([item.model_dump() for item in calculation.breakdown], ensure_ascii=False)
         citations_json = json.dumps([item.model_dump() for item in calculation.citations], ensure_ascii=False)
 
@@ -106,6 +107,7 @@ class CarbonService:
                         """
                         INSERT INTO carbon_calculations (
                             trace_id,
+                            owner_user_id,
                             session_id,
                             period_label,
                             electricity_kwh,
@@ -116,10 +118,11 @@ class CarbonService:
                             citations_json,
                             created_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             calculation.trace_id,
+                            owner_user_id,
                             calculation.session_id,
                             calculation.period_label,
                             calculation.electricity_kwh,
@@ -136,6 +139,7 @@ class CarbonService:
                     """
                     INSERT INTO carbon_calculations (
                         trace_id,
+                        owner_user_id,
                         session_id,
                         period_label,
                         electricity_kwh,
@@ -146,10 +150,11 @@ class CarbonService:
                         citations_json,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         calculation.trace_id,
+                        owner_user_id,
                         calculation.session_id,
                         calculation.period_label,
                         calculation.electricity_kwh,
@@ -162,7 +167,7 @@ class CarbonService:
                     ),
                 )
 
-    def get_stored_calculation(self, trace_id: str) -> StoredCarbonCalculation | None:
+    def get_stored_calculation(self, *, owner_user_id: str, trace_id: str) -> StoredCarbonCalculation | None:
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
@@ -171,8 +176,9 @@ class CarbonService:
                         SELECT *
                         FROM carbon_calculations
                         WHERE trace_id = %s
+                          AND owner_user_id = %s
                         """,
-                        (trace_id,),
+                        (trace_id, owner_user_id),
                     )
                     row = cursor.fetchone()
             else:
@@ -181,8 +187,9 @@ class CarbonService:
                     SELECT *
                     FROM carbon_calculations
                     WHERE trace_id = ?
+                      AND owner_user_id = ?
                     """,
-                    (trace_id,),
+                    (trace_id, owner_user_id),
                 ).fetchone()
 
         if row is None:
@@ -202,7 +209,8 @@ class CarbonService:
             created_at=datetime.fromisoformat(payload["created_at"]),
         )
 
-    def list_session_calculations(self, session_id: str) -> list[CarbonCalculationSummary]:
+    def list_session_calculations(self, *, owner_user_id: str, session_id: str) -> list[CarbonCalculationSummary]:
+        self.session_service.require_session(owner_user_id=owner_user_id, session_id=session_id)
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
@@ -211,9 +219,10 @@ class CarbonService:
                         SELECT trace_id, period_label, total_emission_kgco2e, created_at
                         FROM carbon_calculations
                         WHERE session_id = %s
+                          AND owner_user_id = %s
                         ORDER BY created_at DESC
                         """,
-                        (session_id,),
+                        (session_id, owner_user_id),
                     )
                     rows = cursor.fetchall()
             else:
@@ -222,9 +231,10 @@ class CarbonService:
                     SELECT trace_id, period_label, total_emission_kgco2e, created_at
                     FROM carbon_calculations
                     WHERE session_id = ?
+                      AND owner_user_id = ?
                     ORDER BY created_at DESC
                     """,
-                    (session_id,),
+                    (session_id, owner_user_id),
                 ).fetchall()
 
         return [

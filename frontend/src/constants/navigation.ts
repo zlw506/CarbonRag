@@ -1,6 +1,18 @@
-export const navigationItems = [
-    { path: "/", label: "问答工作台" },
-    { path: "/carbon-calc", label: "碳核算" },
-    { path: "/report", label: "报告生成" },
-    { path: "/admin", label: "管理页占位" },
+import type { UserRole } from "../types/auth";
+
+export interface NavigationItem {
+    path: string;
+    label: string;
+    roles: UserRole[];
+}
+
+const ALL_NAV_ITEMS: NavigationItem[] = [
+    { path: "/", label: "Ask", roles: ["user", "admin"] },
+    { path: "/carbon-calc", label: "Carbon Calc", roles: ["user", "admin"] },
+    { path: "/report", label: "Reports", roles: ["user", "admin"] },
+    { path: "/admin", label: "Admin", roles: ["admin"] },
 ];
+
+export function getNavigationItems(role: UserRole) {
+    return ALL_NAV_ITEMS.filter((item) => item.roles.includes(role));
+}

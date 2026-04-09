@@ -3,24 +3,34 @@ import json
 import pytest
 
 from app.carbon.factor_loader import CarbonFactorLoader
-from app.carbon.service import CarbonService
 from app.carbon.schemas import CalcCarbonRequest
+from app.carbon.service import CarbonService
 from app.report.schemas import CreateReportRequest
 from app.report.service import ReportService, ReportValidationError
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
 from app.schemas.ask import AskCitation
+from tests.test_helpers import create_test_user_id
 
 
 class FakeChatProvider:
     def generate_response(self, *, system_prompt: str, user_input: str):
         payload = json.loads(user_input)
         sections = [
-            {"heading": heading, "body": f"{heading}：基于当前上下文生成的报告内容。"}
+            {"heading": heading, "body": f"{heading}: generated report content."}
             for heading in payload["template_sections"]
         ]
         requested_title = payload.get("requested_title") or f"{payload['template_name']} - {payload['session']['title']}"
-        return type("Result", (), {"content": json.dumps({"title": requested_title, "sections": sections}, ensure_ascii=False)})()
+        return type(
+            "Result",
+            (),
+            {
+                "content": json.dumps(
+                    {"title": requested_title, "sections": sections},
+                    ensure_ascii=False,
+                )
+            },
+        )()
 
 
 def build_factor_file(tmp_path):
@@ -83,52 +93,55 @@ def build_services(tmp_path) -> tuple[SessionService, CarbonService, ReportServi
 
 
 def seed_mixed_session(session_service: SessionService):
-    session = session_service.create_session()
+    owner_user_id = create_test_user_id(session_service.store.db_path, prefix="report-mixed")
+    session = session_service.create_session(owner_user_id=owner_user_id)
     session_service.record_exchange(
+        owner_user_id=owner_user_id,
         session_id=session.session_id,
-        user_content="结合政策和样例分析当前企业问题。",
-        assistant_content="这是一次 mixed 回答。",
+        user_content="Analyze the current enterprise issue with both policy and sample evidence.",
+        assistant_content="This is a mixed response.",
         assistant_status="ok",
         trace_id="trace-001",
         citations=[
             AskCitation(
                 doc_id="policy_001",
-                title="政策依据",
+                title="Policy Basis",
                 source_type="public_policy",
-                source="国务院",
+                source="State Council",
                 source_url="https://example.com/policy",
-                snippet="政策要求片段",
+                snippet="Policy requirement snippet",
                 chunk_id="policy_001_chunk_01",
             ),
             AskCitation(
                 doc_id="enterprise_doc_001",
-                title="企业样例",
+                title="Enterprise Sample",
                 source_type="private_sample",
-                source="脱敏样例",
+                source="Sanitized sample",
                 source_url=None,
-                snippet="企业样例片段",
+                snippet="Enterprise sample snippet",
                 chunk_id="enterprise_doc_001_chunk_01",
             ),
         ],
         knowledge_scope="mixed",
     )
-    return session_service.get_session(session.session_id)
+    return owner_user_id, session_service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
 
 
 def test_report_service_generates_mixed_report_and_appends_system_message(monkeypatch, tmp_path) -> None:
     session_service, _, report_service = build_services(tmp_path)
     monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
-    session = seed_mixed_session(session_service)
+    owner_user_id, session = seed_mixed_session(session_service)
 
     created = report_service.create_report(
-        CreateReportRequest(
+        owner_user_id=owner_user_id,
+        payload=CreateReportRequest(
             session_id=session.session_id,
             report_type="mixed_analysis",
             source_message_ids=[session.messages[-1].message_id],
-        )
+        ),
     )
 
-    refreshed = session_service.get_session(session.session_id)
+    refreshed = session_service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
     assert created.report_type == "mixed_analysis"
     assert created.source_summary.public_policy_count == 1
     assert created.source_summary.private_sample_count == 1
@@ -141,21 +154,24 @@ def test_report_service_generates_mixed_report_and_appends_system_message(monkey
 def test_report_service_generates_carbon_summary(monkeypatch, tmp_path) -> None:
     session_service, carbon_service, report_service = build_services(tmp_path)
     monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
-    session = session_service.create_session()
+    owner_user_id = create_test_user_id(session_service.store.db_path, prefix="report-carbon")
+    session = session_service.create_session(owner_user_id=owner_user_id)
     result = carbon_service.calculate(
-        CalcCarbonRequest(
+        owner_user_id=owner_user_id,
+        payload=CalcCarbonRequest(
             session_id=session.session_id,
             period_label="2026-Q2",
             electricity_kwh=100,
-        )
+        ),
     )
 
     created = report_service.create_report(
-        CreateReportRequest(
+        owner_user_id=owner_user_id,
+        payload=CreateReportRequest(
             session_id=session.session_id,
             report_type="carbon_summary",
             carbon_result_id=result.trace_id,
-        )
+        ),
     )
 
     assert created.report_type == "carbon_summary"
@@ -166,32 +182,35 @@ def test_report_service_generates_carbon_summary(monkeypatch, tmp_path) -> None:
 def test_report_service_rejects_mixed_report_without_private_citation(monkeypatch, tmp_path) -> None:
     session_service, _, report_service = build_services(tmp_path)
     monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
-    session = session_service.create_session()
+    owner_user_id = create_test_user_id(session_service.store.db_path, prefix="report-invalid")
+    session = session_service.create_session(owner_user_id=owner_user_id)
     session_service.record_exchange(
+        owner_user_id=owner_user_id,
         session_id=session.session_id,
-        user_content="解释政策",
-        assistant_content="只有政策依据",
+        user_content="Explain policy requirements",
+        assistant_content="Policy-only answer",
         assistant_status="ok",
         trace_id="trace-002",
         citations=[
             AskCitation(
                 doc_id="policy_001",
-                title="政策依据",
+                title="Policy Basis",
                 source_type="public_policy",
-                source="国务院",
+                source="State Council",
                 source_url="https://example.com/policy",
-                snippet="政策要求片段",
+                snippet="Policy requirement snippet",
                 chunk_id="policy_001_chunk_01",
             )
         ],
     )
-    session_detail = session_service.get_session(session.session_id)
+    session_detail = session_service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
 
     with pytest.raises(ReportValidationError):
         report_service.create_report(
-            CreateReportRequest(
+            owner_user_id=owner_user_id,
+            payload=CreateReportRequest(
                 session_id=session.session_id,
                 report_type="mixed_analysis",
                 source_message_ids=[session_detail.messages[-1].message_id],
-            )
+            ),
         )

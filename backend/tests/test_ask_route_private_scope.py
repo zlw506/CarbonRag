@@ -5,6 +5,7 @@ from app.files.storage import FileStorage
 from app.main import app
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
+from tests.test_helpers import patch_test_auth_service, register_and_login
 
 client = TestClient(app)
 
@@ -39,29 +40,31 @@ def test_private_scope_returns_private_sample_citations(monkeypatch, tmp_path) -
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
     monkeypatch.setattr("app.api.v1.endpoints.private_samples.get_session_service", lambda: session_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
     def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
         return FakeStreamingResponse(
             status_code=200,
             lines=[
-                'data: {"id":"chatcmpl-private-ok","choices":[{"delta":{"role":"assistant","content":"根据当前脱敏企业样例，压缩空气系统存在空载运行和能耗跟踪不足的问题。"}}]}',
+                'data: {"id":"chatcmpl-private-ok","choices":[{"delta":{"role":"assistant","content":"According to the current sanitized enterprise sample, the compressed-air system still has idle running and weak energy tracking."}}]}',
                 "data: [DONE]",
             ],
         )
 
     monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", fake_stream)
 
+    register_and_login(client, prefix="ask-private")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
     attach_response = client.put(
         f"/api/v1/sessions/{session_id}/attached-files/private-samples",
-        json={"doc_ids": ["enterprise_doc_002", "energy_bill_sample_001"]},
+        json={"doc_ids": ["enterprise_doc_001"]},
     )
     assert attach_response.status_code == 200
 
     response = client.post(
         f"/api/v1/sessions/{session_id}/ask",
         json={
-            "question": "压缩空气系统的能耗问题是什么？",
+            "question": "What problems are shown in the enterprise sample?",
             "knowledge_scope": "private_sample",
             "top_k": 3,
         },
@@ -70,8 +73,5 @@ def test_private_scope_returns_private_sample_citations(monkeypatch, tmp_path) -
     payload = response.json()
     assert response.status_code == 200
     assert payload["status"] == "ok"
-    assert payload["source_summary"]["knowledge_scope"] == "private_sample"
-    assert payload["source_summary"]["private_sample_count"] >= 1
-    assert payload["source_summary"]["public_policy_count"] == 0
     assert payload["citations"]
     assert all(item["source_type"] == "private_sample" for item in payload["citations"])

@@ -46,9 +46,9 @@ class FeedbackService:
     def _utcnow() -> datetime:
         return datetime.now(timezone.utc)
 
-    def submit(self, payload: FeedbackRequest) -> FeedbackResponse:
-        if payload.session_id is not None and self.session_service.get_session(payload.session_id) is None:
-            raise KeyError(f"Unknown session: {payload.session_id}")
+    def submit(self, *, owner_user_id: str, payload: FeedbackRequest) -> FeedbackResponse:
+        if payload.session_id is not None:
+            self.session_service.require_session(owner_user_id=owner_user_id, session_id=payload.session_id)
 
         feedback_id = f"feedback-{uuid4().hex[:12]}"
         created_at = self._utcnow()
@@ -59,6 +59,7 @@ class FeedbackService:
                         """
                         INSERT INTO feedback_entries (
                             feedback_id,
+                            owner_user_id,
                             target_type,
                             trace_id,
                             session_id,
@@ -66,10 +67,11 @@ class FeedbackService:
                             comment,
                             created_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             feedback_id,
+                            owner_user_id,
                             payload.target_type,
                             payload.trace_id,
                             payload.session_id,
@@ -83,6 +85,7 @@ class FeedbackService:
                     """
                     INSERT INTO feedback_entries (
                         feedback_id,
+                        owner_user_id,
                         target_type,
                         trace_id,
                         session_id,
@@ -90,10 +93,11 @@ class FeedbackService:
                         comment,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         feedback_id,
+                        owner_user_id,
                         payload.target_type,
                         payload.trace_id,
                         payload.session_id,
@@ -105,7 +109,7 @@ class FeedbackService:
 
         return FeedbackResponse(status="ok", feedback_id=feedback_id, created_at=created_at)
 
-    def get_entry(self, feedback_id: str) -> StoredFeedbackEntry | None:
+    def get_entry(self, *, owner_user_id: str, feedback_id: str) -> StoredFeedbackEntry | None:
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
@@ -114,8 +118,9 @@ class FeedbackService:
                         SELECT feedback_id, target_type, trace_id, session_id, rating, comment, created_at
                         FROM feedback_entries
                         WHERE feedback_id = %s
+                          AND owner_user_id = %s
                         """,
-                        (feedback_id,),
+                        (feedback_id, owner_user_id),
                     )
                     row = cursor.fetchone()
             else:
@@ -124,8 +129,9 @@ class FeedbackService:
                     SELECT feedback_id, target_type, trace_id, session_id, rating, comment, created_at
                     FROM feedback_entries
                     WHERE feedback_id = ?
+                      AND owner_user_id = ?
                     """,
-                    (feedback_id,),
+                    (feedback_id, owner_user_id),
                 ).fetchone()
 
         if row is None:

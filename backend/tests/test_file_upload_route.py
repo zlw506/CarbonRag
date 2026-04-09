@@ -7,6 +7,7 @@ from app.files.storage import FileStorage
 from app.main import app
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
+from tests.test_helpers import patch_test_auth_service, register_and_login
 
 client = TestClient(app)
 
@@ -24,7 +25,9 @@ def test_file_upload_route_saves_file_and_returns_metadata(monkeypatch, tmp_path
     session_service, file_service = build_test_services(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    register_and_login(client, prefix="upload-ok")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
     response = client.post(
         "/api/v1/files",
@@ -44,7 +47,9 @@ def test_file_upload_route_returns_404_for_unknown_session(monkeypatch, tmp_path
     session_service, file_service = build_test_services(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    register_and_login(client, prefix="upload-missing")
     response = client.post(
         "/api/v1/files",
         data={"session_id": "session-missing"},

@@ -1,6 +1,8 @@
 import sqlite3
 
 CORE_TABLES = (
+    "users",
+    "auth_sessions",
     "sessions",
     "messages",
     "files",
@@ -9,16 +11,50 @@ CORE_TABLES = (
     "carbon_calculations",
     "reports",
     "report_sources",
+    "private_sample_catalog_overrides",
+    "knowledge_refresh_tasks",
+)
+
+OWNER_TABLES = (
+    "sessions",
+    "files",
+    "feedback_entries",
+    "carbon_calculations",
+    "reports",
 )
 
 SQLITE_SCHEMA_SCRIPT = """
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    password_must_change INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_login_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    auth_session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
+    owner_user_id TEXT,
     title TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     knowledge_scope_last_used TEXT,
-    source_summary_json TEXT
+    source_summary_json TEXT,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -37,13 +73,15 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS files (
     file_seq INTEGER PRIMARY KEY AUTOINCREMENT,
     file_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
     session_id TEXT NOT NULL,
     filename TEXT NOT NULL,
     size INTEGER NOT NULL,
     mime_type TEXT NOT NULL,
     stored_at TEXT NOT NULL,
     storage_path TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS session_private_samples (
@@ -58,17 +96,20 @@ CREATE TABLE IF NOT EXISTS session_private_samples (
 CREATE TABLE IF NOT EXISTS feedback_entries (
     feedback_seq INTEGER PRIMARY KEY AUTOINCREMENT,
     feedback_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
     target_type TEXT NOT NULL,
     trace_id TEXT NOT NULL,
     session_id TEXT,
     rating TEXT NOT NULL,
     comment TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS carbon_calculations (
     calculation_seq INTEGER PRIMARY KEY AUTOINCREMENT,
     trace_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
     session_id TEXT,
     period_label TEXT,
     electricity_kwh REAL NOT NULL,
@@ -77,12 +118,14 @@ CREATE TABLE IF NOT EXISTS carbon_calculations (
     total_emission_kgco2e REAL NOT NULL,
     breakdown_json TEXT NOT NULL,
     citations_json TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS reports (
     report_seq INTEGER PRIMARY KEY AUTOINCREMENT,
     report_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
     session_id TEXT NOT NULL,
     report_type TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -93,7 +136,8 @@ CREATE TABLE IF NOT EXISTS reports (
     trace_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS report_sources (
@@ -106,28 +150,86 @@ CREATE TABLE IF NOT EXISTS report_sources (
     FOREIGN KEY (report_id) REFERENCES reports(report_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS private_sample_catalog_overrides (
+    doc_id TEXT PRIMARY KEY,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    session_attachable INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id TEXT,
+    FOREIGN KEY (updated_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_refresh_tasks (
+    task_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL UNIQUE,
+    scope TEXT NOT NULL,
+    status TEXT NOT NULL,
+    requested_by_user_id TEXT,
+    summary TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    FOREIGN KEY (requested_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+"""
+
+SQLITE_INDEX_SCRIPT = """
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash
+    ON auth_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id
+    ON auth_sessions(user_id, expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_users_username
+    ON users(username);
 CREATE INDEX IF NOT EXISTS idx_messages_session_seq
     ON messages(session_id, message_seq);
-CREATE INDEX IF NOT EXISTS idx_files_session_seq
-    ON files(session_id, file_seq);
-CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
-    ON sessions(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_files_owner_session_seq
+    ON files(owner_user_id, session_id, file_seq);
+CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at
+    ON sessions(owner_user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_private_samples_session_seq
     ON session_private_samples(session_id, attachment_seq DESC);
-CREATE INDEX IF NOT EXISTS idx_feedback_entries_trace
-    ON feedback_entries(trace_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_carbon_calculations_session_created_at
-    ON carbon_calculations(session_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_reports_session_updated_at
-    ON reports(session_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace
+    ON feedback_entries(owner_user_id, trace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at
+    ON carbon_calculations(owner_user_id, session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reports_owner_session_updated_at
+    ON reports(owner_user_id, session_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_report_sources_report_order
     ON report_sources(report_id, order_index ASC);
+CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled
+    ON private_sample_catalog_overrides(is_enabled, session_attachable);
+CREATE INDEX IF NOT EXISTS idx_knowledge_refresh_tasks_scope_created_at
+    ON knowledge_refresh_tasks(scope, created_at DESC);
 """
 
 POSTGRES_SCHEMA_STATEMENTS = (
     """
+    CREATE TABLE IF NOT EXISTS users (
+        user_id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        password_must_change BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_login_at TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+        auth_session_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS sessions (
         session_id TEXT PRIMARY KEY,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
         title TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -152,6 +254,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS files (
         file_seq BIGSERIAL PRIMARY KEY,
         file_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
         session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
         filename TEXT NOT NULL,
         size BIGINT NOT NULL,
@@ -173,6 +276,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS feedback_entries (
         feedback_seq BIGSERIAL PRIMARY KEY,
         feedback_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
         target_type TEXT NOT NULL,
         trace_id TEXT NOT NULL,
         session_id TEXT,
@@ -185,6 +289,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS carbon_calculations (
         calculation_seq BIGSERIAL PRIMARY KEY,
         trace_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
         session_id TEXT,
         period_label TEXT,
         electricity_kwh DOUBLE PRECISION NOT NULL,
@@ -200,6 +305,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS reports (
         report_seq BIGSERIAL PRIMARY KEY,
         report_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
         session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
         report_type TEXT NOT NULL,
         title TEXT NOT NULL,
@@ -222,21 +328,59 @@ POSTGRES_SCHEMA_STATEMENTS = (
         order_index INTEGER NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS private_sample_catalog_overrides (
+        doc_id TEXT PRIMARY KEY,
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        session_attachable BOOLEAN NOT NULL DEFAULT TRUE,
+        updated_at TEXT NOT NULL,
+        updated_by_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS knowledge_refresh_tasks (
+        task_seq BIGSERIAL PRIMARY KEY,
+        task_id TEXT NOT NULL UNIQUE,
+        scope TEXT NOT NULL,
+        status TEXT NOT NULL,
+        requested_by_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        summary TEXT,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+    )
+    """,
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE feedback_entries ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash ON auth_sessions(token_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id, expires_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
     "CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, message_seq)",
-    "CREATE INDEX IF NOT EXISTS idx_files_session_seq ON files(session_id, file_seq)",
-    "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_files_owner_session_seq ON files(owner_user_id, session_id, file_seq)",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at ON sessions(owner_user_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_private_samples_session_seq ON session_private_samples(session_id, attachment_seq DESC)",
-    "CREATE INDEX IF NOT EXISTS idx_feedback_entries_trace ON feedback_entries(trace_id, created_at DESC)",
-    "CREATE INDEX IF NOT EXISTS idx_carbon_calculations_session_created_at ON carbon_calculations(session_id, created_at DESC)",
-    "CREATE INDEX IF NOT EXISTS idx_reports_session_updated_at ON reports(session_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace ON feedback_entries(owner_user_id, trace_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at ON carbon_calculations(owner_user_id, session_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_reports_owner_session_updated_at ON reports(owner_user_id, session_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_report_sources_report_order ON report_sources(report_id, order_index ASC)",
+    "CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled ON private_sample_catalog_overrides(is_enabled, session_attachable)",
+    "CREATE INDEX IF NOT EXISTS idx_knowledge_refresh_tasks_scope_created_at ON knowledge_refresh_tasks(scope, created_at DESC)",
 )
 
 
 def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(SQLITE_SCHEMA_SCRIPT)
+    _ensure_sqlite_column(connection, "sessions", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "knowledge_scope_last_used", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "source_summary_json", "TEXT")
+    _ensure_sqlite_column(connection, "files", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "feedback_entries", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "carbon_calculations", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "reports", "owner_user_id", "TEXT")
+    connection.executescript(SQLITE_INDEX_SCRIPT)
 
 
 def _ensure_sqlite_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:

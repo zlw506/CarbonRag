@@ -42,12 +42,13 @@ class FileService:
     def save_upload(
         self,
         *,
+        owner_user_id: str,
         session_id: str,
         filename: str,
         mime_type: str,
         content: bytes,
     ) -> UploadedFile:
-        self.session_service.require_session(session_id)
+        self.session_service.require_session(owner_user_id=owner_user_id, session_id=session_id)
         self.validate_upload(filename=filename, mime_type=mime_type, size=len(content))
         file_id = f"file-{uuid4().hex[:12]}"
         storage_path = self.storage.save(
@@ -57,6 +58,7 @@ class FileService:
             content=content,
         )
         return self.session_service.record_uploaded_file(
+            owner_user_id=owner_user_id,
             file_id=file_id,
             session_id=session_id,
             filename=filename,

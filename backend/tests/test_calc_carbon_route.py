@@ -7,11 +7,12 @@ from app.carbon.service import CarbonService
 from app.main import app
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
+from tests.test_helpers import patch_test_auth_service, register_and_login
 
 client = TestClient(app)
 
 
-def build_factor_file(tmp_path) -> None:
+def build_factor_file(tmp_path):
     payload = {
         "version": "v0.1.9a",
         "factors": [
@@ -71,7 +72,9 @@ def test_calc_carbon_route_returns_breakdown_and_citations(monkeypatch, tmp_path
     session_service, carbon_service = build_test_service(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    register_and_login(client, prefix="calc-ok")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
     response = client.post(
         "/api/v1/calc-carbon",
@@ -95,7 +98,9 @@ def test_calc_carbon_route_returns_breakdown_and_citations(monkeypatch, tmp_path
 def test_calc_carbon_route_rejects_unknown_session(monkeypatch, tmp_path) -> None:
     _, carbon_service = build_test_service(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    register_and_login(client, prefix="calc-missing")
     response = client.post(
         "/api/v1/calc-carbon",
         json={
@@ -110,7 +115,9 @@ def test_calc_carbon_route_rejects_unknown_session(monkeypatch, tmp_path) -> Non
 def test_calc_carbon_route_rejects_all_zero_activity(monkeypatch, tmp_path) -> None:
     _, carbon_service = build_test_service(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    register_and_login(client, prefix="calc-zero")
     response = client.post(
         "/api/v1/calc-carbon",
         json={

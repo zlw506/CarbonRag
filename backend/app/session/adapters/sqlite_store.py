@@ -3,7 +3,8 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 
-from app.retrieval.private_corpus_loader import load_private_sample_catalog
+from app.retrieval.private_corpus_loader import load_private_sample_manifest
+from app.runtime_db.schema import ensure_sqlite_schema
 from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 from app.session.schemas import (
     SessionAttachment,
@@ -27,92 +28,30 @@ class SQLiteSessionStore(SessionStore):
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
-    @staticmethod
-    def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
-        existing_columns = {
-            row["name"]
-            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
-        }
-        if column not in existing_columns:
-            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-
     def _ensure_schema(self) -> None:
         with self._connect() as connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS sessions (
-                    session_id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
+            ensure_sqlite_schema(connection)
 
-                CREATE TABLE IF NOT EXISTS messages (
-                    message_seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    message_id TEXT NOT NULL UNIQUE,
-                    session_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    status TEXT,
-                    trace_id TEXT,
-                    citations_json TEXT NOT NULL DEFAULT '[]',
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS files (
-                    file_seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    file_id TEXT NOT NULL UNIQUE,
-                    session_id TEXT NOT NULL,
-                    filename TEXT NOT NULL,
-                    size INTEGER NOT NULL,
-                    mime_type TEXT NOT NULL,
-                    stored_at TEXT NOT NULL,
-                    storage_path TEXT NOT NULL,
-                    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS session_private_samples (
-                    attachment_seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    doc_id TEXT NOT NULL,
-                    attached_at TEXT NOT NULL,
-                    UNIQUE (session_id, doc_id),
-                    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_messages_session_seq
-                    ON messages(session_id, message_seq);
-                CREATE INDEX IF NOT EXISTS idx_files_session_seq
-                    ON files(session_id, file_seq);
-                CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
-                    ON sessions(updated_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_private_samples_session_seq
-                    ON session_private_samples(session_id, attachment_seq DESC);
-                """
-            )
-            self._ensure_column(connection, "sessions", "knowledge_scope_last_used", "TEXT")
-            self._ensure_column(connection, "sessions", "source_summary_json", "TEXT")
-
-    def create_session(self, *, session_id: str, title: str, created_at: str) -> SessionSummary:
+    def create_session(self, *, session_id: str, owner_user_id: str, title: str, created_at: str) -> SessionSummary:
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO sessions (
                     session_id,
+                    owner_user_id,
                     title,
                     created_at,
                     updated_at,
                     knowledge_scope_last_used,
                     source_summary_json
                 )
-                VALUES (?, ?, ?, ?, NULL, NULL)
+                VALUES (?, ?, ?, ?, ?, NULL, NULL)
                 """,
-                (session_id, title, created_at, created_at),
+                (session_id, owner_user_id, title, created_at, created_at),
             )
-        return self._get_session_summary(session_id)
+        return self._get_session_summary(owner_user_id=owner_user_id, session_id=session_id)
 
-    def list_sessions(self) -> list[SessionSummary]:
+    def list_sessions(self, *, owner_user_id: str) -> list[SessionSummary]:
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -140,13 +79,15 @@ class SQLiteSessionStore(SessionStore):
                     FROM session_private_samples
                     GROUP BY session_id
                 ) p ON p.session_id = s.session_id
+                WHERE s.owner_user_id = ?
                 ORDER BY s.updated_at DESC, s.created_at DESC
-                """
+                """,
+                (owner_user_id,),
             ).fetchall()
         return [self._row_to_session_summary(row) for row in rows]
 
-    def get_session(self, session_id: str) -> SessionDetail | None:
-        summary = self._get_session_summary(session_id)
+    def get_session(self, *, owner_user_id: str, session_id: str) -> SessionDetail | None:
+        summary = self._get_session_summary(owner_user_id=owner_user_id, session_id=session_id)
         if summary is None:
             return None
 
@@ -155,9 +96,9 @@ class SQLiteSessionStore(SessionStore):
                 """
                 SELECT knowledge_scope_last_used, source_summary_json
                 FROM sessions
-                WHERE session_id = ?
+                WHERE session_id = ? AND owner_user_id = ?
                 """,
-                (session_id,),
+                (session_id, owner_user_id),
             ).fetchone()
             message_rows = connection.execute(
                 """
@@ -172,10 +113,10 @@ class SQLiteSessionStore(SessionStore):
                 """
                 SELECT file_id, session_id, filename, size, mime_type, stored_at
                 FROM files
-                WHERE session_id = ?
+                WHERE session_id = ? AND owner_user_id = ?
                 ORDER BY file_seq DESC
                 """,
-                (session_id,),
+                (session_id, owner_user_id),
             ).fetchall()
             private_sample_rows = connection.execute(
                 """
@@ -207,6 +148,10 @@ class SQLiteSessionStore(SessionStore):
 
     def update_session_title(self, *, session_id: str, title: str, updated_at: str) -> SessionSummary | None:
         with self._connect() as connection:
+            owner_row = connection.execute(
+                "SELECT owner_user_id FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
             cursor = connection.execute(
                 """
                 UPDATE sessions
@@ -215,9 +160,9 @@ class SQLiteSessionStore(SessionStore):
                 """,
                 (title, updated_at, session_id),
             )
-            if cursor.rowcount == 0:
+            if cursor.rowcount == 0 or owner_row is None:
                 return None
-        return self._get_session_summary(session_id)
+        return self._get_session_summary(owner_user_id=owner_row["owner_user_id"], session_id=session_id)
 
     def update_session_runtime_state(
         self,
@@ -228,6 +173,10 @@ class SQLiteSessionStore(SessionStore):
         source_summary: AskSourceSummary,
     ) -> SessionSummary | None:
         with self._connect() as connection:
+            owner_row = connection.execute(
+                "SELECT owner_user_id FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
             cursor = connection.execute(
                 """
                 UPDATE sessions
@@ -241,9 +190,9 @@ class SQLiteSessionStore(SessionStore):
                     session_id,
                 ),
             )
-            if cursor.rowcount == 0:
+            if cursor.rowcount == 0 or owner_row is None:
                 return None
-        return self._get_session_summary(session_id)
+        return self._get_session_summary(owner_user_id=owner_row["owner_user_id"], session_id=session_id)
 
     def append_message(
         self,
@@ -308,11 +257,11 @@ class SQLiteSessionStore(SessionStore):
         messages.reverse()
         return messages
 
-    def session_exists(self, session_id: str) -> bool:
+    def session_exists(self, *, owner_user_id: str, session_id: str) -> bool:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT 1 FROM sessions WHERE session_id = ?",
-                (session_id,),
+                "SELECT 1 FROM sessions WHERE session_id = ? AND owner_user_id = ?",
+                (session_id, owner_user_id),
             ).fetchone()
         return row is not None
 
@@ -328,12 +277,17 @@ class SQLiteSessionStore(SessionStore):
         storage_path: str,
     ) -> UploadedFile:
         with self._connect() as connection:
+            owner_row = connection.execute(
+                "SELECT owner_user_id FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            owner_user_id = owner_row["owner_user_id"] if owner_row else None
             connection.execute(
                 """
-                INSERT INTO files (file_id, session_id, filename, size, mime_type, stored_at, storage_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO files (file_id, owner_user_id, session_id, filename, size, mime_type, stored_at, storage_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (file_id, session_id, filename, size, mime_type, stored_at, storage_path),
+                (file_id, owner_user_id, session_id, filename, size, mime_type, stored_at, storage_path),
             )
             connection.execute(
                 "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
@@ -381,7 +335,7 @@ class SQLiteSessionStore(SessionStore):
             ).fetchall()
         return [row["doc_id"] for row in rows]
 
-    def _get_session_summary(self, session_id: str) -> SessionSummary | None:
+    def _get_session_summary(self, *, owner_user_id: str, session_id: str) -> SessionSummary | None:
         with self._connect() as connection:
             row = connection.execute(
                 """
@@ -409,9 +363,9 @@ class SQLiteSessionStore(SessionStore):
                     FROM session_private_samples
                     GROUP BY session_id
                 ) p ON p.session_id = s.session_id
-                WHERE s.session_id = ?
+                WHERE s.session_id = ? AND s.owner_user_id = ?
                 """,
-                (session_id,),
+                (session_id, owner_user_id),
             ).fetchone()
         if row is None:
             return None
@@ -442,7 +396,7 @@ class SQLiteSessionStore(SessionStore):
 
     @staticmethod
     def _row_to_private_sample_attachment(row: sqlite3.Row) -> SessionAttachment:
-        catalog_map = {item.doc_id: item for item in load_private_sample_catalog()}
+        catalog_map = {item.doc_id: item for item in load_private_sample_manifest()}
         doc_id = row["doc_id"]
         item = catalog_map.get(doc_id)
         filename = item.title if item else doc_id

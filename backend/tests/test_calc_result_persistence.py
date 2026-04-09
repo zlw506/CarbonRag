@@ -1,10 +1,11 @@
 import json
 
 from app.carbon.factor_loader import CarbonFactorLoader
-from app.carbon.service import CarbonService
 from app.carbon.schemas import CalcCarbonRequest
+from app.carbon.service import CarbonService
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
+from tests.test_helpers import create_test_user_id
 
 
 def build_factor_file(tmp_path):
@@ -52,9 +53,11 @@ def build_factor_file(tmp_path):
 
 
 def test_calc_result_is_persisted_to_runtime_database(tmp_path) -> None:
-    store = SQLiteSessionStore(tmp_path / "carbonrag.sqlite3")
+    db_path = tmp_path / "carbonrag.sqlite3"
+    store = SQLiteSessionStore(db_path)
     session_service = SessionService(store=store)
-    session = session_service.create_session()
+    owner_user_id = create_test_user_id(db_path, prefix="calc-persist")
+    session = session_service.create_session(owner_user_id=owner_user_id)
     service = CarbonService(
         factor_loader=CarbonFactorLoader(build_factor_file(tmp_path)),
         session_service=session_service,
@@ -62,15 +65,19 @@ def test_calc_result_is_persisted_to_runtime_database(tmp_path) -> None:
     )
 
     result = service.calculate(
-        CalcCarbonRequest(
+        owner_user_id=owner_user_id,
+        payload=CalcCarbonRequest(
             session_id=session.session_id,
             period_label="2026-Q1",
             electricity_kwh=12000,
             natural_gas_m3=800,
             diesel_l=120,
-        )
+        ),
     )
-    stored = service.get_stored_calculation(result.trace_id)
+    stored = service.get_stored_calculation(
+        owner_user_id=owner_user_id,
+        trace_id=result.trace_id,
+    )
 
     assert stored is not None
     assert stored.session_id == session.session_id

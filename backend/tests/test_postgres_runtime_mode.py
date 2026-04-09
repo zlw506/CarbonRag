@@ -1,17 +1,21 @@
 import json
+from datetime import datetime, timezone
 
 from app.carbon.factor_loader import CarbonFactorLoader
-from app.carbon.service import CarbonService
 from app.carbon.schemas import CalcCarbonRequest
+from app.carbon.service import CarbonService
 from app.feedback.schemas import FeedbackRequest
 from app.feedback.service import FeedbackService
 from app.report.schemas import CreateReportRequest
 from app.report.service import ReportService
 from app.report.storage import ReportStorage
+from app.schemas.ask import AskCitation
 from app.session.adapters.postgres_store import PostgreSQLSessionStore
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
-from app.schemas.ask import AskCitation
+from tests.test_helpers import create_test_user_id
+
+TEST_OWNER_USER_ID = "user-postgres-owner"
 
 
 class FakeRuntimeDatabase:
@@ -25,9 +29,9 @@ class FakeRuntimeDatabase:
         self.reports: dict[str, dict] = {}
         self.report_sources: list[dict] = []
 
-    def build_session_summary(self, session_id: str) -> dict | None:
+    def build_session_summary(self, owner_user_id: str, session_id: str) -> dict | None:
         session = self.sessions.get(session_id)
-        if session is None:
+        if session is None or session["owner_user_id"] != owner_user_id:
             return None
         return {
             "session_id": session["session_id"],
@@ -35,15 +39,18 @@ class FakeRuntimeDatabase:
             "created_at": session["created_at"],
             "updated_at": session["updated_at"],
             "message_count": sum(1 for item in self.messages if item["session_id"] == session_id),
-            "file_count": sum(1 for item in self.files if item["session_id"] == session_id),
+            "file_count": sum(
+                1 for item in self.files
+                if item["session_id"] == session_id and item["owner_user_id"] == owner_user_id
+            ),
             "attached_private_sample_count": sum(
                 1 for item in self.session_private_samples if item["session_id"] == session_id
             ),
         }
 
-    def list_session_summaries(self) -> list[dict]:
+    def list_session_summaries(self, owner_user_id: str) -> list[dict]:
         summaries = [
-            self.build_session_summary(session_id)
+            self.build_session_summary(owner_user_id, session_id)
             for session_id in self.sessions
         ]
         return sorted(
@@ -64,14 +71,19 @@ class FakeCursor:
         params = params or ()
         self.rowcount = 0
 
-        if normalized.startswith("create table") or normalized.startswith("create index"):
+        if (
+            normalized.startswith("create table")
+            or normalized.startswith("create index")
+            or normalized.startswith("alter table")
+        ):
             self._rows = []
             return
 
         if normalized.startswith("insert into sessions"):
-            session_id, title, created_at, updated_at = params
+            session_id, owner_user_id, title, created_at, updated_at = params
             self.db.sessions[session_id] = {
                 "session_id": session_id,
+                "owner_user_id": owner_user_id,
                 "title": title,
                 "created_at": created_at,
                 "updated_at": updated_at,
@@ -83,21 +95,33 @@ class FakeCursor:
             return
 
         if "from sessions s" in normalized:
-            if "where s.session_id = %s" in normalized:
-                summary = self.db.build_session_summary(params[0])
+            if "where s.session_id = %s and s.owner_user_id = %s" in normalized:
+                session_id, owner_user_id = params
+                summary = self.db.build_session_summary(owner_user_id, session_id)
                 self._rows = [summary] if summary is not None else []
+            elif "where s.owner_user_id = %s" in normalized:
+                self._rows = self.db.list_session_summaries(params[0])
             else:
-                self._rows = self.db.list_session_summaries()
+                raise AssertionError(f"Unsupported session summary query: {statement}")
             return
 
         if "select knowledge_scope_last_used, source_summary_json from sessions" in normalized:
+            session_id, owner_user_id = params
+            session = self.db.sessions.get(session_id)
+            if session is None or session["owner_user_id"] != owner_user_id:
+                self._rows = []
+            else:
+                self._rows = [
+                    {
+                        "knowledge_scope_last_used": session["knowledge_scope_last_used"],
+                        "source_summary_json": session["source_summary_json"],
+                    }
+                ]
+            return
+
+        if normalized.startswith("select owner_user_id from sessions where session_id = %s"):
             session = self.db.sessions.get(params[0])
-            self._rows = [
-                {
-                    "knowledge_scope_last_used": session["knowledge_scope_last_used"],
-                    "source_summary_json": session["source_summary_json"],
-                }
-            ] if session else []
+            self._rows = [{"owner_user_id": session["owner_user_id"]}] if session else []
             return
 
         if normalized.startswith("update sessions set title = %s, updated_at = %s"):
@@ -162,16 +186,19 @@ class FakeCursor:
             self._rows = rows
             return
 
-        if normalized.startswith("select 1 from sessions where session_id = %s"):
-            self._rows = [{"exists": 1}] if params[0] in self.db.sessions else []
+        if normalized.startswith("select 1 from sessions where session_id = %s and owner_user_id = %s"):
+            session_id, owner_user_id = params
+            session = self.db.sessions.get(session_id)
+            self._rows = [{"exists": 1}] if session and session["owner_user_id"] == owner_user_id else []
             return
 
         if normalized.startswith("insert into files"):
-            file_id, session_id, filename, size, mime_type, stored_at, storage_path = params
+            file_id, owner_user_id, session_id, filename, size, mime_type, stored_at, storage_path = params
             self.db.files.append(
                 {
                     "file_seq": len(self.db.files) + 1,
                     "file_id": file_id,
+                    "owner_user_id": owner_user_id,
                     "session_id": session_id,
                     "filename": filename,
                     "size": size,
@@ -198,8 +225,12 @@ class FakeCursor:
             self._rows = [row] if row is not None else []
             return
 
-        if "from files" in normalized and "where session_id = %s" in normalized:
-            rows = [item for item in self.db.files if item["session_id"] == params[0]]
+        if "from files" in normalized and "where session_id = %s and owner_user_id = %s" in normalized:
+            session_id, owner_user_id = params
+            rows = [
+                item for item in self.db.files
+                if item["session_id"] == session_id and item["owner_user_id"] == owner_user_id
+            ]
             rows.sort(key=lambda item: item["file_seq"], reverse=True)
             self._rows = [
                 {
@@ -251,6 +282,7 @@ class FakeCursor:
         if normalized.startswith("insert into feedback_entries"):
             (
                 feedback_id,
+                owner_user_id,
                 target_type,
                 trace_id,
                 session_id,
@@ -260,6 +292,7 @@ class FakeCursor:
             ) = params
             self.db.feedback_entries[feedback_id] = {
                 "feedback_id": feedback_id,
+                "owner_user_id": owner_user_id,
                 "target_type": target_type,
                 "trace_id": trace_id,
                 "session_id": session_id,
@@ -271,14 +304,16 @@ class FakeCursor:
             self._rows = []
             return
 
-        if "from feedback_entries" in normalized and "where feedback_id = %s" in normalized:
-            row = self.db.feedback_entries.get(params[0])
-            self._rows = [row] if row is not None else []
+        if "from feedback_entries" in normalized and "where feedback_id = %s and owner_user_id = %s" in normalized:
+            feedback_id, owner_user_id = params
+            row = self.db.feedback_entries.get(feedback_id)
+            self._rows = [row] if row is not None and row["owner_user_id"] == owner_user_id else []
             return
 
         if normalized.startswith("insert into carbon_calculations"):
             (
                 trace_id,
+                owner_user_id,
                 session_id,
                 period_label,
                 electricity_kwh,
@@ -291,6 +326,7 @@ class FakeCursor:
             ) = params
             self.db.carbon_calculations[trace_id] = {
                 "trace_id": trace_id,
+                "owner_user_id": owner_user_id,
                 "session_id": session_id,
                 "period_label": period_label,
                 "electricity_kwh": electricity_kwh,
@@ -305,14 +341,16 @@ class FakeCursor:
             self._rows = []
             return
 
-        if "from carbon_calculations" in normalized and "where trace_id = %s" in normalized:
-            row = self.db.carbon_calculations.get(params[0])
-            self._rows = [row] if row is not None else []
+        if "from carbon_calculations" in normalized and "where trace_id = %s and owner_user_id = %s" in normalized:
+            trace_id, owner_user_id = params
+            row = self.db.carbon_calculations.get(trace_id)
+            self._rows = [row] if row is not None and row["owner_user_id"] == owner_user_id else []
             return
 
         if normalized.startswith("insert into reports"):
             (
                 report_id,
+                owner_user_id,
                 session_id,
                 report_type,
                 title,
@@ -326,6 +364,7 @@ class FakeCursor:
             ) = params
             self.db.reports[report_id] = {
                 "report_id": report_id,
+                "owner_user_id": owner_user_id,
                 "session_id": session_id,
                 "report_type": report_type,
                 "title": title,
@@ -357,9 +396,10 @@ class FakeCursor:
             self._rows = []
             return
 
-        if normalized.startswith("select * from reports where report_id = %s"):
-            row = self.db.reports.get(params[0])
-            self._rows = [row] if row is not None else []
+        if normalized.startswith("select * from reports where report_id = %s and owner_user_id = %s"):
+            report_id, owner_user_id = params
+            row = self.db.reports.get(report_id)
+            self._rows = [row] if row is not None and row["owner_user_id"] == owner_user_id else []
             return
 
         if "from report_sources" in normalized and "where report_id = %s" in normalized:
@@ -369,9 +409,9 @@ class FakeCursor:
             return
 
         if normalized.startswith("update reports set title = coalesce(%s, title),"):
-            title, content, updated_at, report_id = params
+            title, content, updated_at, report_id, owner_user_id = params
             report = self.db.reports.get(report_id)
-            if report is not None:
+            if report is not None and report["owner_user_id"] == owner_user_id:
                 if title is not None:
                     report["title"] = title
                 report["content"] = content
@@ -381,12 +421,11 @@ class FakeCursor:
             return
 
         if "from reports r" in normalized and "left join report_sources rs" in normalized:
-            session_id = params[0]
+            session_id, owner_user_id = params
             rows = []
             for report in self.db.reports.values():
-                if report["session_id"] != session_id:
+                if report["session_id"] != session_id or report["owner_user_id"] != owner_user_id:
                     continue
-                source_count = sum(1 for item in self.db.report_sources if item["report_id"] == report["report_id"])
                 rows.append(
                     {
                         "report_id": report["report_id"],
@@ -394,7 +433,9 @@ class FakeCursor:
                         "title": report["title"],
                         "created_at": report["created_at"],
                         "updated_at": report["updated_at"],
-                        "source_count": source_count,
+                        "source_count": sum(
+                            1 for item in self.db.report_sources if item["report_id"] == report["report_id"]
+                        ),
                     }
                 )
             rows.sort(key=lambda item: (item["updated_at"], item["created_at"]), reverse=True)
@@ -487,7 +528,7 @@ class FakeReportChatProvider:
     def generate_response(self, *, system_prompt: str, user_input: str):
         payload = json.loads(user_input)
         sections = [
-            {"heading": heading, "body": f"{heading}：postgres report storage 测试。"}
+            {"heading": heading, "body": f"{heading}: postgres report storage test."}
             for heading in payload["template_sections"]
         ]
         return type(
@@ -509,14 +550,15 @@ def test_postgres_session_store_persists_message_and_file(monkeypatch) -> None:
 
     created = store.create_session(
         session_id="session-demo",
-        title="新对话 2026-04-08 10:00",
+        owner_user_id=TEST_OWNER_USER_ID,
+        title="New conversation 2026-04-08 10:00",
         created_at="2026-04-08T10:00:00+00:00",
     )
     store.append_message(
         session_id=created.session_id,
         message_id="msg-001",
         role="user",
-        content="什么是双碳目标？",
+        content="What is the dual-carbon target?",
         created_at="2026-04-08T10:00:01+00:00",
     )
     store.create_uploaded_file(
@@ -534,11 +576,11 @@ def test_postgres_session_store_persists_message_and_file(monkeypatch) -> None:
         attached_at="2026-04-08T10:00:03+00:00",
     )
 
-    session = store.get_session(created.session_id)
+    session = store.get_session(owner_user_id=TEST_OWNER_USER_ID, session_id=created.session_id)
 
     assert session is not None
     assert len(session.messages) == 1
-    assert session.messages[0].content == "什么是双碳目标？"
+    assert session.messages[0].content == "What is the dual-carbon target?"
     assert len(session.files) == 1
     assert session.files[0].filename == "sample.txt"
     assert any(item.source_type == "private_sample" for item in session.attached_files)
@@ -547,9 +589,11 @@ def test_postgres_session_store_persists_message_and_file(monkeypatch) -> None:
 def test_feedback_service_persists_with_postgres_backend(monkeypatch, tmp_path) -> None:
     db = FakeRuntimeDatabase()
     patch_postgres_connect(monkeypatch, db)
-    sqlite_store = SQLiteSessionStore(tmp_path / "carbonrag.sqlite3")
+    db_path = tmp_path / "carbonrag.sqlite3"
+    owner_user_id = create_test_user_id(db_path, prefix="postgres-feedback")
+    sqlite_store = SQLiteSessionStore(db_path)
     session_service = SessionService(store=sqlite_store)
-    session = session_service.create_session()
+    session = session_service.create_session(owner_user_id=owner_user_id)
     service = FeedbackService(
         session_service=session_service,
         store=sqlite_store,
@@ -557,15 +601,16 @@ def test_feedback_service_persists_with_postgres_backend(monkeypatch, tmp_path) 
     )
 
     result = service.submit(
-        FeedbackRequest(
+        owner_user_id=owner_user_id,
+        payload=FeedbackRequest(
             target_type="ask",
             trace_id="trace-ask-001",
             session_id=session.session_id,
             rating="up",
             comment="grounded answer",
-        )
+        ),
     )
-    stored = service.get_entry(result.feedback_id)
+    stored = service.get_entry(owner_user_id=owner_user_id, feedback_id=result.feedback_id)
 
     assert stored is not None
     assert stored.trace_id == "trace-ask-001"
@@ -575,9 +620,11 @@ def test_feedback_service_persists_with_postgres_backend(monkeypatch, tmp_path) 
 def test_carbon_service_persists_with_postgres_backend(monkeypatch, tmp_path) -> None:
     db = FakeRuntimeDatabase()
     patch_postgres_connect(monkeypatch, db)
-    sqlite_store = SQLiteSessionStore(tmp_path / "carbonrag.sqlite3")
+    db_path = tmp_path / "carbonrag.sqlite3"
+    owner_user_id = create_test_user_id(db_path, prefix="postgres-carbon")
+    sqlite_store = SQLiteSessionStore(db_path)
     session_service = SessionService(store=sqlite_store)
-    session = session_service.create_session()
+    session = session_service.create_session(owner_user_id=owner_user_id)
     service = CarbonService(
         factor_loader=CarbonFactorLoader(build_factor_file(tmp_path)),
         session_service=session_service,
@@ -586,15 +633,16 @@ def test_carbon_service_persists_with_postgres_backend(monkeypatch, tmp_path) ->
     )
 
     result = service.calculate(
-        CalcCarbonRequest(
+        owner_user_id=owner_user_id,
+        payload=CalcCarbonRequest(
             session_id=session.session_id,
             period_label="2026-Q1",
             electricity_kwh=12000,
             natural_gas_m3=800,
             diesel_l=120,
-        )
+        ),
     )
-    stored = service.get_stored_calculation(result.trace_id)
+    stored = service.get_stored_calculation(owner_user_id=owner_user_id, trace_id=result.trace_id)
 
     assert stored is not None
     assert stored.session_id == session.session_id
@@ -606,23 +654,26 @@ def test_carbon_service_persists_with_postgres_backend(monkeypatch, tmp_path) ->
 def test_report_storage_persists_with_postgres_backend(monkeypatch, tmp_path) -> None:
     db = FakeRuntimeDatabase()
     patch_postgres_connect(monkeypatch, db)
-    sqlite_store = SQLiteSessionStore(tmp_path / "carbonrag.sqlite3")
+    db_path = tmp_path / "carbonrag.sqlite3"
+    owner_user_id = create_test_user_id(db_path, prefix="postgres-report")
+    sqlite_store = SQLiteSessionStore(db_path)
     session_service = SessionService(store=sqlite_store)
-    session = session_service.create_session()
+    session = session_service.create_session(owner_user_id=owner_user_id)
     session_service.record_exchange(
+        owner_user_id=owner_user_id,
         session_id=session.session_id,
-        user_content="请总结相关政策依据",
-        assistant_content="这是带政策依据的回答。",
+        user_content="Please summarize the policy basis.",
+        assistant_content="This is a response grounded in policy evidence.",
         assistant_status="ok",
         trace_id="trace-ask-001",
         citations=[
             AskCitation(
                 doc_id="policy_001",
-                title="政策依据",
+                title="Policy Basis",
                 source_type="public_policy",
-                source="国务院",
+                source="State Council",
                 source_url="https://example.com/policy",
-                snippet="政策片段",
+                snippet="Policy snippet",
                 chunk_id="policy_001_chunk_01",
             )
         ],
@@ -633,17 +684,19 @@ def test_report_storage_persists_with_postgres_backend(monkeypatch, tmp_path) ->
         session_service=session_service,
         storage=storage,
     )
-    session_detail = session_service.get_session(session.session_id)
+    session_detail = session_service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
+    assert session_detail is not None
 
     created = report_service.create_report(
-        CreateReportRequest(
+        owner_user_id=owner_user_id,
+        payload=CreateReportRequest(
             session_id=session.session_id,
             report_type="policy_summary",
             source_message_ids=[session_detail.messages[-1].message_id],
-        )
+        ),
     )
-    fetched = storage.get_report(created.report_id)
-    listed = storage.list_session_reports(session.session_id)
+    fetched = storage.get_report(owner_user_id=owner_user_id, report_id=created.report_id)
+    listed = storage.list_session_reports(owner_user_id=owner_user_id, session_id=session.session_id)
 
     assert fetched is not None
     assert fetched.report_id == created.report_id

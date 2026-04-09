@@ -7,6 +7,7 @@ from app.report.service import ReportService
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
 from app.schemas.ask import AskCitation
+from tests.test_helpers import patch_test_auth_service, register_and_login
 
 client = TestClient(app)
 
@@ -15,10 +16,14 @@ class FakeChatProvider:
     def generate_response(self, *, system_prompt: str, user_input: str):
         payload = json.loads(user_input)
         sections = [
-            {"heading": heading, "body": f"{heading}：报告更新测试。"}
+            {"heading": heading, "body": f"{heading}: report update route test."}
             for heading in payload["template_sections"]
         ]
-        return type("Result", (), {"content": json.dumps({"title": payload["template_name"], "sections": sections}, ensure_ascii=False)})()
+        return type(
+            "Result",
+            (),
+            {"content": json.dumps({"title": payload["template_name"], "sections": sections}, ensure_ascii=False)},
+        )()
 
 
 def test_report_update_route_persists_edited_content(monkeypatch, tmp_path) -> None:
@@ -29,46 +34,49 @@ def test_report_update_route_persists_edited_content(monkeypatch, tmp_path) -> N
     monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.reports.get_report_service", lambda: report_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    user = register_and_login(client, prefix="report-update")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
     session_service.record_exchange(
+        owner_user_id=user["user_id"],
         session_id=session_id,
-        user_content="解释双碳目标",
-        assistant_content="政策摘要回答。",
+        user_content="Explain policy requirements",
+        assistant_content="Policy answer.",
         assistant_status="ok",
         trace_id="trace-ask-001",
         citations=[
             AskCitation(
                 doc_id="policy_001",
-                title="政策依据",
+                title="Policy Basis",
                 source_type="public_policy",
-                source="国务院",
+                source="State Council",
                 source_url="https://example.com/policy",
-                snippet="政策片段",
+                snippet="Policy snippet",
                 chunk_id="policy_001_chunk_01",
             )
         ],
     )
-    detail = session_service.get_session(session_id)
+    session_detail = session_service.get_session(owner_user_id=user["user_id"], session_id=session_id)
+
     created = client.post(
         "/api/v1/reports",
         json={
             "session_id": session_id,
             "report_type": "policy_summary",
-            "source_message_ids": [detail.messages[-1].message_id],
-            "output_format": "markdown",
+            "source_message_ids": [session_detail.messages[-1].message_id],
         },
     ).json()
 
-    updated = client.patch(
+    response = client.patch(
         f"/api/v1/reports/{created['report_id']}",
         json={
-            "title": "编辑后的报告",
-            "content": "# 编辑后的正文\n\n这是修改后的内容。\n",
+            "title": "Edited Report Title",
+            "content": "# Edited\n\nUpdated markdown body.",
         },
     )
 
-    payload = updated.json()
-    assert updated.status_code == 200
-    assert payload["title"] == "编辑后的报告"
-    assert payload["content"].startswith("# 编辑后的正文")
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["title"] == "Edited Report Title"
+    assert payload["content"] == "# Edited\n\nUpdated markdown body."
