@@ -17,6 +17,16 @@ export interface SessionAttachment {
     attached_at: string;
 }
 
+export interface SessionMemoryState {
+    context_usage_estimate: number;
+    context_budget_estimate: number;
+    summary_present: boolean;
+    summary_updated_at?: string | null;
+    compacted_message_count: number;
+    compaction_status: "idle" | "compacted" | "failed";
+    summary_estimated_tokens: number;
+}
+
 export interface SessionSummary {
     session_id: string;
     title: string;
@@ -44,6 +54,7 @@ export interface SessionDetail extends SessionSummary {
     attached_files: SessionAttachment[];
     knowledge_scope_last_used?: KnowledgeScope | null;
     source_summary?: AskSourceSummary | null;
+    memory_state?: SessionMemoryState | null;
 }
 
 export interface CreateSessionRequest {

@@ -102,10 +102,11 @@ def ask_in_session(
         user_input=payload.question,
         payload={
             "session_id": session_id,
-            "session_context": session_service.build_session_context(
+            **session_service.build_session_context(
                 owner_user_id=current_user.user_id,
                 session_id=session_id,
-                max_turns=4,
+                max_turns=6,
+                upcoming_user_input=payload.question,
             ),
             "knowledge_scope_requested": requested_scope,
             "knowledge_scope_effective": requested_scope,

@@ -55,7 +55,7 @@ def test_bootstrap_runtime_database_executes_postgres_schema(monkeypatch) -> Non
     executed: list[str] = []
 
     monkeypatch.setattr(
-        "app.runtime_db.bootstrap.psycopg.connect",
+        "app.runtime_db.bootstrap.connect_postgres",
         lambda *args, **kwargs: FakeConnection(executed),
     )
 

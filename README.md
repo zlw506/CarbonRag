@@ -1,6 +1,6 @@
 # CarbonRag
 
-Current status: `V1.1.0 private knowledge auto-update + admin mainline in progress`
+Current status: `V1.1.3 memory foundation in progress`
 
 ## Project Positioning
 CarbonRag is an SME-oriented carbon policy and enterprise application workbench. The current product line has already moved beyond a single-user prototype:
@@ -11,6 +11,7 @@ CarbonRag is an SME-oriented carbon policy and enterprise application workbench.
 - report generation
 - feedback persistence
 - local-dev and cloud-stable dual environment strategy
+- main / release / feature branch discipline
 
 V1.1.0 adds the first manageable private knowledge flow on top of identity and isolation:
 
@@ -18,6 +19,13 @@ V1.1.0 adds the first manageable private knowledge flow on top of identity and i
 - shared knowledge library
 - knowledge ingest / rebuild / retry task flow
 - admin console for users, feedback, knowledge items, and runtime status
+
+V1.1.3 adds the first memory foundation on top of session workbench and grounded knowledge:
+
+- session compaction with summary preservation
+- context usage estimate and summary status
+- backend-only `memory_notes` as a guarded long-memory prewire
+- clear boundary between session summary and knowledge library content
 
 ## Runtime Modes
 
@@ -36,6 +44,13 @@ V1.1.0 adds the first manageable private knowledge flow on top of identity and i
 - Purpose: stable validation and external demo
 
 These two environments do not share runtime data. Different session history, reports, calculations, and feedback between local and cloud are expected.
+
+## Branch / Release Discipline
+- `main`: stable source baseline after accepted releases
+- `feature/*`: active development branches
+- `release/cloud-stable`: deployment line for Netlify and VPS
+
+`main` is the source baseline that should remain coherent and accepted; `release/cloud-stable` is the branch that actually powers cloud deployment; `feature/*` branches are where new work happens first.
 
 ## Authentication and Governance
 - Authentication uses `HttpOnly` cookie-based server-side sessions.
@@ -75,6 +90,10 @@ Admins cannot read ordinary users' session or report body content through normal
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 - `POST /api/v1/auth/change-password`
+- `GET /api/v1/memory-notes`
+- `POST /api/v1/memory-notes`
+- `PATCH /api/v1/memory-notes/{memory_note_id}`
+- `DELETE /api/v1/memory-notes/{memory_note_id}`
 - `POST /api/v1/sessions`
 - `GET /api/v1/sessions`
 - `GET /api/v1/sessions/{id}`
@@ -124,6 +143,13 @@ Admins cannot read ordinary users' session or report body content through normal
 - uses grounded citations
 - private retrieval now reads indexed `knowledge_items` / `knowledge_chunks`
 - only returns the current authenticated user's sessions and bindings
+
+### Session Memory
+- ask uses session compaction when context grows beyond the estimated budget
+- the session keeps a summary plus a recent-message window
+- `GET /api/v1/sessions/{id}` now returns `memory_state`, including context estimate, summary presence, compacted-message count, and compaction status
+- session summary is not a knowledge library entry
+- `memory_notes` exist only as backend-managed user-level prewire, not as a front-end memory UI
 
 ### Private Knowledge
 - uploaded files enter the knowledge task flow after upload
@@ -196,3 +222,4 @@ bash scripts/bootstrap.sh
 - [docs/deploy/NETLIFY_FRONTEND.md](/F:/Project\CarbonRag\CarbonRag/docs/deploy/NETLIFY_FRONTEND.md)
 - [docs/PLAN/V1.0.0.md](/F:/Project\CarbonRag\CarbonRag/docs/PLAN/V1.0.0.md)
 - [docs/PLAN/V1.1.0.md](/F:/Project\CarbonRag\CarbonRag/docs/PLAN/V1.1.0.md)
+- [docs/PLAN/V1.1.3.md](/F:/Project\CarbonRag\CarbonRag/docs/PLAN/V1.1.3.md)

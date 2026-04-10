@@ -5,6 +5,7 @@ CORE_TABLES = (
     "auth_sessions",
     "sessions",
     "messages",
+    "memory_notes",
     "files",
     "session_knowledge_items",
     "session_private_samples",
@@ -22,6 +23,7 @@ CORE_TABLES = (
 OWNER_TABLES = (
     "sessions",
     "files",
+    "memory_notes",
     "knowledge_items",
     "feedback_entries",
     "carbon_calculations",
@@ -59,6 +61,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at TEXT NOT NULL,
     knowledge_scope_last_used TEXT,
     source_summary_json TEXT,
+    session_summary TEXT,
+    summary_message_seq_upto INTEGER,
+    summary_updated_at TEXT,
+    summary_estimated_tokens INTEGER NOT NULL DEFAULT 0,
+    compaction_status TEXT NOT NULL DEFAULT 'idle',
+    last_compaction_error TEXT,
     FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
@@ -73,6 +81,17 @@ CREATE TABLE IF NOT EXISTS messages (
     citations_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS memory_notes (
+    memory_note_id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS files (
@@ -266,6 +285,8 @@ CREATE INDEX IF NOT EXISTS idx_users_username
     ON users(username);
 CREATE INDEX IF NOT EXISTS idx_messages_session_seq
     ON messages(session_id, message_seq);
+CREATE INDEX IF NOT EXISTS idx_memory_notes_owner_updated_at
+    ON memory_notes(owner_user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_owner_session_seq
     ON files(owner_user_id, session_id, file_seq);
 CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at
@@ -330,7 +351,13 @@ POSTGRES_SCHEMA_STATEMENTS = (
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         knowledge_scope_last_used TEXT,
-        source_summary_json TEXT
+        source_summary_json TEXT,
+        session_summary TEXT,
+        summary_message_seq_upto BIGINT,
+        summary_updated_at TEXT,
+        summary_estimated_tokens INTEGER NOT NULL DEFAULT 0,
+        compaction_status TEXT NOT NULL DEFAULT 'idle',
+        last_compaction_error TEXT
     )
     """,
     """
@@ -344,6 +371,17 @@ POSTGRES_SCHEMA_STATEMENTS = (
         trace_id TEXT,
         citations_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS memory_notes (
+        memory_note_id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     )
     """,
     """
@@ -524,6 +562,12 @@ POSTGRES_SCHEMA_STATEMENTS = (
     """,
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_summary TEXT",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_message_seq_upto BIGINT",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_updated_at TEXT",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_estimated_tokens INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS compaction_status TEXT NOT NULL DEFAULT 'idle'",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_compaction_error TEXT",
     "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS source TEXT",
     "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS source_url TEXT",
@@ -536,6 +580,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id, expires_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
     "CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, message_seq)",
+    "CREATE INDEX IF NOT EXISTS idx_memory_notes_owner_updated_at ON memory_notes(owner_user_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_files_owner_session_seq ON files(owner_user_id, session_id, file_seq)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at ON sessions(owner_user_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_session_knowledge_items_session_seq ON session_knowledge_items(session_id, attachment_seq DESC)",
@@ -559,6 +604,12 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "sessions", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "knowledge_scope_last_used", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "source_summary_json", "TEXT")
+    _ensure_sqlite_column(connection, "sessions", "session_summary", "TEXT")
+    _ensure_sqlite_column(connection, "sessions", "summary_message_seq_upto", "INTEGER")
+    _ensure_sqlite_column(connection, "sessions", "summary_updated_at", "TEXT")
+    _ensure_sqlite_column(connection, "sessions", "summary_estimated_tokens", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_sqlite_column(connection, "sessions", "compaction_status", "TEXT NOT NULL DEFAULT 'idle'")
+    _ensure_sqlite_column(connection, "sessions", "last_compaction_error", "TEXT")
     _ensure_sqlite_column(connection, "files", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "source", "TEXT")

@@ -1,7 +1,7 @@
 # API Boundary Draft
 
-Version: `V1.1.0`  
-Status: `private knowledge auto-update + admin mainline`
+Version: `V1.1.3`  
+Status: `mainline convergence + memory foundation`
 
 ## Global Rules
 - `GET /healthz` stays public.
@@ -148,6 +148,21 @@ Response:
 - requires auth
 - returns only the current user's session detail
 - returns `404` if the session belongs to another user
+- response now includes `memory_state`
+
+`memory_state` shape:
+
+```json
+{
+  "context_usage_estimate": 0,
+  "context_budget_estimate": 258000,
+  "summary_present": false,
+  "summary_updated_at": "string | null",
+  "compacted_message_count": 0,
+  "compaction_status": "idle | compacted | failed",
+  "summary_estimated_tokens": 0
+}
+```
 
 ### `POST /api/v1/sessions/{id}/ask`
 Request:
@@ -160,6 +175,41 @@ Request:
   "attached_file_ids": []
 }
 ```
+
+Notes:
+- ask may automatically compact older `user / assistant` messages into `session_summary`
+- automatic compaction never blocks the answer path; failure degrades to recent-window context
+- `memory_notes` are backend-only user notes read as a controlled context input, not a public memory UI
+
+## Memory Notes
+
+### `GET /api/v1/memory-notes`
+- requires auth
+- returns only the current user's memory notes
+
+### `POST /api/v1/memory-notes`
+Request:
+
+```json
+{
+  "title": "string",
+  "content": "string",
+  "is_enabled": true
+}
+```
+
+- requires auth
+- creates a backend-managed user memory note
+
+### `PATCH /api/v1/memory-notes/{memory_note_id}`
+- requires auth
+- updates only the current user's note
+- cross-user access returns `404`
+
+### `DELETE /api/v1/memory-notes/{memory_note_id}`
+- requires auth
+- deletes only the current user's note
+- cross-user access returns `404`
 
 Response:
 

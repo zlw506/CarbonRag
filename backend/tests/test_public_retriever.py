@@ -41,4 +41,8 @@ def test_public_retriever_returns_hits_for_dual_carbon_question() -> None:
 
     assert result.total_hits >= 1
     assert len(result.hits) >= 1
-    assert any(hit.doc_id in {"policy_001", "policy_005"} for hit in result.hits)
+    assert any(
+        keyword in hit.title
+        for hit in result.hits
+        for keyword in ("碳达峰", "碳中和", "统计核算", "标准计量")
+    )

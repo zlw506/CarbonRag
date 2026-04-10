@@ -3,11 +3,9 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-import psycopg
-from psycopg.rows import dict_row
-
 from app.core.config import get_settings
 from app.report.schemas import ReportDetail, ReportSourceEntry, ReportSummary, StoredReport
+from app.runtime_db.compat import connect_postgres
 from app.runtime_db.bootstrap import bootstrap_runtime_database, get_runtime_backend_kind
 from app.session.store import DEFAULT_SESSION_DB_PATH, SessionStore, get_session_store
 
@@ -30,7 +28,7 @@ class ReportStorage:
 
     def _connect(self):
         if self.backend_kind == "postgresql":
-            return psycopg.connect(self.database_url, row_factory=dict_row)
+            return connect_postgres(self.database_url)
 
         connection = sqlite3.connect(self.sqlite_db_path)
         connection.row_factory = sqlite3.Row

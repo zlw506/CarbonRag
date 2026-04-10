@@ -24,7 +24,14 @@ def build_context_bundle(
     if mode.name == "ask":
         knowledge_scope_requested = request.payload.get("knowledge_scope_requested", "public")
         knowledge_scope_effective = request.payload.get("knowledge_scope_effective", "public")
-        session_context = request.payload.get("session_context", [])
+        recent_messages = request.payload.get("recent_messages", request.payload.get("session_context", []))
+        session_summary = request.payload.get("session_summary")
+        memory_notes = request.payload.get("memory_notes", [])
+        context_usage_estimate = request.payload.get("context_usage_estimate", 0)
+        context_budget_estimate = request.payload.get("context_budget_estimate", 258_000)
+        compacted_message_count = request.payload.get("compacted_message_count", 0)
+        compaction_status = request.payload.get("compaction_status", "idle")
+        summary_updated_at = request.payload.get("summary_updated_at")
         attached_knowledge_item_ids = request.payload.get("attached_knowledge_item_ids", [])
         retrieval_hits = _extract_hits(tool_results)
         public_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy"]
@@ -38,9 +45,17 @@ def build_context_bundle(
             "用户上传文件进入知识任务流后，只有在当前 session 已挂接且索引完成时，才可作为私有依据参与回答。",
         ]
 
-        if session_context:
+        if session_summary:
+            summary_lines = [
+                "以下是当前会话的自动摘要，请优先据此理解较早上下文：",
+                session_summary,
+            ]
+        else:
+            summary_lines = ["当前会话尚未生成自动摘要。"]
+
+        if recent_messages:
             session_context_lines = ["最近单会话历史如下，请仅用于延续当前会话上下文："]
-            for index, message in enumerate(session_context, start=1):
+            for index, message in enumerate(recent_messages, start=1):
                 if not isinstance(message, dict):
                     continue
                 role = message.get("role", "unknown")
@@ -55,6 +70,20 @@ def build_context_bundle(
             )
         else:
             session_context_lines.append("当前 session 尚未挂接可检索知识条目。")
+
+        if memory_notes:
+            memory_note_lines = ["以下是用户级长期记忆预留条目，只用于补充稳定偏好或长期上下文："]
+            for index, note in enumerate(memory_notes, start=1):
+                if not isinstance(note, dict):
+                    continue
+                memory_note_lines.extend(
+                    [
+                        f"[memory-{index}] 标题：{note.get('title', '未命名记忆')}",
+                        f"内容：{note.get('content', '')}",
+                    ]
+                )
+        else:
+            memory_note_lines = ["当前没有启用的长期记忆条目。"]
 
         evidence_lines: list[str] = []
         if public_hits:
@@ -109,11 +138,15 @@ def build_context_bundle(
                 [
                     "你是 CarbonRag 的 ask mode 问答助手。",
                     "当前产品定位：面向中小企业的双碳问答 MVP。",
+                    *summary_lines,
                     *session_context_lines,
+                    *memory_note_lines,
                     *scope_strategy_lines,
                     "当前限制：未接入完整知识库、不得伪造引用。",
                     f"当前知识范围请求：{knowledge_scope_requested}。",
                     f"当前知识范围实际生效：{knowledge_scope_effective}。",
+                    f"当前上下文占用估算：{context_usage_estimate} / {context_budget_estimate}。",
+                    f"当前压缩状态：{compaction_status}，已摘要覆盖 {compacted_message_count} 条较早消息。",
                     *evidence_lines,
                     "如果存在政策和样例两类依据，请分层表达“政策要求”与“样例现状”；如果片段不足，只能给出受限说明。",
                 ]
@@ -121,7 +154,9 @@ def build_context_bundle(
             "user_question": request.user_input,
             "knowledge_scope_requested": knowledge_scope_requested,
             "knowledge_scope_effective": knowledge_scope_effective,
-            "session_context": session_context,
+            "recent_messages": recent_messages,
+            "session_summary": session_summary,
+            "memory_notes": memory_notes,
             "policy_context": {
                 "ready": True,
                 "source": "local_public_policy_corpus",
@@ -139,10 +174,15 @@ def build_context_bundle(
                 "trace_id": request.trace_id,
                 "mode": mode.name,
                 "attached_knowledge_item_ids": attached_knowledge_item_ids,
+                "compaction_status": compaction_status,
+                "context_usage_estimate": context_usage_estimate,
+                "context_budget_estimate": context_budget_estimate,
+                "compacted_message_count": compacted_message_count,
+                "summary_updated_at": summary_updated_at,
             },
             "memory_slot": {
-                "status": "reserved",
-                "implemented": False,
+                "status": "implemented",
+                "implemented": True,
             },
             "payload_keys": sorted(request.payload.keys()),
         }

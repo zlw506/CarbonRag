@@ -1,10 +1,8 @@
 import json
 from functools import lru_cache
 
-import psycopg
-from psycopg.rows import dict_row
-
 from app.retrieval.private_corpus_loader import load_private_sample_manifest
+from app.runtime_db.compat import connect_postgres
 from app.runtime_db.bootstrap import bootstrap_runtime_database
 from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 from app.session.schemas import (
@@ -23,7 +21,7 @@ class PostgreSQLSessionStore(SessionStore):
         bootstrap_runtime_database(database_url=self.database_url)
 
     def _connect(self):
-        return psycopg.connect(self.database_url, row_factory=dict_row)
+        return connect_postgres(self.database_url)
 
     def create_session(self, *, session_id: str, owner_user_id: str, title: str, created_at: str) -> SessionSummary:
         with self._connect() as connection:

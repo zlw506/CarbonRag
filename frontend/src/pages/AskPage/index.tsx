@@ -291,8 +291,27 @@ export function AskPage() {
                     ) : activeSession ? (
                         <>
                             <Typography.Paragraph type="secondary">
-                                当前问答会带最近 4 轮历史继续回答；范围可切到公共政策、知识条目或混合模式。
+                                当前问答会优先保留最近 6 轮完整历史；当会话过长时，系统会自动压缩较早消息到摘要层，再结合 grounding 结果继续回答。
                             </Typography.Paragraph>
+                            {activeSession.memory_state ? (
+                                <div className="chat-memory-state">
+                                    <Space size={8} wrap>
+                                        <Tag color="cyan">
+                                            上下文占用（估算）：{formatContextEstimate(activeSession.memory_state.context_usage_estimate)} / {formatContextEstimate(activeSession.memory_state.context_budget_estimate)}
+                                        </Tag>
+                                        <Tag color={compactionStatusColorMap[activeSession.memory_state.compaction_status]}>
+                                            {compactionStatusLabelMap[activeSession.memory_state.compaction_status]}
+                                        </Tag>
+                                        <Tag>已摘要覆盖消息：{activeSession.memory_state.compacted_message_count}</Tag>
+                                        <Tag>
+                                            最近摘要：{activeSession.memory_state.summary_updated_at ? formatTimestamp(activeSession.memory_state.summary_updated_at) : "暂无"}
+                                        </Tag>
+                                    </Space>
+                                    <Typography.Paragraph type="secondary" className="chat-memory-state__hint">
+                                        {buildMemoryHint(activeSession.memory_state)}
+                                    </Typography.Paragraph>
+                                </div>
+                            ) : null}
                             <div className="chat-message-stream">
                                 {activeSession.messages.length === 0 ? (
                                     <div className="chat-message-stream__empty">
@@ -579,6 +598,18 @@ const scopeLabelMap: Record<KnowledgeScope, string> = {
     mixed: "混合",
 };
 
+const compactionStatusColorMap = {
+    idle: "default",
+    compacted: "processing",
+    failed: "error",
+} as const;
+
+const compactionStatusLabelMap = {
+    idle: "当前未压缩",
+    compacted: "已自动压缩",
+    failed: "压缩失败",
+} as const;
+
 function getAttachedPrivateSampleIds(attachedFiles: SessionAttachment[]) {
     return attachedFiles
         .filter(
@@ -635,6 +666,23 @@ function buildPanelSourceSummary(citations: AskCitation[], fallback?: AskSourceS
         private_upload_count: 0,
         total_citation_count: 0,
     };
+}
+
+function formatContextEstimate(value: number): string {
+    if (value >= 1000) {
+        return `${(value / 1000).toFixed(1)}K`;
+    }
+    return `${value}`;
+}
+
+function buildMemoryHint(memoryState: NonNullable<SessionDetail["memory_state"]>) {
+    if (memoryState.compaction_status === "failed") {
+        return "本轮旧对话压缩没有成功，系统会继续使用现有摘要和最近消息窗口回答。";
+    }
+    if (memoryState.summary_present) {
+        return "已自动压缩旧对话，当前保留最近 6 轮完整消息，并用摘要承接更早的上下文。";
+    }
+    return "当前会话尚未触发自动压缩，系统会在上下文接近阈值时压缩较早对话。";
 }
 
 function toggleDocId(current: string[], target: string, checked: boolean) {

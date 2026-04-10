@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.memory.schemas import MemoryState
 from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 
 MessageRole = Literal["user", "assistant", "system"]
@@ -53,6 +54,7 @@ class SessionDetail(SessionSummary):
     attached_files: list[SessionAttachment] = Field(default_factory=list)
     knowledge_scope_last_used: KnowledgeScope | None = None
     source_summary: AskSourceSummary | None = None
+    memory_state: MemoryState | None = None
 
 
 class CreateSessionRequest(BaseModel):

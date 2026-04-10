@@ -1,8 +1,8 @@
 from functools import lru_cache
 
 import jieba
-from rank_bm25 import BM25Okapi
 
+from app.retrieval.bm25_compat import BM25Okapi
 from app.retrieval.public_chunker import chunk_public_policy_document
 from app.retrieval.public_corpus_loader import load_public_policy_documents
 from app.retrieval.schemas import RetrievedChunk, RetrievalResult

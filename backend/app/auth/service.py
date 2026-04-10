@@ -6,10 +6,8 @@ from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
 
-import psycopg
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
-from psycopg.rows import dict_row
 
 from app.auth.schemas import (
     AuthLoginResult,
@@ -20,6 +18,7 @@ from app.auth.schemas import (
     UserRole,
 )
 from app.core.config import get_settings
+from app.runtime_db.compat import connect_postgres
 from app.runtime_db.bootstrap import bootstrap_runtime_database, get_runtime_backend_kind
 from app.session.store import DEFAULT_SESSION_DB_PATH
 
@@ -69,7 +68,7 @@ class AuthService:
 
     def _connect(self):
         if self.backend_kind == "postgresql":
-            return psycopg.connect(self.database_url, row_factory=dict_row)
+            return connect_postgres(self.database_url)
 
         connection = sqlite3.connect(self.sqlite_db_path)
         connection.row_factory = sqlite3.Row

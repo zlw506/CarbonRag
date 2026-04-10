@@ -2,12 +2,13 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.private_samples.catalog import list_attachable_private_sample_catalog
+from app.memory.service import get_memory_service
 from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
 from app.session.store import SessionStore, get_session_store
 
 DEFAULT_TITLE_PREFIX = "新对话"
-DEFAULT_CONTEXT_TURNS = 4
+DEFAULT_CONTEXT_TURNS = 6
 
 
 def utcnow() -> datetime:
@@ -25,9 +26,11 @@ def _get_knowledge_service():
 
 
 class SessionService:
-    def __init__(self, store: SessionStore | None = None, knowledge_service=None) -> None:
+    def __init__(self, store: SessionStore | None = None, knowledge_service=None, memory_service=None) -> None:
         self.store = store or get_session_store()
         self.knowledge_service = knowledge_service
+        self.memory_service = memory_service
+        self._derived_memory_service = None
 
     def create_session(self, *, owner_user_id: str, title: str | None = None) -> SessionSummary:
         created_at = utcnow()
@@ -44,7 +47,11 @@ class SessionService:
         return self.store.list_sessions(owner_user_id=owner_user_id)
 
     def get_session(self, *, owner_user_id: str, session_id: str) -> SessionDetail | None:
-        return self.store.get_session(owner_user_id=owner_user_id, session_id=session_id)
+        session = self.store.get_session(owner_user_id=owner_user_id, session_id=session_id)
+        if session is None:
+            return None
+        memory_state = self._get_memory_service().get_session_memory_state(owner_user_id=owner_user_id, session_id=session_id)
+        return session.model_copy(update={"memory_state": memory_state})
 
     def require_session(self, *, owner_user_id: str, session_id: str) -> SessionDetail:
         session = self.get_session(owner_user_id=owner_user_id, session_id=session_id)
@@ -66,18 +73,15 @@ class SessionService:
         owner_user_id: str,
         session_id: str,
         max_turns: int = DEFAULT_CONTEXT_TURNS,
-    ) -> list[dict[str, str]]:
+        upcoming_user_input: str = "",
+    ) -> dict:
         self.require_session(owner_user_id=owner_user_id, session_id=session_id)
-        recent_messages = self.store.list_recent_messages(session_id=session_id, limit=max_turns * 4)
-        conversation_messages = [
-            {
-                "role": message.role,
-                "content": message.content,
-            }
-            for message in recent_messages
-            if message.role in {"user", "assistant"}
-        ]
-        return conversation_messages[-(max_turns * 2):]
+        return self._get_memory_service().build_session_context(
+            owner_user_id=owner_user_id,
+            session_id=session_id,
+            max_turns=max_turns,
+            upcoming_user_input=upcoming_user_input,
+        ).model_dump(mode="json")
 
     def record_exchange(
         self,
@@ -275,6 +279,21 @@ class SessionService:
 
     def _get_knowledge_service(self):
         return self.knowledge_service or _get_knowledge_service()
+
+    def _get_memory_service(self):
+        if self.memory_service is not None:
+            return self.memory_service
+        if self._derived_memory_service is None:
+            from app.memory.service import MemoryService
+            from app.memory.store import MemoryStore
+
+            self._derived_memory_service = MemoryService(
+                store=MemoryStore(
+                    database_url=getattr(self.store, "database_url", None),
+                    sqlite_db_path=getattr(self.store, "db_path", None),
+                )
+            )
+        return self._derived_memory_service or get_memory_service()
 
 
 def get_session_service() -> SessionService:

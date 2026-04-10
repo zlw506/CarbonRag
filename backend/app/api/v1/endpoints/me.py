@@ -1,12 +1,11 @@
 import sqlite3
 from datetime import datetime
 
-import psycopg
-from psycopg.rows import dict_row
 from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
+from app.runtime_db.compat import connect_postgres
 from app.feedback.schemas import StoredFeedbackEntry
 from app.knowledge import get_knowledge_service
 from app.report.schemas import ReportSummary
@@ -54,7 +53,7 @@ def list_my_feedback(current_user: AuthenticatedUser = Depends(require_authentic
 
 def _fetch_rows(*, database_url: str | None, sqlite_db_path, owner_user_id: str):
     if database_url:
-        with psycopg.connect(database_url, row_factory=dict_row) as connection:
+        with connect_postgres(database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """

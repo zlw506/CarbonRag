@@ -61,10 +61,16 @@ def test_orchestrator_returns_runtime_result_for_ok_request() -> None:
         user_input="什么是双碳目标？",
         payload={
             "session_id": "session-demo",
-            "session_context": [
+            "recent_messages": [
                 {"role": "user", "content": "先解释什么是碳达峰。"},
                 {"role": "assistant", "content": "碳达峰是排放到峰值后进入下降。"},
             ],
+            "session_summary": "用户已经了解碳达峰的基础定义，正在继续询问双碳目标。",
+            "memory_notes": [],
+            "context_usage_estimate": 1200,
+            "context_budget_estimate": 258000,
+            "compaction_status": "compacted",
+            "compacted_message_count": 8,
             "knowledge_scope_requested": "public",
             "knowledge_scope_effective": "public",
             "top_k": 5,
@@ -78,9 +84,11 @@ def test_orchestrator_returns_runtime_result_for_ok_request() -> None:
     assert result.trace_id == request.trace_id
     assert result.context_summary["knowledge_scope_requested"] == "public"
     assert result.context_summary["knowledge_scope_effective"] == "public"
-    assert result.context_summary["memory_reserved"] is True
+    assert result.context_summary["memory_reserved"] is False
     assert result.context_summary["tool_count"] == 1
     assert result.context_summary["session_message_count"] == 2
+    assert result.context_summary["summary_present"] is True
+    assert result.context_summary["compaction_status"] == "compacted"
     assert result.context_summary["grounded_by_policy"] is True
     assert result.context_summary["retrieval_hit_count"] >= 1
     assert result.tool_calls[0].name == "policy_retrieve"
@@ -102,10 +110,16 @@ def test_orchestrator_returns_provider_error_when_chat_provider_fails() -> None:
         user_input="什么是碳中和？",
         payload={
             "session_id": "session-demo",
-            "session_context": [
+            "recent_messages": [
                 {"role": "user", "content": "先解释什么是碳达峰。"},
                 {"role": "assistant", "content": "碳达峰是排放到峰值后进入下降。"},
             ],
+            "session_summary": "用户已经了解碳达峰的基础定义。",
+            "memory_notes": [],
+            "context_usage_estimate": 900,
+            "context_budget_estimate": 258000,
+            "compaction_status": "compacted",
+            "compacted_message_count": 6,
             "knowledge_scope_requested": "public",
             "knowledge_scope_effective": "public",
             "top_k": 5,

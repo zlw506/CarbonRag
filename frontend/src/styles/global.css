@@ -214,6 +214,7 @@ body {
 
 .chat-scope-bar,
 .chat-session-state,
+.chat-memory-state,
 .chat-citation-groups {
     display: flex;
     flex-direction: column;
@@ -228,6 +229,17 @@ body {
     flex-direction: row;
     align-items: center;
     flex-wrap: wrap;
+}
+
+.chat-memory-state {
+    padding: 14px 16px;
+    border: 1px solid rgba(8, 145, 178, 0.18);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(236, 254, 255, 0.92), rgba(240, 249, 255, 0.96));
+}
+
+.chat-memory-state__hint {
+    margin-bottom: 0;
 }
 
 .chat-attachments__tag {

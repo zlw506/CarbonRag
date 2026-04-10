@@ -2,10 +2,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-import psycopg
-from psycopg.rows import dict_row
-
 from app.core.config import get_settings
+from app.runtime_db.compat import connect_postgres
 from app.session.store import DEFAULT_SESSION_DB_PATH
 
 
@@ -13,7 +11,7 @@ def _connect(database_url: str | None = None, sqlite_db_path: Path | str | None 
     settings = get_settings()
     effective_database_url = database_url or settings.database_url
     if effective_database_url:
-        return psycopg.connect(effective_database_url, row_factory=dict_row)
+        return connect_postgres(effective_database_url)
 
     db_path = Path(sqlite_db_path or DEFAULT_SESSION_DB_PATH)
     connection = sqlite3.connect(db_path)

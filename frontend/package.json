@@ -14,8 +14,8 @@
     "antd": "^5.27.5",
     "axios": "^1.9.0",
     "react": "^19.1.0",
-    "react-markdown": "^10.1.0",
     "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.6.0"
   },
   "devDependencies": {
@@ -23,6 +23,8 @@
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^5.0.0",
+    "esbuild": "npm:esbuild-wasm@^0.27.7",
+    "rollup": "npm:@rollup/wasm-node@^4.60.1",
     "typescript": "^5.8.3",
     "vite": "^7.0.0"
   }

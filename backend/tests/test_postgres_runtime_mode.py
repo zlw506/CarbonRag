@@ -473,11 +473,11 @@ class FakeConnection:
 
 def patch_postgres_connect(monkeypatch, db: FakeRuntimeDatabase) -> None:
     fake_connect = lambda *args, **kwargs: FakeConnection(db)
-    monkeypatch.setattr("app.runtime_db.bootstrap.psycopg.connect", fake_connect)
-    monkeypatch.setattr("app.session.adapters.postgres_store.psycopg.connect", fake_connect)
-    monkeypatch.setattr("app.feedback.service.psycopg.connect", fake_connect)
-    monkeypatch.setattr("app.carbon.service.psycopg.connect", fake_connect)
-    monkeypatch.setattr("app.report.storage.psycopg.connect", fake_connect)
+    monkeypatch.setattr("app.runtime_db.bootstrap.connect_postgres", fake_connect)
+    monkeypatch.setattr("app.session.adapters.postgres_store.connect_postgres", fake_connect)
+    monkeypatch.setattr("app.feedback.service.connect_postgres", fake_connect)
+    monkeypatch.setattr("app.carbon.service.connect_postgres", fake_connect)
+    monkeypatch.setattr("app.report.storage.connect_postgres", fake_connect)
 
 
 def build_factor_file(tmp_path):

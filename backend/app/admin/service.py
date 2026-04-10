@@ -4,9 +4,6 @@ from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
 
-import psycopg
-from psycopg.rows import dict_row
-
 from app.admin.schemas import (
     AdminFeedbackOverview,
     AdminFeedbackRecentEntry,
@@ -32,6 +29,7 @@ from app.retrieval.private_retriever import get_private_sample_retriever
 from app.retrieval.private_corpus_loader import load_private_sample_documents
 from app.retrieval.public_corpus_loader import load_public_policy_documents
 from app.retrieval.public_retriever import get_public_policy_retriever
+from app.runtime_db.compat import connect_postgres
 from app.runtime_db.bootstrap import bootstrap_runtime_database, get_runtime_backend_kind
 from app.session.store import DEFAULT_SESSION_DB_PATH
 
@@ -57,7 +55,7 @@ class AdminService:
 
     def _connect(self):
         if self.backend_kind == "postgresql":
-            return psycopg.connect(self.database_url, row_factory=dict_row)
+            return connect_postgres(self.database_url)
 
         connection = sqlite3.connect(self.sqlite_db_path)
         connection.row_factory = sqlite3.Row

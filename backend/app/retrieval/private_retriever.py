@@ -1,9 +1,9 @@
 from functools import lru_cache
 
 import jieba
-from rank_bm25 import BM25Okapi
 
 from app.knowledge import get_knowledge_service
+from app.retrieval.bm25_compat import BM25Okapi
 from app.retrieval.schemas import RetrievedChunk, RetrievalResult
 
 

@@ -10,7 +10,7 @@ LOCAL_PROVIDER_CONFIG_PATH = BACKEND_DIR / "local_provider_config.json"
 
 class Settings(BaseSettings):
     app_name: str = "CarbonRag"
-    app_version: str = "v0.2.0"
+    app_version: str = "v1.1.3"
     app_env: str = "development"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     factor_data_dir: str = "./data/factors"
     upload_dir: str = "./data/outputs/uploads"
     database_url: str | None = None
+    memory_context_budget_estimate: int = 258_000
+    memory_compaction_trigger_estimate: int = 206_400
+    memory_recent_turn_window: int = 6
+    memory_min_recent_message_count: int = 4
+    memory_note_read_limit: int = 5
+    memory_note_max_chars: int = 3_000
 
     model_config = SettingsConfigDict(
         env_file=REPO_ROOT / ".env",

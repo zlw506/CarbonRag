@@ -39,11 +39,14 @@ def test_session_service_creates_default_title_and_builds_context(tmp_path) -> N
         owner_user_id=owner_user_id,
         session_id=session.session_id,
         max_turns=1,
+        upcoming_user_input="How should I proceed next?",
     )
 
-    assert len(session_context) == 2
-    assert session_context[0]["role"] == "user"
-    assert session_context[1]["role"] == "assistant"
+    assert len(session_context["recent_messages"]) == 2
+    assert session_context["recent_messages"][0]["role"] == "user"
+    assert session_context["recent_messages"][1]["role"] == "assistant"
+    assert session_context["context_budget_estimate"] == 258_000
+    assert session_context["compaction_status"] in {"idle", "compacted"}
 
 
 def test_session_service_promotes_first_question_to_title(tmp_path) -> None:
