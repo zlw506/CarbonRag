@@ -82,3 +82,50 @@ def test_session_service_promotes_first_question_to_title(tmp_path) -> None:
     assert updated is not None
     assert updated.title.startswith("What is the dual-carbon")
     assert updated.title != session.title
+
+
+def test_session_service_begin_and_finalize_exchange_updates_placeholder(tmp_path) -> None:
+    service = build_session_service(tmp_path)
+    owner_user_id = create_test_user_id(tmp_path / "carbonrag.sqlite3", prefix="session-stream")
+    session = service.create_session(owner_user_id=owner_user_id)
+
+    user_message, assistant_placeholder = service.begin_exchange(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        user_content="What is the dual-carbon target?",
+    )
+
+    assert user_message.role == "user"
+    assert assistant_placeholder.role == "assistant"
+    assert assistant_placeholder.status == "pending"
+    assert assistant_placeholder.content == ""
+
+    finalized_message = service.finalize_exchange(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        assistant_message_id=assistant_placeholder.message_id,
+        assistant_content="The dual-carbon target means carbon peaking and carbon neutrality.",
+        assistant_status="done",
+        trace_id="trace-003",
+        citations=[
+            AskCitation(
+                doc_id="policy_001",
+                title="Policy title",
+                source_type="public_policy",
+                source="State Council",
+                source_url="https://example.com",
+                snippet="Policy snippet",
+                chunk_id="policy_001_chunk_01",
+            )
+        ],
+    )
+
+    assert finalized_message is not None
+    assert finalized_message.status == "done"
+    assert finalized_message.trace_id == "trace-003"
+
+    refreshed = service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
+    assert refreshed is not None
+    assert refreshed.messages[-1].status == "done"
+    assert refreshed.source_summary is not None
+    assert refreshed.source_summary.total_citation_count == 1

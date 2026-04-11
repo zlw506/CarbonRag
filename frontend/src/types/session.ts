@@ -1,4 +1,4 @@
-import type { AskCitation, AskRequest, AskResponse, AskSourceSummary, AskStatus, KnowledgeScope } from "./ask";
+import type { AskCitation, AskRequest, AskResponse, AskSourceSummary, KnowledgeScope, MessageStatus } from "./ask";
 
 export interface UploadedFile {
     file_id: string;
@@ -42,7 +42,7 @@ export interface SessionMessage {
     role: "user" | "assistant" | "system";
     content: string;
     created_at: string;
-    status?: AskStatus | null;
+    status?: MessageStatus | null;
     trace_id?: string | null;
     citations: AskCitation[];
     source_summary?: AskSourceSummary | null;

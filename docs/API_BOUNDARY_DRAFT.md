@@ -1,7 +1,7 @@
 # API Boundary Draft
 
-Version: `V1.1.3`  
-Status: `mainline convergence + memory foundation`
+Version: `V1.1.4`  
+Status: `AI chat polish + streaming foundation`
 
 ## Global Rules
 - `GET /healthz` stays public.
@@ -180,6 +180,32 @@ Notes:
 - ask may automatically compact older `user / assistant` messages into `session_summary`
 - automatic compaction never blocks the answer path; failure degrades to recent-window context
 - `memory_notes` are backend-only user notes read as a controlled context input, not a public memory UI
+
+### `POST /api/v1/sessions/{id}/ask/stream`
+Request:
+
+```json
+{
+  "question": "string",
+  "knowledge_scope": "public | private_sample | mixed",
+  "top_k": 5,
+  "attached_file_ids": []
+}
+```
+
+Notes:
+- planned streaming ask route for the chat workbench
+- returns `text/event-stream`
+- the SSE event contract is:
+  - `message_start`
+  - `status`
+  - `thinking_delta`
+  - `answer_delta`
+  - `metadata`
+  - `done`
+  - `error`
+- thinking content is runtime UI data and is not persisted into the session body
+- local-dev and cloud-stable both show thinking text in a foldable UI area
 
 ## Memory Notes
 

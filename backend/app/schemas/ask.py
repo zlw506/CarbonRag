@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 KnowledgeScope = Literal["public", "private_sample", "mixed"]
 AskStatus = Literal["ok", "provider_error", "invalid_input"]
+MessageStatus = Literal["pending", "thinking", "streaming", "done", "error", "ok", "provider_error", "invalid_input"]
 CitationSourceType = Literal["public_policy", "private_sample", "private_upload"]
 
 

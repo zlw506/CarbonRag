@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Iterator, Literal, Sequence
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,12 @@ class ProviderDescriptor:
 class ChatCompletionResult:
     content: str
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ChatStreamEvent:
+    kind: Literal["status", "thinking_delta", "answer_delta", "done", "error"]
+    data: dict[str, Any] = field(default_factory=dict)
 
 
 class ChatProviderError(Exception):
@@ -43,6 +49,41 @@ class BaseChatProvider(ABC):
         user_input: str,
     ) -> ChatCompletionResult:
         raise NotImplementedError
+
+    def stream_response(
+        self,
+        *,
+        system_prompt: str,
+        user_input: str,
+    ) -> Iterator[ChatStreamEvent]:
+        descriptor = self.describe()
+        yield ChatStreamEvent(
+            kind="status",
+            data={
+                "status": "thinking",
+                "provider_mode": descriptor.mode,
+                "provider_name": descriptor.name,
+            },
+        )
+        result = self.generate_response(system_prompt=system_prompt, user_input=user_input)
+        if result.content:
+            yield ChatStreamEvent(
+                kind="status",
+                data={
+                    "status": "streaming",
+                    "provider_mode": descriptor.mode,
+                    "provider_name": descriptor.name,
+                },
+            )
+            yield ChatStreamEvent(kind="answer_delta", data={"delta": result.content})
+        yield ChatStreamEvent(
+            kind="done",
+            data={
+                "answer": result.content,
+                "content": result.content,
+                "metadata": result.metadata,
+            },
+        )
 
 
 class BaseEmbeddingProvider(ABC):

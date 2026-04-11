@@ -185,6 +185,15 @@ body {
     box-shadow: 0 18px 40px rgba(15, 23, 42, 0.05);
 }
 
+.chat-message__card--assistant {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 255, 0.92));
+    border-color: rgba(37, 99, 235, 0.16);
+}
+
+.chat-message__card--assistant:has(.chat-message__thinking) {
+    box-shadow: 0 22px 46px rgba(37, 99, 235, 0.12);
+}
+
 .chat-message__card--user {
     background: linear-gradient(180deg, #0b7285, #17636f);
     color: #f8fafc;
@@ -204,6 +213,67 @@ body {
 .chat-message__content {
     margin-bottom: 0;
     white-space: pre-wrap;
+}
+
+.chat-message__content--assistant {
+    color: #0f172a;
+}
+
+.chat-message__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.chat-message__thinking {
+    border: 1px solid rgba(37, 99, 235, 0.12);
+    border-radius: 14px;
+    background: rgba(239, 246, 255, 0.72);
+    padding: 4px 10px;
+}
+
+.chat-thinking-pulse {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: #1677ff;
+    box-shadow: 0 0 0 rgba(22, 119, 255, 0.35);
+    animation: chat-thinking-pulse 1.4s ease-in-out infinite;
+}
+
+.chat-message__thinking-content {
+    margin-bottom: 0;
+    white-space: pre-wrap;
+    color: #334155;
+}
+
+.chat-context-source {
+    margin-bottom: 0;
+    color: #0f172a;
+    font-weight: 500;
+}
+
+.chat-stream-hint {
+    display: flex;
+    justify-content: flex-start;
+}
+
+@keyframes chat-thinking-pulse {
+    0% {
+        transform: scale(0.9);
+        box-shadow: 0 0 0 0 rgba(22, 119, 255, 0.35);
+        opacity: 0.7;
+    }
+    70% {
+        transform: scale(1.08);
+        box-shadow: 0 0 0 10px rgba(22, 119, 255, 0);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(0.9);
+        box-shadow: 0 0 0 0 rgba(22, 119, 255, 0);
+        opacity: 0.7;
+    }
 }
 
 .chat-attachments {
@@ -259,10 +329,15 @@ body {
     gap: 8px;
 }
 
+.chat-citation-collapse .ant-collapse-header {
+    align-items: center !important;
+}
+
 .chat-citation-group {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    padding-left: 4px;
 }
 
 .chat-citation-group__header {
@@ -272,6 +347,10 @@ body {
 .chat-citation-card__snippet {
     margin-bottom: 0;
     white-space: pre-wrap;
+}
+
+.chat-citation-card .ant-typography {
+    word-break: break-word;
 }
 
 .calc-form-grid {

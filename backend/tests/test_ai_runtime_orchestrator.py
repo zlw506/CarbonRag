@@ -3,9 +3,11 @@ from app.ai_runtime.providers.base import (
     BaseEmbeddingProvider,
     ChatCompletionResult,
     ChatProviderError,
+    ChatStreamEvent,
     EmbeddingResult,
     ProviderDescriptor,
 )
+from app.ai_runtime.providers.chat_openai_compatible import OpenAICompatibleChatProvider
 from app.ai_runtime.runtime.orchestrator import AIRuntimeOrchestrator
 from app.ai_runtime.schemas.chat import ChatRequest
 
@@ -24,6 +26,12 @@ class FakeChatProvider(BaseChatProvider):
         assert "公共政策片段" in system_prompt or "当前未检索到足够政策依据" in system_prompt
         return ChatCompletionResult(content=f"回答: {user_input}")
 
+    def stream_response(self, *, system_prompt: str, user_input: str):
+        del system_prompt
+        yield ChatStreamEvent(kind="status", data={"status": "thinking"})
+        yield ChatStreamEvent(kind="answer_delta", data={"delta": f"回答: {user_input}"})
+        yield ChatStreamEvent(kind="done", data={"content": f"回答: {user_input}", "metadata": {"transport": "test"}})
+
 
 class FailingChatProvider(BaseChatProvider):
     def describe(self) -> ProviderDescriptor:
@@ -35,6 +43,10 @@ class FailingChatProvider(BaseChatProvider):
         )
 
     def generate_response(self, *, system_prompt: str, user_input: str) -> ChatCompletionResult:
+        raise ChatProviderError("boom", reason="network_error")
+
+    def stream_response(self, *, system_prompt: str, user_input: str):
+        del system_prompt, user_input
         raise ChatProviderError("boom", reason="network_error")
 
 
@@ -49,6 +61,22 @@ class FakeEmbeddingProvider(BaseEmbeddingProvider):
 
     def embed_stub(self, texts: list[str]) -> EmbeddingResult:
         return EmbeddingResult(vectors=[[1.0, 2.0, 3.0] for _ in texts])
+
+
+class FakeStreamingResponse:
+    def __init__(self, *, status_code: int, lines: list[str]) -> None:
+        self.status_code = status_code
+        self._lines = lines
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def iter_lines(self):
+        for line in self._lines:
+            yield line
 
 
 def test_orchestrator_returns_runtime_result_for_ok_request() -> None:
@@ -133,3 +161,67 @@ def test_orchestrator_returns_provider_error_when_chat_provider_fails() -> None:
     assert result.citations
     assert result.response.status == "provider_error"
     assert result.response.answer == "当前问答服务暂不可用，请稍后重试。"
+
+
+def test_orchestrator_run_stream_emits_status_thinking_answer_and_done(monkeypatch) -> None:
+    def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
+        del method, url, headers, json, timeout
+        return FakeStreamingResponse(
+            status_code=200,
+            lines=[
+                'event: reasoning',
+                'data: {"id":"chatcmpl-stream","choices":[{"delta":{"reasoning_content":"先梳理上下文。"}}]}',
+                "",
+                'event: message',
+                'data: {"id":"chatcmpl-stream","choices":[{"delta":{"content":"双碳目标是碳达峰和碳中和。"}}],"usage":{"prompt_tokens":12,"completion_tokens":18}}',
+                "",
+                "data: [DONE]",
+            ],
+        )
+
+    monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", fake_stream)
+
+    provider = OpenAICompatibleChatProvider(
+        base_url="https://example.com/v1",
+        api_key="demo-key",
+        model_name="gpt-5.4",
+        temperature=0.2,
+        max_tokens=4096,
+        timeout_seconds=30.0,
+    )
+    orchestrator = AIRuntimeOrchestrator(
+        chat_provider=provider,
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    request = ChatRequest(
+        mode="ask",
+        user_input="什么是双碳目标？",
+        payload={
+            "session_id": "session-demo",
+            "recent_messages": [],
+            "session_summary": None,
+            "memory_notes": [],
+            "context_usage_estimate": 0,
+            "context_budget_estimate": 258000,
+            "compaction_status": "idle",
+            "compacted_message_count": 0,
+            "knowledge_scope_requested": "public",
+            "knowledge_scope_effective": "public",
+            "top_k": 5,
+        },
+    )
+
+    handle = orchestrator.run_stream(request)
+    events = list(handle.events)
+
+    assert [event.kind for event in events[:4]] == ["status", "thinking_delta", "status", "answer_delta"]
+    assert events[0].data["status"] == "thinking"
+    assert events[1].data["delta"] == "先梳理上下文。"
+    assert events[2].data["status"] == "streaming"
+    assert events[3].data["delta"] == "双碳目标是碳达峰和碳中和。"
+    assert events[-1].kind == "done"
+    assert handle.state.runtime_result is not None
+    assert handle.state.runtime_result.status == "ok"
+    assert handle.state.runtime_result.response.answer == "双碳目标是碳达峰和碳中和。"
+    assert handle.state.runtime_result.response.status == "ok"
+    assert handle.state.runtime_result.source_summary["total_citation_count"] >= 0

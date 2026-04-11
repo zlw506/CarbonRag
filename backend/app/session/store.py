@@ -4,7 +4,7 @@ from pathlib import Path
 
 from app.core.config import get_settings
 from app.core.config import REPO_ROOT
-from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
+from app.schemas.ask import AskCitation, AskSourceSummary, KnowledgeScope, MessageStatus
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
 
 RUNTIME_DIR = REPO_ROOT / "data" / "outputs" / "runtime"
@@ -48,10 +48,24 @@ class SessionStore(ABC):
         role: str,
         content: str,
         created_at: str,
-        status: AskStatus | None = None,
+        status: MessageStatus | None = None,
         trace_id: str | None = None,
         citations: list[AskCitation] | None = None,
     ) -> SessionMessage:
+        raise NotImplementedError
+
+    @abstractmethod
+    def update_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        content: str,
+        updated_at: str,
+        status: MessageStatus | None = None,
+        trace_id: str | None = None,
+        citations: list[AskCitation] | None = None,
+    ) -> SessionMessage | None:
         raise NotImplementedError
 
     @abstractmethod

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.retrieval.private_corpus_loader import load_private_sample_manifest
 from app.runtime_db.schema import ensure_sqlite_schema
-from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
+from app.schemas.ask import AskCitation, AskSourceSummary, KnowledgeScope, MessageStatus
 from app.session.schemas import (
     SessionAttachment,
     SessionDetail,
@@ -226,7 +226,7 @@ class SQLiteSessionStore(SessionStore):
         role: str,
         content: str,
         created_at: str,
-        status: AskStatus | None = None,
+        status: MessageStatus | None = None,
         trace_id: str | None = None,
         citations: list[AskCitation] | None = None,
     ) -> SessionMessage:
@@ -262,6 +262,46 @@ class SQLiteSessionStore(SessionStore):
                 WHERE message_id = ?
                 """,
                 (message_id,),
+            ).fetchone()
+        return self._row_to_session_message(row)
+
+    def update_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        content: str,
+        updated_at: str,
+        status: MessageStatus | None = None,
+        trace_id: str | None = None,
+        citations: list[AskCitation] | None = None,
+    ) -> SessionMessage | None:
+        citations_json = json.dumps(
+            [citation.model_dump() for citation in (citations or [])],
+            ensure_ascii=False,
+        )
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE messages
+                SET content = ?, status = ?, trace_id = ?, citations_json = ?
+                WHERE session_id = ? AND message_id = ?
+                """,
+                (content, status, trace_id, citations_json, session_id, message_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+            connection.execute(
+                "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
+                (updated_at, session_id),
+            )
+            row = connection.execute(
+                """
+                SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                FROM messages
+                WHERE session_id = ? AND message_id = ?
+                """,
+                (session_id, message_id),
             ).fetchone()
         return self._row_to_session_message(row)
 

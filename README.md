@@ -1,6 +1,6 @@
 # CarbonRag
 
-Current status: `V1.1.3 memory foundation in progress`
+Current status: `V1.1.4 AI chat polish + streaming foundation in progress`
 
 ## Project Positioning
 CarbonRag is an SME-oriented carbon policy and enterprise application workbench. The current product line has already moved beyond a single-user prototype:
@@ -26,6 +26,12 @@ V1.1.3 adds the first memory foundation on top of session workbench and grounded
 - context usage estimate and summary status
 - backend-only `memory_notes` as a guarded long-memory prewire
 - clear boundary between session summary and knowledge library content
+
+V1.1.4 is the current chat polish pass:
+
+- streaming ask foundation with explicit thinking / answer state separation
+- more visible session memory compaction behavior
+- foldable citations and context-source cues in the chat workbench
 
 ## Runtime Modes
 
@@ -217,9 +223,11 @@ bash scripts/bootstrap.sh
 - [docs/GIT_WORKFLOW.md](/F:/Project\CarbonRag\CarbonRag/docs/GIT_WORKFLOW.md)
 - [docs/GIT_RELEASE_FLOW.md](/F:/Project\CarbonRag\CarbonRag/docs/GIT_RELEASE_FLOW.md)
 - [docs/architecture/PRIVATE_KNOWLEDGE_TASK_FLOW.md](/F:/Project\CarbonRag\CarbonRag/docs/architecture/PRIVATE_KNOWLEDGE_TASK_FLOW.md)
+- [docs/research/claw-code/07_CHAT_UX_AND_MEMORY_NOTES.md](/F:/Project\CarbonRag\CarbonRag/docs/research/claw-code/07_CHAT_UX_AND_MEMORY_NOTES.md)
 - [docs/deploy/LOCAL_DEV_VS_CLOUD_STABLE.md](/F:/Project\CarbonRag\CarbonRag/docs/deploy/LOCAL_DEV_VS_CLOUD_STABLE.md)
 - [docs/deploy/VPS_BACKEND_DEPLOY.md](/F:/Project\CarbonRag\CarbonRag/docs/deploy/VPS_BACKEND_DEPLOY.md)
 - [docs/deploy/NETLIFY_FRONTEND.md](/F:/Project\CarbonRag\CarbonRag/docs/deploy/NETLIFY_FRONTEND.md)
 - [docs/PLAN/V1.0.0.md](/F:/Project\CarbonRag\CarbonRag/docs/PLAN/V1.0.0.md)
 - [docs/PLAN/V1.1.0.md](/F:/Project\CarbonRag\CarbonRag/docs/PLAN/V1.1.0.md)
 - [docs/PLAN/V1.1.3.md](/F:/Project\CarbonRag\CarbonRag/docs/PLAN/V1.1.3.md)
+- [docs/PLAN/V1.1.4.md](/F:/Project\CarbonRag\CarbonRag/docs/PLAN/V1.1.4.md)

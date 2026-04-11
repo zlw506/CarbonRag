@@ -1,6 +1,9 @@
+from dataclasses import dataclass, field
+from typing import Iterator
+
 from app.ai_runtime.config import get_ai_runtime_config
 from app.ai_runtime.modes import list_mode_names, resolve_mode
-from app.ai_runtime.providers.base import ChatCompletionResult, ChatProviderError
+from app.ai_runtime.providers.base import ChatCompletionResult, ChatProviderError, ChatStreamEvent, ProviderDescriptor
 from app.ai_runtime.providers.factory import get_chat_provider, get_embedding_provider
 from app.ai_runtime.runtime.context_builder import build_context_bundle
 from app.ai_runtime.runtime.guards import (
@@ -13,6 +16,30 @@ from app.ai_runtime.schemas.chat import ChatRequest
 from app.ai_runtime.schemas.result import RuntimeResult
 from app.ai_runtime.schemas.tool import ToolCall
 from app.ai_runtime.tools.registry import ToolRegistry, build_default_registry
+
+
+@dataclass(frozen=True)
+class PreparedRuntimeContext:
+    mode_name: str
+    tool_calls: list[ToolCall]
+    tool_results: list
+    context_bundle: dict
+    guard_snapshot: object
+    provider_descriptor: ProviderDescriptor
+    embedding_descriptor: ProviderDescriptor
+
+
+@dataclass
+class RuntimeStreamState:
+    answer_fragments: list[str] = field(default_factory=list)
+    thinking_fragments: list[str] = field(default_factory=list)
+    runtime_result: RuntimeResult | None = None
+
+
+@dataclass
+class RuntimeStreamHandle:
+    events: Iterator[ChatStreamEvent]
+    state: RuntimeStreamState
 
 
 class AIRuntimeOrchestrator:
@@ -40,7 +67,7 @@ class AIRuntimeOrchestrator:
             return ("mixed_retrieve",)
         return ("policy_retrieve",)
 
-    def run(self, request: ChatRequest) -> RuntimeResult:
+    def _prepare_runtime(self, request: ChatRequest) -> PreparedRuntimeContext:
         mode = resolve_mode(request.mode)
         enforce_mode_whitelist(mode.name, self.config.allowed_modes)
         if request.mode == "ask":
@@ -88,58 +115,206 @@ class AIRuntimeOrchestrator:
 
         provider_descriptor = self.chat_provider.describe()
         embedding_descriptor = self.embedding_provider.describe()
+        return PreparedRuntimeContext(
+            mode_name=mode.name,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+            context_bundle=context_bundle,
+            guard_snapshot=guard_snapshot,
+            provider_descriptor=provider_descriptor,
+            embedding_descriptor=embedding_descriptor,
+        )
 
-        if mode.name != "ask":
+    def _format_provider_error_result(
+        self,
+        *,
+        request: ChatRequest,
+        prepared: PreparedRuntimeContext,
+        exc: ChatProviderError,
+    ) -> RuntimeResult:
+        return format_runtime_result(
+            request=request,
+            provider_descriptor=prepared.provider_descriptor,
+            embedding_descriptor=prepared.embedding_descriptor,
+            guard_snapshot=prepared.guard_snapshot,
+            context_bundle=prepared.context_bundle,
+            provider_result=ChatCompletionResult(
+                content="",
+                metadata={
+                    "error_reason": exc.reason,
+                    "error_message": str(exc),
+                    "provider_status_code": exc.status_code,
+                },
+            ),
+            tool_calls=prepared.tool_calls,
+            tool_results=prepared.tool_results,
+            status="provider_error",
+            answer="当前问答服务暂不可用，请稍后重试。",
+        )
+
+    def run(self, request: ChatRequest) -> RuntimeResult:
+        prepared = self._prepare_runtime(request)
+
+        if prepared.mode_name != "ask":
             return format_runtime_result(
                 request=request,
-                provider_descriptor=provider_descriptor,
-                embedding_descriptor=embedding_descriptor,
-                guard_snapshot=guard_snapshot,
-                context_bundle=context_bundle,
+                provider_descriptor=prepared.provider_descriptor,
+                embedding_descriptor=prepared.embedding_descriptor,
+                guard_snapshot=prepared.guard_snapshot,
+                context_bundle=prepared.context_bundle,
                 provider_result=ChatCompletionResult(
-                    content=f"[{mode.name}] mode skeleton is reserved for future implementation.",
+                    content=f"[{prepared.mode_name}] mode skeleton is reserved for future implementation.",
                     metadata={"stub": True},
                 ),
-                tool_calls=tool_calls,
-                tool_results=tool_results,
+                tool_calls=prepared.tool_calls,
+                tool_results=prepared.tool_results,
                 status="stub_ready",
-                answer=f"[{mode.name}] mode skeleton is reserved for future implementation.",
+                answer=f"[{prepared.mode_name}] mode skeleton is reserved for future implementation.",
             )
 
         try:
             provider_result = self.chat_provider.generate_response(
-                system_prompt=context_bundle["system_prompt"],
+                system_prompt=prepared.context_bundle["system_prompt"],
                 user_input=request.user_input,
             )
             return format_runtime_result(
                 request=request,
-                provider_descriptor=provider_descriptor,
-                embedding_descriptor=embedding_descriptor,
-                guard_snapshot=guard_snapshot,
-                context_bundle=context_bundle,
+                provider_descriptor=prepared.provider_descriptor,
+                embedding_descriptor=prepared.embedding_descriptor,
+                guard_snapshot=prepared.guard_snapshot,
+                context_bundle=prepared.context_bundle,
                 provider_result=provider_result,
-                tool_calls=tool_calls,
-                tool_results=tool_results,
+                tool_calls=prepared.tool_calls,
+                tool_results=prepared.tool_results,
                 status="ok",
                 answer=provider_result.content,
             )
         except ChatProviderError as exc:
-            return format_runtime_result(
-                request=request,
-                provider_descriptor=provider_descriptor,
-                embedding_descriptor=embedding_descriptor,
-                guard_snapshot=guard_snapshot,
-                context_bundle=context_bundle,
-                provider_result=ChatCompletionResult(
-                    content="",
-                    metadata={
-                        "error_reason": exc.reason,
-                        "error_message": str(exc),
-                        "provider_status_code": exc.status_code,
+            return self._format_provider_error_result(request=request, prepared=prepared, exc=exc)
+
+    def run_stream(self, request: ChatRequest) -> RuntimeStreamHandle:
+        prepared = self._prepare_runtime(request)
+        state = RuntimeStreamState()
+
+        def iterator() -> Iterator[ChatStreamEvent]:
+            if prepared.mode_name != "ask":
+                state.runtime_result = format_runtime_result(
+                    request=request,
+                    provider_descriptor=prepared.provider_descriptor,
+                    embedding_descriptor=prepared.embedding_descriptor,
+                    guard_snapshot=prepared.guard_snapshot,
+                    context_bundle=prepared.context_bundle,
+                    provider_result=ChatCompletionResult(
+                        content=f"[{prepared.mode_name}] mode skeleton is reserved for future implementation.",
+                        metadata={"stub": True},
+                    ),
+                    tool_calls=prepared.tool_calls,
+                    tool_results=prepared.tool_results,
+                    status="stub_ready",
+                    answer=f"[{prepared.mode_name}] mode skeleton is reserved for future implementation.",
+                )
+                return
+
+            try:
+                for event in self.chat_provider.stream_response(
+                    system_prompt=prepared.context_bundle["system_prompt"],
+                    user_input=request.user_input,
+                ):
+                    if event.kind == "thinking_delta":
+                        delta = event.data.get("delta")
+                        if isinstance(delta, str) and delta:
+                            state.thinking_fragments.append(delta)
+                        yield event
+                        continue
+
+                    if event.kind == "answer_delta":
+                        delta = event.data.get("delta")
+                        if isinstance(delta, str) and delta:
+                            state.answer_fragments.append(delta)
+                        yield event
+                        continue
+
+                    if event.kind == "status":
+                        yield event
+                        continue
+
+                    if event.kind == "error":
+                        exc = ChatProviderError(
+                            event.data.get("message", "Chat provider stream failed."),
+                            reason=str(event.data.get("reason", "network_error")),
+                            status_code=event.data.get("status_code"),
+                        )
+                        state.runtime_result = self._format_provider_error_result(
+                            request=request,
+                            prepared=prepared,
+                            exc=exc,
+                        )
+                        yield event
+                        return
+
+                    if event.kind == "done":
+                        final_answer = event.data.get("answer") or event.data.get("content") or "".join(state.answer_fragments)
+                        metadata = event.data.get("metadata")
+                        provider_metadata = metadata if isinstance(metadata, dict) else {}
+                        provider_result = ChatCompletionResult(
+                            content=final_answer,
+                            metadata=provider_metadata,
+                        )
+                        state.runtime_result = format_runtime_result(
+                            request=request,
+                            provider_descriptor=prepared.provider_descriptor,
+                            embedding_descriptor=prepared.embedding_descriptor,
+                            guard_snapshot=prepared.guard_snapshot,
+                            context_bundle=prepared.context_bundle,
+                            provider_result=provider_result,
+                            tool_calls=prepared.tool_calls,
+                            tool_results=prepared.tool_results,
+                            status="ok",
+                            answer=final_answer,
+                        )
+                        yield ChatStreamEvent(
+                            kind="done",
+                            data={
+                                "answer": final_answer,
+                                "content": final_answer,
+                                "metadata": provider_metadata,
+                                "trace_id": request.trace_id,
+                            },
+                        )
+                        return
+            except ChatProviderError as exc:
+                state.runtime_result = self._format_provider_error_result(
+                    request=request,
+                    prepared=prepared,
+                    exc=exc,
+                )
+                yield ChatStreamEvent(
+                    kind="error",
+                    data={
+                        "message": str(exc),
+                        "reason": exc.reason,
+                        "status_code": exc.status_code,
                     },
-                ),
-                tool_calls=tool_calls,
-                tool_results=tool_results,
-                status="provider_error",
-                answer="当前问答服务暂不可用，请稍后重试。",
-            )
+                )
+                return
+
+            if state.runtime_result is None:
+                exc = ChatProviderError(
+                    "Chat provider stream ended unexpectedly.",
+                    reason="invalid_response",
+                )
+                state.runtime_result = self._format_provider_error_result(
+                    request=request,
+                    prepared=prepared,
+                    exc=exc,
+                )
+                yield ChatStreamEvent(
+                    kind="error",
+                    data={
+                        "message": str(exc),
+                        "reason": exc.reason,
+                        "status_code": exc.status_code,
+                    },
+                )
+
+        return RuntimeStreamHandle(events=iterator(), state=state)

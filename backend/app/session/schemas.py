@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.memory.schemas import MemoryState
-from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
+from app.schemas.ask import AskCitation, AskSourceSummary, KnowledgeScope, MessageStatus
 
 MessageRole = Literal["user", "assistant", "system"]
 AttachmentSourceType = Literal["uploaded_file", "private_sample"]
@@ -15,7 +15,7 @@ class SessionMessage(BaseModel):
     role: MessageRole
     content: str
     created_at: datetime
-    status: AskStatus | None = None
+    status: MessageStatus | None = None
     trace_id: str | None = None
     citations: list[AskCitation] = Field(default_factory=list)
 

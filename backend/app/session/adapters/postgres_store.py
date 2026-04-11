@@ -4,7 +4,7 @@ from functools import lru_cache
 from app.retrieval.private_corpus_loader import load_private_sample_manifest
 from app.runtime_db.compat import connect_postgres
 from app.runtime_db.bootstrap import bootstrap_runtime_database
-from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
+from app.schemas.ask import AskCitation, AskSourceSummary, KnowledgeScope, MessageStatus
 from app.session.schemas import (
     SessionAttachment,
     SessionDetail,
@@ -234,7 +234,7 @@ class PostgreSQLSessionStore(SessionStore):
         role: str,
         content: str,
         created_at: str,
-        status: AskStatus | None = None,
+        status: MessageStatus | None = None,
         trace_id: str | None = None,
         citations: list[AskCitation] | None = None,
     ) -> SessionMessage:
@@ -268,6 +268,45 @@ class PostgreSQLSessionStore(SessionStore):
                     WHERE message_id = %s
                     """,
                     (message_id,),
+                )
+                row = cursor.fetchone()
+        return self._row_to_session_message(row)
+
+    def update_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        content: str,
+        updated_at: str,
+        status: MessageStatus | None = None,
+        trace_id: str | None = None,
+        citations: list[AskCitation] | None = None,
+    ) -> SessionMessage | None:
+        citations_json = json.dumps([citation.model_dump() for citation in (citations or [])], ensure_ascii=False)
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE messages
+                    SET content = %s, status = %s, trace_id = %s, citations_json = %s
+                    WHERE session_id = %s AND message_id = %s
+                    """,
+                    (content, status, trace_id, citations_json, session_id, message_id),
+                )
+                if cursor.rowcount == 0:
+                    return None
+                cursor.execute(
+                    "UPDATE sessions SET updated_at = %s WHERE session_id = %s",
+                    (updated_at, session_id),
+                )
+                cursor.execute(
+                    """
+                    SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                    FROM messages
+                    WHERE session_id = %s AND message_id = %s
+                    """,
+                    (session_id, message_id),
                 )
                 row = cursor.fetchone()
         return self._row_to_session_message(row)

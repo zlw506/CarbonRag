@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from app.private_samples.catalog import list_attachable_private_sample_catalog
 from app.memory.service import get_memory_service
-from app.schemas.ask import AskCitation, AskSourceSummary, AskStatus, KnowledgeScope
+from app.schemas.ask import AskCitation, AskSourceSummary, KnowledgeScope, MessageStatus
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
 from app.session.store import SessionStore, get_session_store
 
@@ -90,11 +90,36 @@ class SessionService:
         session_id: str,
         user_content: str,
         assistant_content: str,
-        assistant_status: AskStatus,
+        assistant_status: MessageStatus,
         trace_id: str,
         citations: list[AskCitation],
         knowledge_scope: KnowledgeScope = "public",
         source_summary: AskSourceSummary | None = None,
+    ) -> tuple[SessionMessage, SessionMessage | None]:
+        user_message, assistant_placeholder = self.begin_exchange(
+            owner_user_id=owner_user_id,
+            session_id=session_id,
+            user_content=user_content,
+        )
+        assistant_message = self.finalize_exchange(
+            owner_user_id=owner_user_id,
+            session_id=session_id,
+            assistant_message_id=assistant_placeholder.message_id,
+            assistant_content=assistant_content,
+            assistant_status=assistant_status,
+            trace_id=trace_id,
+            citations=citations,
+            knowledge_scope=knowledge_scope,
+            source_summary=source_summary,
+        )
+        return user_message, assistant_message
+
+    def begin_exchange(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        user_content: str,
     ) -> tuple[SessionMessage, SessionMessage]:
         self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         timestamp = utcnow()
@@ -109,8 +134,31 @@ class SessionService:
             session_id=session_id,
             message_id=f"msg-{uuid4().hex[:12]}",
             role="assistant",
-            content=assistant_content,
+            content="",
             created_at=utcnow().isoformat(),
+            status="pending",
+        )
+        return user_message, assistant_message
+
+    def finalize_exchange(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        assistant_message_id: str,
+        assistant_content: str,
+        assistant_status: MessageStatus,
+        trace_id: str,
+        citations: list[AskCitation],
+        knowledge_scope: KnowledgeScope = "public",
+        source_summary: AskSourceSummary | None = None,
+    ) -> SessionMessage | None:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
+        updated_message = self.store.update_message(
+            session_id=session_id,
+            message_id=assistant_message_id,
+            content=assistant_content,
+            updated_at=utcnow().isoformat(),
             status=assistant_status,
             trace_id=trace_id,
             citations=citations,
@@ -128,7 +176,7 @@ class SessionService:
             knowledge_scope_last_used=knowledge_scope,
             source_summary=effective_source_summary,
         )
-        return user_message, assistant_message
+        return updated_message
 
     def maybe_promote_title_from_first_question(
         self,
