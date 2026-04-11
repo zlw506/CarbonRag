@@ -64,6 +64,7 @@ bash scripts/dev-local.sh
 用于后端本地开发配置。当前本地安全默认值是：
 - `APP_ENV=development`
 - `DATABASE_URL=` 为空，避免误连云端 PostgreSQL
+- `MEMORY_BACKEND=sqlite`
 - `PUBLIC_DATA_DIR` / `PRIVATE_SAMPLE_DIR` / `FACTOR_DATA_DIR` 指向仓库内 `data/`
 
 ### `frontend/.env.local`
@@ -105,6 +106,7 @@ cd backend
 
 ## 当前边界
 - 本地开发默认不连接云端 PostgreSQL
+- 本地 memory / session 默认走 SQLite fallback
 - 本地历史记录与云端历史记录不共享
 - ask / calc / feedback 已可本地联调
 - 共享云端环境不承担日常 feature 半成品验证

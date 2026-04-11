@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     factor_data_dir: str = "./data/factors"
     upload_dir: str = "./data/outputs/uploads"
     database_url: str | None = None
+    memory_backend: str | None = None
     memory_context_budget_estimate: int = 258_000
     memory_compaction_trigger_estimate: int = 206_400
     memory_recent_turn_window: int = 6

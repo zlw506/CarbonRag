@@ -1,6 +1,7 @@
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from app.core.config import get_settings
@@ -9,15 +10,49 @@ from app.runtime_db.compat import connect_postgres
 from app.runtime_db.bootstrap import bootstrap_runtime_database
 from app.session.store import DEFAULT_SESSION_DB_PATH
 
+MemoryBackend = Literal["sqlite", "postgres"]
+
+
+def resolve_memory_backend(*, memory_backend: str | None, database_url: str | None) -> MemoryBackend:
+    normalized = (memory_backend or "").strip().lower()
+    if normalized in {"postgres", "postgresql"}:
+        return "postgres"
+    if normalized == "sqlite":
+        return "sqlite"
+    if normalized:
+        raise ValueError("MEMORY_BACKEND 只允许 sqlite 或 postgres。")
+    return "postgres" if database_url else "sqlite"
+
 
 class MemoryStore:
-    def __init__(self, *, database_url: str | None = None, sqlite_db_path: Path | str = DEFAULT_SESSION_DB_PATH) -> None:
-        self.database_url = database_url
-        self.sqlite_db_path = Path(sqlite_db_path)
-        bootstrap_runtime_database(database_url=self.database_url, sqlite_db_path=self.sqlite_db_path)
+    def __init__(
+        self,
+        *,
+        database_url: str | None = None,
+        sqlite_db_path: Path | str | None = None,
+        memory_backend: str | None = None,
+    ) -> None:
+        self.memory_backend = resolve_memory_backend(
+            memory_backend=memory_backend,
+            database_url=database_url,
+        )
+        self.database_url = database_url if self.memory_backend == "postgres" else None
+        self.sqlite_db_path: Path | None = None
+        self.db_path: Path | None = None
+
+        if self.memory_backend == "postgres":
+            if not self.database_url:
+                raise ValueError("MEMORY_BACKEND=postgres 时必须提供 DATABASE_URL。")
+            bootstrap_runtime_database(database_url=self.database_url)
+            return
+
+        resolved_sqlite_db_path = Path(sqlite_db_path or DEFAULT_SESSION_DB_PATH)
+        self.sqlite_db_path = resolved_sqlite_db_path
+        self.db_path = resolved_sqlite_db_path
+        bootstrap_runtime_database(database_url=None, sqlite_db_path=resolved_sqlite_db_path)
 
     def list_notes(self, *, owner_user_id: str, enabled_only: bool = False) -> list[MemoryNote]:
-        if self.database_url:
+        if self.memory_backend == "postgres":
             return self._list_notes_postgres(owner_user_id=owner_user_id, enabled_only=enabled_only)
         return self._list_notes_sqlite(owner_user_id=owner_user_id, enabled_only=enabled_only)
 
@@ -31,7 +66,7 @@ class MemoryStore:
             created_at,
             created_at,
         )
-        if self.database_url:
+        if self.memory_backend == "postgres":
             with self._connect_postgres() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -79,7 +114,7 @@ class MemoryStore:
         next_content = content if content is not None else current.content
         next_enabled = is_enabled if is_enabled is not None else current.is_enabled
 
-        if self.database_url:
+        if self.memory_backend == "postgres":
             with self._connect_postgres() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -111,7 +146,7 @@ class MemoryStore:
         return MemoryNote.model_validate(dict(row))
 
     def delete_note(self, *, owner_user_id: str, memory_note_id: str) -> bool:
-        if self.database_url:
+        if self.memory_backend == "postgres":
             with self._connect_postgres() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     "DELETE FROM memory_notes WHERE memory_note_id = %s AND owner_user_id = %s",
@@ -127,7 +162,7 @@ class MemoryStore:
             return cursor.rowcount > 0
 
     def get_note(self, *, owner_user_id: str, memory_note_id: str) -> MemoryNote | None:
-        if self.database_url:
+        if self.memory_backend == "postgres":
             with self._connect_postgres() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT * FROM memory_notes WHERE memory_note_id = %s AND owner_user_id = %s",
@@ -144,7 +179,7 @@ class MemoryStore:
         return MemoryNote.model_validate(dict(row)) if row else None
 
     def get_session_memory_snapshot(self, *, owner_user_id: str, session_id: str) -> SessionMemorySnapshot | None:
-        if self.database_url:
+        if self.memory_backend == "postgres":
             with self._connect_postgres() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -213,11 +248,11 @@ class MemoryStore:
     def count_compacted_messages(self, *, session_id: str, summary_message_seq_upto: int | None) -> int:
         if not summary_message_seq_upto:
             return 0
-        if self.database_url:
+        if self.memory_backend == "postgres":
             with self._connect_postgres() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT COUNT(*)
+                    SELECT COUNT(*) AS count
                     FROM messages
                     WHERE session_id = %s
                       AND message_seq <= %s
@@ -253,7 +288,7 @@ class MemoryStore:
         compaction_status: str,
         last_compaction_error: str | None,
     ) -> bool:
-        if self.database_url:
+        if self.memory_backend == "postgres":
             with self._connect_postgres() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -326,16 +361,37 @@ class MemoryStore:
         return [MemoryNote.model_validate(dict(row)) for row in rows]
 
     def _connect_sqlite(self) -> sqlite3.Connection:
+        if self.sqlite_db_path is None:
+            raise RuntimeError("当前 memory store 未配置 SQLite 路径。")
         connection = sqlite3.connect(self.sqlite_db_path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
     def _connect_postgres(self):
+        if not self.database_url:
+            raise RuntimeError("当前 memory store 未配置 PostgreSQL 连接。")
         return connect_postgres(self.database_url)
+
+
+def build_memory_store(
+    *,
+    database_url: str | None = None,
+    sqlite_db_path: Path | str | None = None,
+    memory_backend: str | None = None,
+) -> MemoryStore:
+    return MemoryStore(
+        database_url=database_url,
+        sqlite_db_path=sqlite_db_path,
+        memory_backend=memory_backend,
+    )
 
 
 @lru_cache(maxsize=1)
 def get_memory_store() -> MemoryStore:
     settings = get_settings()
-    return MemoryStore(database_url=settings.database_url, sqlite_db_path=DEFAULT_SESSION_DB_PATH)
+    return build_memory_store(
+        database_url=settings.database_url,
+        sqlite_db_path=DEFAULT_SESSION_DB_PATH,
+        memory_backend=settings.memory_backend,
+    )

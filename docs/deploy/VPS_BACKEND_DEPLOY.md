@@ -35,6 +35,7 @@ MODEL_API_KEY=replace-with-real-model-api-key
 MODEL_NAME=gpt-5.4
 
 DATABASE_URL=postgresql://carbonrag_user:CarbonRag666!@127.0.0.1:5432/carbonrag_db
+MEMORY_BACKEND=postgres
 
 PUBLIC_DATA_DIR=/srv/carbonrag/app/data/public
 PRIVATE_SAMPLE_DIR=/srv/carbonrag/app/data/private_sample

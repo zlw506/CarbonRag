@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from app.core.config import get_settings
 from app.private_samples.catalog import list_attachable_private_sample_catalog
 from app.memory.service import get_memory_service
 from app.schemas.ask import AskCitation, AskSourceSummary, KnowledgeScope, MessageStatus
@@ -333,12 +334,14 @@ class SessionService:
             return self.memory_service
         if self._derived_memory_service is None:
             from app.memory.service import MemoryService
-            from app.memory.store import MemoryStore
+            from app.memory.store import build_memory_store
 
+            settings = get_settings()
             self._derived_memory_service = MemoryService(
-                store=MemoryStore(
+                store=build_memory_store(
                     database_url=getattr(self.store, "database_url", None),
                     sqlite_db_path=getattr(self.store, "db_path", None),
+                    memory_backend=settings.memory_backend,
                 )
             )
         return self._derived_memory_service or get_memory_service()
