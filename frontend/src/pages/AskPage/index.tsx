@@ -1,9 +1,12 @@
 import {
     FileTextOutlined,
     LinkOutlined,
+    MenuFoldOutlined,
+    MenuUnfoldOutlined,
     MessageOutlined,
     PaperClipOutlined,
     PlusOutlined,
+    SettingOutlined,
     TagsOutlined,
 } from "@ant-design/icons";
 import {
@@ -16,10 +19,12 @@ import {
     Empty,
     Input,
     List,
+    Progress,
     Segmented,
     Space,
     Spin,
     Tag,
+    Tooltip,
     Typography,
 } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -87,6 +92,9 @@ export function AskPage() {
     const [loadingPrivateSamples, setLoadingPrivateSamples] = useState(true);
     const [loadingSessions, setLoadingSessions] = useState(true);
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [contextDetailsOpen, setContextDetailsOpen] = useState(false);
+    const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [sending, setSending] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [transportError, setTransportError] = useState<string | null>(null);
@@ -106,6 +114,10 @@ export function AskPage() {
     const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
     const currentSourceSummary = buildPanelSourceSummary(selectedCitationMessage?.citations ?? [], activeSession?.source_summary);
     const effectiveMemoryState = streamMemoryState ?? activeSession?.memory_state ?? null;
+    const currentStreamState = streamDraft?.assistantMessage.client_state ?? null;
+    const currentStreamTag = currentStreamState ? lifecycleTagMap[currentStreamState] : null;
+    const contextUsagePercent = getContextUsagePercent(effectiveMemoryState);
+    const compactContextSummary = buildCompactContextSummary(effectiveMemoryState, currentSourceSummary, streamContextSource);
     const currentContextSourceText = buildContextSourceText(
         effectiveMemoryState,
         currentSourceSummary,
@@ -186,6 +198,7 @@ export function AskPage() {
     async function loadSessionDetail(sessionId: string) {
         setLoadingSessionDetail(true);
         setTransportError(null);
+        setContextDetailsOpen(false);
 
         try {
             const detail = await getSession(sessionId);
@@ -436,21 +449,43 @@ export function AskPage() {
         }
     }
 
+    function openCitationPanel(messageId: string) {
+        setSelectedCitationMessageId(messageId);
+        setSidePanelOpen(true);
+    }
+
     return (
-        <div className="chat-workbench">
+        <div className={sidebarCollapsed ? "chat-workbench chat-workbench--sidebar-collapsed" : "chat-workbench"}>
             <div className="chat-workbench__sidebar">
                 <Card
-                    title="会话列表"
-                    extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession}>新建对话</Button>}
+                    className="chat-sidebar-card"
+                    title={sidebarCollapsed ? "会话" : "会话列表"}
+                    extra={(
+                        <Space size={8}>
+                            <Tooltip title={sidebarCollapsed ? "展开会话栏" : "收起会话栏"}>
+                                <Button
+                                    icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                                    onClick={() => setSidebarCollapsed((current) => !current)}
+                                />
+                            </Tooltip>
+                            <Tooltip title="新建对话">
+                                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession}>
+                                    {sidebarCollapsed ? "" : "新建对话"}
+                                </Button>
+                            </Tooltip>
+                        </Space>
+                    )}
                 >
-                    <Typography.Paragraph type="secondary">
-                        V1.1.0 继续沿用对话工作台，并把知识条目 / 混合范围接入当前问答。
-                    </Typography.Paragraph>
+                    {!sidebarCollapsed ? (
+                        <Typography.Paragraph type="secondary">
+                            中间消息区是主视觉区；这里只保留会话切换。
+                        </Typography.Paragraph>
+                    ) : null}
                     {loadingSessions ? (
                         <div className="chat-workbench__loading"><Spin /></div>
                     ) : (
                         <List
-                            className="chat-session-list"
+                            className={sidebarCollapsed ? "chat-session-list chat-session-list--collapsed" : "chat-session-list"}
                             dataSource={sessions}
                             locale={{ emptyText: "当前还没有会话。" }}
                             renderItem={(session) => (
@@ -458,15 +493,23 @@ export function AskPage() {
                                     className={activeSessionId === session.session_id ? "chat-session-list__item chat-session-list__item--active" : "chat-session-list__item"}
                                     onClick={() => setActiveSessionId(session.session_id)}
                                 >
-                                    <div className="chat-session-list__content">
-                                        <Typography.Text strong>{session.title}</Typography.Text>
-                                        <Typography.Text type="secondary">{formatTimestamp(session.updated_at)}</Typography.Text>
-                                        <Space size={8} wrap>
-                                            <Tag>{session.message_count} 条消息</Tag>
-                                            <Tag>{session.file_count} 个上传附件</Tag>
-                                            <Tag color="magenta">{session.attached_private_sample_count} 个知识条目</Tag>
-                                        </Space>
-                                    </div>
+                                    {sidebarCollapsed ? (
+                                        <Tooltip title={`${session.title} · ${session.message_count} 条消息`}>
+                                            <div className="chat-session-list__mini">
+                                                <Typography.Text strong>{session.title.slice(0, 2)}</Typography.Text>
+                                            </div>
+                                        </Tooltip>
+                                    ) : (
+                                        <div className="chat-session-list__content">
+                                            <Typography.Text strong>{session.title}</Typography.Text>
+                                            <Typography.Text type="secondary">{formatTimestamp(session.updated_at)}</Typography.Text>
+                                            <Space size={8} wrap>
+                                                <Tag>{session.message_count} 条消息</Tag>
+                                                <Tag>{session.file_count} 个上传附件</Tag>
+                                                <Tag color="magenta">{session.attached_private_sample_count} 个知识条目</Tag>
+                                            </Space>
+                                        </div>
+                                    )}
                                 </List.Item>
                             )}
                         />
@@ -489,12 +532,18 @@ export function AskPage() {
 
                 <Card
                     className="chat-workbench__stream-card"
-                    title="消息流"
+                    title="当前对话"
                     extra={
-                        <Space size={8} wrap>
+                        <Space size={8} wrap className="chat-stream-toolbar">
                             <Tag color="blue">{scopeLabelMap[knowledgeScope]}</Tag>
                             <Tag color="green">{uploadedAttachments.length} 个上传附件</Tag>
                             <Tag color="magenta">{privateAttachments.length} 个知识条目挂接</Tag>
+                            <Button icon={<TagsOutlined />} onClick={() => setPrivateSampleDrawerOpen(true)} disabled={loadingPrivateSamples}>
+                                管理知识条目
+                            </Button>
+                            <Button icon={<SettingOutlined />} onClick={() => setSidePanelOpen(true)}>
+                                依据与状态
+                            </Button>
                         </Space>
                     }
                 >
@@ -502,37 +551,48 @@ export function AskPage() {
                         <div className="chat-workbench__loading"><Spin /></div>
                     ) : activeSession ? (
                         <>
-                            <Typography.Paragraph type="secondary">
-                                当前问答会优先保留最近 6 轮完整历史；当会话过长时，系统会自动压缩较早消息到摘要层，再结合 grounding 结果继续回答。
-                            </Typography.Paragraph>
-                            {activeSession.memory_state ? (
-                                <div className="chat-memory-state">
+                            <div className="chat-memory-pill">
+                                <div className="chat-memory-pill__header">
                                     <Space size={8} wrap>
-                                        <Tag color="cyan">
-                                            上下文占用（估算）：{formatContextEstimate(activeSession.memory_state.context_usage_estimate)} / {formatContextEstimate(activeSession.memory_state.context_budget_estimate)}
-                                        </Tag>
-                                        <Tag color={compactionStatusColorMap[activeSession.memory_state.compaction_status]}>
-                                            {compactionStatusLabelMap[activeSession.memory_state.compaction_status]}
-                                        </Tag>
-                                        <Tag>已摘要覆盖消息：{activeSession.memory_state.compacted_message_count}</Tag>
-                                        <Tag>
-                                            最近摘要：{activeSession.memory_state.summary_updated_at ? formatTimestamp(activeSession.memory_state.summary_updated_at) : "暂无"}
-                                        </Tag>
+                                        <Tag color="cyan">上下文 {contextUsagePercent}%</Tag>
+                                        {effectiveMemoryState ? (
+                                            <Tag color={compactionStatusColorMap[effectiveMemoryState.compaction_status]}>
+                                                {compactionStatusLabelMap[effectiveMemoryState.compaction_status]}
+                                            </Tag>
+                                        ) : null}
                                     </Space>
-                                    <Typography.Paragraph type="secondary" className="chat-memory-state__hint">
-                                        {buildMemoryHint(activeSession.memory_state)}
-                                    </Typography.Paragraph>
-                                    <Typography.Paragraph className="chat-context-source">
-                                        {currentContextSourceText}
-                                    </Typography.Paragraph>
+                                    <Button type="text" size="small" onClick={() => setContextDetailsOpen((current) => !current)}>
+                                        {contextDetailsOpen ? "收起详情" : "展开详情"}
+                                    </Button>
                                 </div>
-                            ) : (
-                                <div className="chat-memory-state">
-                                    <Typography.Paragraph type="secondary" className="chat-memory-state__hint">
-                                        {currentContextSourceText}
-                                    </Typography.Paragraph>
-                                </div>
-                            )}
+                                <Progress percent={contextUsagePercent} showInfo={false} strokeColor="#1677ff" trailColor="rgba(22,119,255,0.12)" />
+                                <Typography.Paragraph className="chat-context-source">
+                                    {compactContextSummary}
+                                </Typography.Paragraph>
+                                {contextDetailsOpen ? (
+                                    <div className="chat-memory-pill__details">
+                                        <Space size={8} wrap>
+                                            {effectiveMemoryState ? (
+                                                <>
+                                                    <Tag>
+                                                        占用（估算）：{formatContextEstimate(effectiveMemoryState.context_usage_estimate)} / {formatContextEstimate(effectiveMemoryState.context_budget_estimate)}
+                                                    </Tag>
+                                                    <Tag>已摘要覆盖：{effectiveMemoryState.compacted_message_count} 条</Tag>
+                                                    <Tag>摘要状态：{effectiveMemoryState.summary_present ? "已启用" : "未启用"}</Tag>
+                                                    <Tag>
+                                                        最近摘要：{effectiveMemoryState.summary_updated_at ? formatTimestamp(effectiveMemoryState.summary_updated_at) : "暂无"}
+                                                    </Tag>
+                                                </>
+                                            ) : (
+                                                <Tag>当前暂无会话摘要状态。</Tag>
+                                            )}
+                                        </Space>
+                                        <Typography.Paragraph type="secondary" className="chat-memory-state__hint">
+                                            {effectiveMemoryState ? buildMemoryHint(effectiveMemoryState) : currentContextSourceText}
+                                        </Typography.Paragraph>
+                                    </div>
+                                ) : null}
+                            </div>
                             <div className="chat-message-stream">
                                 {visibleMessages.length === 0 ? (
                                     <div className="chat-message-stream__empty">
@@ -545,7 +605,7 @@ export function AskPage() {
                                             message={message}
                                             sessionId={activeSession.session_id}
                                             activeCitation={message.message_id === selectedCitationMessageId}
-                                            onSelectCitations={() => setSelectedCitationMessageId(message.message_id)}
+                                            onSelectCitations={() => openCitationPanel(message.message_id)}
                                         />
                                     ))
                                 )}
@@ -562,38 +622,21 @@ export function AskPage() {
                     )}
                 </Card>
 
-                <Card className="chat-workbench__composer-card" title="输入区">
-                    <div className="chat-scope-bar">
-                        <Segmented<KnowledgeScope>
-                            block
-                            value={knowledgeScope}
-                            onChange={(value) => setKnowledgeScope(value)}
-                            options={[
-                                { label: "公共政策", value: "public" },
-                                { label: "知识条目", value: "private_sample" },
-                                { label: "混合", value: "mixed" },
-                            ]}
-                        />
-                        <Typography.Paragraph type="secondary" className="chat-scope-bar__hint">
-                            公共政策只看政策样本；知识条目只看当前会话已挂接的脱敏知识条目；混合模式同时参考两类依据。
-                        </Typography.Paragraph>
+                <div className="chat-composer-dock">
+                    <div className="chat-composer-dock__meta">
+                        <Space size={8} wrap>
+                            <Tag color="blue">当前范围：{scopeLabelMap[knowledgeScope]}</Tag>
+                            <Tag color="green">上传附件：{uploadedAttachments.length}</Tag>
+                            <Tag color="magenta">挂接知识条目：{privateAttachments.length}</Tag>
+                            {currentStreamTag ? <Tag color={currentStreamTag.color}>{currentStreamTag.label}</Tag> : null}
+                            {uploading ? <Tag color="processing">正在上传附件</Tag> : null}
+                        </Space>
+                        <Typography.Text type="secondary">
+                            当前会话：{activeSession?.title ?? "未选择"}，上下文：{compactContextSummary}
+                        </Typography.Text>
                     </div>
-
-                    <div className="chat-session-state">
-                        <Tag color="blue">当前范围：{scopeLabelMap[knowledgeScope]}</Tag>
-                        <Tag color="green">上传附件：{uploadedAttachments.length}</Tag>
-                        <Tag color="magenta">挂接知识条目：{privateAttachments.length}</Tag>
-                        <Button icon={<TagsOutlined />} onClick={() => setPrivateSampleDrawerOpen(true)} disabled={loadingPrivateSamples}>
-                            管理知识条目挂接
-                        </Button>
-                    </div>
-
-                    <Typography.Paragraph type="secondary">
-                        上传文件会进入知识任务流；只有索引完成并挂接到当前会话后，才会参与知识条目 / 混合检索。
-                    </Typography.Paragraph>
-
                     {activeSession?.attached_files.length ? (
-                        <div className="chat-attachments">
+                        <div className="chat-attachments chat-attachments--compact">
                             {activeSession.attached_files.map((file) => (
                                 <Tag
                                     key={`${file.source_type}-${file.file_id}`}
@@ -606,18 +649,34 @@ export function AskPage() {
                             ))}
                         </div>
                     ) : null}
-
+                    <div className="chat-composer-dock__scope">
+                        <Segmented<KnowledgeScope>
+                            value={knowledgeScope}
+                            onChange={(value) => setKnowledgeScope(value)}
+                            options={[
+                                { label: "公共政策", value: "public" },
+                                { label: "知识条目", value: "private_sample" },
+                                { label: "混合", value: "mixed" },
+                            ]}
+                        />
+                        <Typography.Text type="secondary">
+                            公共政策 / 当前会话挂接知识条目 / 混合模式三选一。
+                        </Typography.Text>
+                    </div>
                     <Input.TextArea
                         value={question}
                         onChange={(event) => setQuestion(event.target.value)}
-                        rows={5}
+                        autoSize={{ minRows: 3, maxRows: 7 }}
                         maxLength={2000}
                         placeholder="例如：结合当前知识条目，压缩空气系统的能耗问题是什么？或者：双碳目标对这家知识条目意味着什么？"
                     />
                     <Space className="chat-composer__actions" size={12} wrap>
-                        <Button icon={<PaperClipOutlined />} onClick={() => fileInputRef.current?.click()} loading={uploading}>添加附件</Button>
-                        <Button type="primary" icon={<MessageOutlined />} onClick={handleSubmit} loading={sending}>发送到当前会话</Button>
-                        <Typography.Text type="secondary">当前会话：{activeSession?.title ?? "未选择"}</Typography.Text>
+                        <Button icon={<PaperClipOutlined />} onClick={() => fileInputRef.current?.click()} loading={uploading}>
+                            添加附件
+                        </Button>
+                        <Button type="primary" icon={<MessageOutlined />} onClick={handleSubmit} loading={sending}>
+                            发送到当前会话
+                        </Button>
                     </Space>
                     <input
                         ref={fileInputRef}
@@ -626,10 +685,15 @@ export function AskPage() {
                         accept=".pdf,.doc,.docx,.txt,.md,.csv,.xls,.xlsx"
                         onChange={handleUploadChange}
                     />
-                </Card>
+                </div>
             </div>
 
-            <div className="chat-workbench__panel">
+            <Drawer
+                title="依据与系统状态"
+                width={420}
+                open={sidePanelOpen}
+                onClose={() => setSidePanelOpen(false)}
+            >
                 <Card
                     title="依据面板"
                     extra={
@@ -637,12 +701,13 @@ export function AskPage() {
                             <Tag color="green">{currentSourceSummary.total_citation_count} 条依据</Tag>
                             <Tag color="blue">{currentSourceSummary.public_policy_count} 条政策</Tag>
                             <Tag color="magenta">{currentSourceSummary.private_sample_count} 条知识条目</Tag>
+                            <Tag color="green">{currentSourceSummary.private_upload_count ?? 0} 条个人上传</Tag>
                         </Space>
                     }
                 >
-                <Typography.Paragraph type="secondary">
-                    当前依据来自本地公共政策样本、管理员共享知识条目和当前用户已挂接的个人上传知识。私有知识条目不代表真实客户审计结果。
-                </Typography.Paragraph>
+                    <Typography.Paragraph type="secondary">
+                        当前依据来自本地公共政策样本、管理员共享知识条目和当前用户已挂接的个人上传知识。私有知识条目不代表真实客户审计结果。
+                    </Typography.Paragraph>
                     {selectedCitationMessage?.citations.length ? (
                         <Collapse
                             className="chat-citation-collapse"
@@ -654,8 +719,10 @@ export function AskPage() {
                         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选中一条带依据的助手消息后，这里会展示来源片段。" />
                     )}
                 </Card>
-                <SystemInfoPanel />
-            </div>
+                <div className="chat-side-drawer__system">
+                    <SystemInfoPanel />
+                </div>
+            </Drawer>
 
             <Drawer
                 title="管理当前会话的知识条目挂接"
@@ -1009,6 +1076,38 @@ function buildContextSourceText(
     }
 
     return parts.join("，");
+}
+
+function getContextUsagePercent(memoryState: SessionDetail["memory_state"]) {
+    if (!memoryState || memoryState.context_budget_estimate <= 0) {
+        return 0;
+    }
+
+    const percent = Math.round((memoryState.context_usage_estimate / memoryState.context_budget_estimate) * 100);
+    return Math.max(0, Math.min(percent, 100));
+}
+
+function buildCompactContextSummary(
+    memoryState: SessionDetail["memory_state"],
+    sourceSummary: AskSourceSummary,
+    contextSource?: StreamContextSource | null,
+) {
+    const recentMessageCount = contextSource?.recent_message_count ?? 6;
+    const summaryPresent = contextSource?.summary_present ?? memoryState?.summary_present ?? false;
+    const citationCount = contextSource?.citation_count ?? sourceSummary.total_citation_count;
+    const parts = [`最近 ${recentMessageCount} 轮`];
+
+    if (summaryPresent) {
+        parts.push("会话摘要");
+    }
+
+    if (citationCount > 0) {
+        parts.push(`${citationCount} 条依据`);
+    } else {
+        parts.push("无额外依据");
+    }
+
+    return parts.join(" + ");
 }
 
 function resolveMessageContent(message: ChatMessageView, isAssistant: boolean) {
