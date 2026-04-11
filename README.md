@@ -1,6 +1,6 @@
 # CarbonRag
 
-Current status: `V1.1.5 chat UX slimming + streaming + thinking state in progress`
+Current status: `V1.1.7 UX audit in progress`
 
 ## Project Positioning
 CarbonRag is an SME-oriented carbon policy and enterprise application workbench. The current product line has already moved beyond a single-user prototype:
@@ -27,12 +27,13 @@ V1.1.3 adds the first memory foundation on top of session workbench and grounded
 - backend-only `memory_notes` as a guarded long-memory prewire
 - clear boundary between session summary and knowledge library content
 
-V1.1.5 is the current chat UX slimming pass:
+V1.1.7 is the current chat UX audit and product-feel polish pass:
 
-- slimmer chat layout with a narrower session rail and a drawer-based side panel
-- sticky bottom composer and streaming-first ask as the default conversation path
+- focus-mode-first chat shell
+- slimmer persistent chrome around the conversation area
+- sticky bottom composer with compact chips and secondary controls
 - clearer `pending / thinking / streaming / done` assistant message states
-- compact context capsule instead of a large always-open memory block
+- lighter evidence access and compact context diagnostics
 
 ## Runtime Modes
 
