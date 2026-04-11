@@ -1,6 +1,6 @@
 # CarbonRag
 
-Current status: `V1.1.7 UX audit in progress`
+Current status: `V1.1.8B UX audit remediation in progress`
 
 ## Project Positioning
 CarbonRag is an SME-oriented carbon policy and enterprise application workbench. The current product line has already moved beyond a single-user prototype:

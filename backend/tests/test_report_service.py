@@ -214,3 +214,38 @@ def test_report_service_rejects_mixed_report_without_private_citation(monkeypatc
                 source_message_ids=[session_detail.messages[-1].message_id],
             ),
         )
+
+
+def test_report_service_falls_back_to_recent_valid_message_and_carbon_result(monkeypatch, tmp_path) -> None:
+    session_service, carbon_service, report_service = build_services(tmp_path)
+    monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
+    owner_user_id, session = seed_mixed_session(session_service)
+    result = carbon_service.calculate(
+        owner_user_id=owner_user_id,
+        payload=CalcCarbonRequest(
+            session_id=session.session_id,
+            period_label="2026-Q3",
+            electricity_kwh=88,
+        ),
+    )
+
+    mixed_report = report_service.create_report(
+        owner_user_id=owner_user_id,
+        payload=CreateReportRequest(
+            session_id=session.session_id,
+            report_type="mixed_analysis",
+        ),
+    )
+    carbon_report = report_service.create_report(
+        owner_user_id=owner_user_id,
+        payload=CreateReportRequest(
+            session_id=session.session_id,
+            report_type="carbon_summary",
+        ),
+    )
+
+    assert mixed_report.source_summary.public_policy_count == 1
+    assert mixed_report.source_summary.private_sample_count == 1
+    assert any(source.source_type == "message" for source in mixed_report.sources)
+    assert carbon_report.source_summary.carbon_factor_count == 3
+    assert any(source.source_type == "carbon_result" and source.source_ref == result.trace_id for source in carbon_report.sources)

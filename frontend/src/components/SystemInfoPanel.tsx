@@ -1,7 +1,11 @@
 import { Alert, Card, Descriptions, Skeleton, Tag, Typography } from "antd";
 import { useSystemInfo } from "../hooks/useSystemInfo";
 
-export function SystemInfoPanel() {
+interface SystemInfoPanelProps {
+    verbose?: boolean;
+}
+
+export function SystemInfoPanel({ verbose = false }: SystemInfoPanelProps) {
     const { info, health, loading, error } = useSystemInfo();
 
     if (loading) {
@@ -24,19 +28,25 @@ export function SystemInfoPanel() {
     }
 
     return (
-        <Card title="系统连通状态">
+        <Card title="系统连通状态" size="small">
             <Descriptions column={1} size="small">
                 <Descriptions.Item label="健康检查">
-                    <Tag color={health.status === "ok" ? "green" : "default"}>{health.status}</Tag>
+                    <Tag color={health.status === "ok" ? "green" : "default"}>
+                        {health.status === "ok" ? "正常" : health.status}
+                    </Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label="应用名称">{info.app_name}</Descriptions.Item>
                 <Descriptions.Item label="版本">{info.version}</Descriptions.Item>
-                <Descriptions.Item label="环境">{info.env}</Descriptions.Item>
-                <Descriptions.Item label="API 前缀">{info.api_prefix}</Descriptions.Item>
-                <Descriptions.Item label="模型服务模式">{info.model_provider_mode}</Descriptions.Item>
-                <Descriptions.Item label="时间戳">
-                    <Typography.Text code>{info.timestamp}</Typography.Text>
-                </Descriptions.Item>
+                <Descriptions.Item label="环境">{info.env === "production" ? "生产" : info.env === "development" ? "开发" : info.env}</Descriptions.Item>
+                {verbose ? (
+                    <>
+                        <Descriptions.Item label="应用名称">{info.app_name}</Descriptions.Item>
+                        <Descriptions.Item label="API 前缀">{info.api_prefix}</Descriptions.Item>
+                        <Descriptions.Item label="模型服务模式">{info.model_provider_mode}</Descriptions.Item>
+                        <Descriptions.Item label="时间戳">
+                            <Typography.Text code>{info.timestamp}</Typography.Text>
+                        </Descriptions.Item>
+                    </>
+                ) : null}
             </Descriptions>
         </Card>
     );

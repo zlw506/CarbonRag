@@ -3,6 +3,7 @@ import {
     Alert,
     Button,
     Card,
+    Collapse,
     Descriptions,
     Empty,
     Input,
@@ -16,7 +17,6 @@ import {
 } from "antd";
 import { useEffect, useState } from "react";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
-import { SystemInfoPanel } from "../../components/SystemInfoPanel";
 import { submitCarbonCalculation } from "../../services/carbon";
 import { createSession, getSession, listSessions } from "../../services/sessions";
 import type { CalcCarbonResponse } from "../../types/carbon";
@@ -165,12 +165,7 @@ export function CarbonCalcPage() {
                                 >
                                     <div className="chat-session-list__content">
                                         <Typography.Text strong>{session.title}</Typography.Text>
-                                        <Typography.Text type="secondary">{formatTimestamp(session.updated_at)}</Typography.Text>
-                                        <Space size={8} wrap>
-                                            <Tag>{session.message_count} 条消息</Tag>
-                                            <Tag>{session.file_count} 个附件</Tag>
-                                            <Tag color="magenta">{session.attached_private_sample_count} 个样例</Tag>
-                                        </Space>
+                                        <Typography.Text type="secondary">更新于 {formatTimestamp(session.updated_at)} · {session.message_count} 条消息</Typography.Text>
                                     </div>
                                 </List.Item>
                             )}
@@ -196,7 +191,7 @@ export function CarbonCalcPage() {
                     extra={<Tag color="blue">{activeSession?.title ?? "未选择会话"}</Tag>}
                 >
                     <Typography.Paragraph type="secondary">
-                        本轮只支持购电量、天然气用量和柴油用量三类活动数据；结果会关联到当前会话，但不会进入问答消息流。
+                        先输入本期的用电、天然气和柴油数据，系统会先给出总排放结论，再展开明细和因子来源。计算结果会关联到当前会话，但不会直接塞进问答消息流。
                     </Typography.Paragraph>
                     <div className="chat-session-state">
                         <Tag color="blue">当前会话：{activeSession ? "已关联" : "未关联"}</Tag>
@@ -212,33 +207,37 @@ export function CarbonCalcPage() {
                                 onChange={(event) => setFormState((current) => ({ ...current, period_label: event.target.value }))}
                                 placeholder="例如：2026-Q1"
                             />
+                            <Typography.Text type="secondary">用于区分不同月份、季度或年度，不填也可以先算。</Typography.Text>
                         </div>
                         <div className="calc-form-grid__item">
-                            <Typography.Text strong>购电量 (kWh)</Typography.Text>
+                            <Typography.Text strong>购电量（kWh）</Typography.Text>
                             <InputNumber
                                 min={0}
                                 value={formState.electricity_kwh}
                                 onChange={(value) => setFormState((current) => ({ ...current, electricity_kwh: Number(value ?? 0) }))}
                                 style={{ width: "100%" }}
                             />
+                            <Typography.Text type="secondary">示例：一间中小工厂或办公区一个月的总购电量。</Typography.Text>
                         </div>
                         <div className="calc-form-grid__item">
-                            <Typography.Text strong>天然气用量 (m3)</Typography.Text>
+                            <Typography.Text strong>天然气用量（m³）</Typography.Text>
                             <InputNumber
                                 min={0}
                                 value={formState.natural_gas_m3}
                                 onChange={(value) => setFormState((current) => ({ ...current, natural_gas_m3: Number(value ?? 0) }))}
                                 style={{ width: "100%" }}
                             />
+                            <Typography.Text type="secondary">示例：锅炉、供热或生产设备的天然气使用量。</Typography.Text>
                         </div>
                         <div className="calc-form-grid__item">
-                            <Typography.Text strong>柴油用量 (L)</Typography.Text>
+                            <Typography.Text strong>柴油用量（L）</Typography.Text>
                             <InputNumber
                                 min={0}
                                 value={formState.diesel_l}
                                 onChange={(value) => setFormState((current) => ({ ...current, diesel_l: Number(value ?? 0) }))}
                                 style={{ width: "100%" }}
                             />
+                            <Typography.Text type="secondary">示例：柴油车辆、叉车或备用发电机的燃料消耗。</Typography.Text>
                         </div>
                     </div>
 
@@ -267,12 +266,17 @@ export function CarbonCalcPage() {
                     ) : calcResult ? (
                         <div className="calc-result-stack">
                             <div className="calc-result-summary">
-                                <Statistic
-                                    title="总排放量"
-                                    value={calcResult.total_emission_kgco2e}
-                                    precision={3}
-                                    suffix="kgCO2e"
-                                />
+                                <div className="calc-result-summary__headline">
+                                    <Statistic
+                                        title="本次总排放量"
+                                        value={calcResult.total_emission_kgco2e}
+                                        precision={3}
+                                        suffix="kgCO2e"
+                                    />
+                                    <Typography.Paragraph type="secondary" className="calc-result-summary__hint">
+                                        先看总量，再按来源查看分项和因子依据。
+                                    </Typography.Paragraph>
+                                </div>
                                 <Space size={12} wrap>
                                     <Tag color={activeSessionId ? "blue" : "default"}>
                                         {activeSessionId ? `已关联到 ${activeSession?.title ?? activeSessionId}` : "未关联会话"}
@@ -290,67 +294,69 @@ export function CarbonCalcPage() {
                                 <Descriptions.Item label="摘要">{calcResult.formula_summary}</Descriptions.Item>
                             </Descriptions>
 
-                            <Card size="small" title="分项明细">
-                                <List
-                                    dataSource={calcResult.breakdown}
-                                    renderItem={(item) => (
-                                        <List.Item key={item.item}>
-                                            <div className="calc-breakdown-row">
-                                                <div>
-                                                    <Typography.Text strong>{itemLabelMap[item.item]}</Typography.Text>
-                                                    <Typography.Paragraph type="secondary" className="calc-breakdown-row__meta">
-                                                        {item.activity_value} {item.activity_unit} × {item.factor_value} {item.factor_unit}
-                                                    </Typography.Paragraph>
-                                                </div>
-                                                <Tag color="green">{item.emission_kgco2e} kgCO2e</Tag>
-                                            </div>
-                                        </List.Item>
-                                    )}
-                                />
-                            </Card>
+                            <Collapse
+                                ghost
+                                defaultActiveKey={["breakdown"]}
+                                items={[
+                                    {
+                                        key: "breakdown",
+                                        label: "查看分项明细",
+                                        children: (
+                                            <List
+                                                dataSource={calcResult.breakdown}
+                                                renderItem={(item) => (
+                                                    <List.Item key={item.item}>
+                                                        <div className="calc-breakdown-row">
+                                                            <div>
+                                                                <Typography.Text strong>{itemLabelMap[item.item]}</Typography.Text>
+                                                                <Typography.Paragraph type="secondary" className="calc-breakdown-row__meta">
+                                                                    {item.activity_value} {item.activity_unit} × {item.factor_value} {item.factor_unit}
+                                                                </Typography.Paragraph>
+                                                            </div>
+                                                            <Tag color="green">{item.emission_kgco2e} kgCO2e</Tag>
+                                                        </div>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        ),
+                                    },
+                                    {
+                                        key: "citations",
+                                        label: `查看因子依据（${calcResult.citations.length}）`,
+                                        children: calcResult.citations.length ? (
+                                            <List
+                                                dataSource={calcResult.citations}
+                                                renderItem={(citation) => (
+                                                    <List.Item key={citation.factor_id}>
+                                                        <div className="chat-citation-card">
+                                                            <Space size={8} wrap>
+                                                                <Typography.Text strong>{citation.factor_id}</Typography.Text>
+                                                                <Tag color="gold">排放因子</Tag>
+                                                            </Space>
+                                                            <Typography.Paragraph className="chat-citation-card__snippet">
+                                                                {citation.source}
+                                                            </Typography.Paragraph>
+                                                            <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
+                                                                <FileTextOutlined /> 查看来源
+                                                            </Typography.Link>
+                                                        </div>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        ) : (
+                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有可展示的因子来源。" />
+                                        ),
+                                    },
+                                ]}
+                            />
                         </div>
                     ) : (
                         <Empty
                             image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            description="提交活动数据后，这里会显示总排放量、分项结果和因子来源。"
+                            description="提交活动数据后，这里会先显示总排放结论，再展开明细和因子来源。"
                         />
                     )}
                 </Card>
-            </div>
-
-            <div className="chat-workbench__panel">
-                <Card
-                    title="因子依据"
-                    extra={calcResult ? <Tag color="green">{calcResult.citations.length} 条来源</Tag> : null}
-                >
-                    <Typography.Paragraph type="secondary">
-                        当前使用的是 v0.1.9A 本地 demo 因子基线。来源信息用于前端展示与回溯，不代表正式盘查口径。
-                    </Typography.Paragraph>
-                    {calcResult?.citations.length ? (
-                        <List
-                            dataSource={calcResult.citations}
-                            renderItem={(citation) => (
-                                <List.Item key={citation.factor_id}>
-                                    <div className="chat-citation-card">
-                                        <Space size={8} wrap>
-                                            <Typography.Text strong>{citation.factor_id}</Typography.Text>
-                                            <Tag color="gold">排放因子</Tag>
-                                        </Space>
-                                        <Typography.Paragraph className="chat-citation-card__snippet">
-                                            {citation.source}
-                                        </Typography.Paragraph>
-                                        <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
-                                            <FileTextOutlined /> 查看来源
-                                        </Typography.Link>
-                                    </div>
-                                </List.Item>
-                            )}
-                        />
-                    ) : (
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成一次核算后，这里会显示因子来源。" />
-                    )}
-                </Card>
-                <SystemInfoPanel />
             </div>
         </div>
     );

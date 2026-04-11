@@ -10,6 +10,7 @@ import {
     Button,
     Card,
     Checkbox,
+    Collapse,
     Empty,
     Input,
     List,
@@ -23,7 +24,7 @@ import {
 } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { SystemInfoPanel } from "../../components/SystemInfoPanel";
+import { useNavigate } from "react-router-dom";
 import { createSession, getSession, listSessions } from "../../services/sessions";
 import {
     createReport,
@@ -76,6 +77,7 @@ const emptyReportSourceSummary: ReportSourceSummary = {
 };
 
 export function ReportPage() {
+    const navigate = useNavigate();
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
@@ -106,6 +108,10 @@ export function ReportPage() {
         [activeReport],
     );
     const currentSummary = activeReport?.source_summary ?? emptyReportSourceSummary;
+    const reportReadiness = useMemo(
+        () => buildReportReadiness(reportType, selectableMessages, carbonResults, selectedMessageIds, selectedCarbonResultId),
+        [reportType, selectableMessages, carbonResults, selectedMessageIds, selectedCarbonResultId],
+    );
 
     useEffect(() => {
         void bootstrapWorkbench();
@@ -303,7 +309,7 @@ export function ReportPage() {
                     )}
                 >
                     <Typography.Paragraph type="secondary">
-                        报告始终绑定在某个会话下生成与回看，不做漂在外面的独立报告。
+                        报告始终绑定在某个会话下生成与回看。先选会话，再从当前会话里挑选可用来源。
                     </Typography.Paragraph>
                     {loadingSessions ? (
                         <div className="chat-workbench__loading"><Spin /></div>
@@ -322,13 +328,8 @@ export function ReportPage() {
                                     <div className="chat-session-list__content">
                                         <Typography.Text strong>{session.title}</Typography.Text>
                                         <Typography.Text type="secondary">
-                                            {formatTimestamp(session.updated_at)}
+                                            更新于 {formatTimestamp(session.updated_at)} · {session.message_count} 条消息
                                         </Typography.Text>
-                                        <Space size={8} wrap>
-                                            <Tag>{session.message_count} 条消息</Tag>
-                                            <Tag color="blue">{session.file_count} 个附件</Tag>
-                                            <Tag color="magenta">{session.attached_private_sample_count} 个样例</Tag>
-                                        </Space>
                                     </div>
                                 </List.Item>
                             )}
@@ -353,12 +354,8 @@ export function ReportPage() {
                                     <div className="chat-session-list__content">
                                         <Typography.Text strong>{report.title}</Typography.Text>
                                         <Typography.Text type="secondary">
-                                            {formatTimestamp(report.updated_at)}
+                                            {reportTypeLabelMap[report.report_type]} · {formatTimestamp(report.updated_at)}
                                         </Typography.Text>
-                                        <Space size={8} wrap>
-                                            <Tag color="gold">{reportTypeLabelMap[report.report_type]}</Tag>
-                                            <Tag>{report.source_count} 个来源</Tag>
-                                        </Space>
                                     </div>
                                 </List.Item>
                             )}
@@ -386,8 +383,22 @@ export function ReportPage() {
                     extra={activeSession ? <Tag color="blue">{activeSession.title}</Tag> : null}
                 >
                     <Typography.Paragraph type="secondary">
-                        报告正文采用模板驱动 + 受控模型生成。重新生成会产生一份新报告；保存编辑会覆盖当前报告正文。
+                        这里会默认尝试使用当前会话里最近可用的回答或核算结果。重新生成会产生一份新报告；保存编辑会覆盖当前报告正文。
                     </Typography.Paragraph>
+
+                    {!reportReadiness.ready ? (
+                        <Alert
+                            type="info"
+                            showIcon
+                            message={reportReadiness.title}
+                            description={reportReadiness.description}
+                            action={reportReadiness.actionLabel ? (
+                                <Button size="small" onClick={() => navigate(reportReadiness.actionTarget ?? "/")}>
+                                    {reportReadiness.actionLabel}
+                                </Button>
+                            ) : null}
+                        />
+                    ) : null}
 
                     <div className="report-workbench__config-stack">
                         <Segmented
@@ -426,15 +437,13 @@ export function ReportPage() {
                                                 </Typography.Text>
                                                 <Space size={8} wrap>
                                                     <Tag>{messageItem.citations.length} 条引用</Tag>
-                                                    {messageItem.trace_id ? (
-                                                        <Tag color="blue">{messageItem.trace_id}</Tag>
-                                                    ) : null}
+                                                    <Tag color="blue">{buildMessageSourceHint(messageItem)}</Tag>
                                                 </Space>
                                             </Space>
                                         </Checkbox>
                                     )) : (
                                         <Typography.Text type="secondary">
-                                            当前会话还没有可作为报告来源的助手消息。
+                                            当前会话还没有可作为报告来源的助手消息。你也可以直接点击“生成报告”，后端会尝试自动回退到最近合法来源。
                                         </Typography.Text>
                                     )}
                                 </Space>
@@ -526,57 +535,49 @@ export function ReportPage() {
                                     autoSize={{ minRows: 18, maxRows: 28 }}
                                 />
                             )}
+
+                            <Collapse
+                                ghost
+                                defaultActiveKey={[]}
+                                items={[
+                                    {
+                                        key: "citations",
+                                        label: `查看依据（${currentSummary.total_citation_count}）`,
+                                        children: groupedCitations.public_policy.length || groupedCitations.private_sample.length || groupedCitations.carbon_factor.length ? (
+                                            <div className="chat-citation-groups">
+                                                {groupedCitations.public_policy.length ? (
+                                                    <ReportCitationGroup
+                                                        title="政策依据"
+                                                        citations={groupedCitations.public_policy}
+                                                    />
+                                                ) : null}
+                                                {groupedCitations.private_sample.length ? (
+                                                    <ReportCitationGroup
+                                                        title="知识条目依据"
+                                                        citations={groupedCitations.private_sample}
+                                                    />
+                                                ) : null}
+                                                {groupedCitations.carbon_factor.length ? (
+                                                    <ReportCitationGroup
+                                                        title="排放因子依据"
+                                                        citations={groupedCitations.carbon_factor}
+                                                    />
+                                                ) : null}
+                                            </div>
+                                        ) : (
+                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前报告暂无依据。" />
+                                        ),
+                                    },
+                                ]}
+                            />
                         </div>
                     ) : (
                         <Empty
                             image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            description="选择来源并生成一份会话关联报告，生成后这里会显示正文预览。"
+                            description="选择当前会话后即可生成报告；若当前会话缺少可用来源，这里会提示你先去问答页或碳核算页补充上下文。"
                         />
                     )}
                 </Card>
-            </div>
-
-            <div className="chat-workbench__panel">
-                <Card
-                    title="依据面板"
-                    extra={(
-                        <Space size={8} wrap>
-                            <Tag color="blue">{currentSummary.public_policy_count} 条政策</Tag>
-                            <Tag color="magenta">{currentSummary.private_sample_count} 条知识条目</Tag>
-                            <Tag color="gold">{currentSummary.carbon_factor_count} 条排放因子</Tag>
-                        </Space>
-                    )}
-                >
-                    <Typography.Paragraph type="secondary">
-                        当前报告的依据分为公共政策、知识条目和碳核算因子三类。报告引用列表与右侧面板保持一致。
-                    </Typography.Paragraph>
-
-                    {activeReport ? (
-                        <div className="chat-citation-groups">
-                            {groupedCitations.public_policy.length ? (
-                                <ReportCitationGroup
-                                    title="政策依据"
-                                    citations={groupedCitations.public_policy}
-                                />
-                            ) : null}
-                            {groupedCitations.private_sample.length ? (
-                                <ReportCitationGroup
-                                    title="知识条目依据"
-                                    citations={groupedCitations.private_sample}
-                                />
-                            ) : null}
-                            {groupedCitations.carbon_factor.length ? (
-                                <ReportCitationGroup
-                                    title="排放因子依据"
-                                    citations={groupedCitations.carbon_factor}
-                                />
-                            ) : null}
-                        </div>
-                    ) : (
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="生成或打开一份报告后，这里会显示对应依据。" />
-                    )}
-                </Card>
-                <SystemInfoPanel />
             </div>
         </div>
     );
@@ -664,6 +665,68 @@ function pickDefaultMessage(messages: SessionMessage[], reportType: ReportType) 
     }
 
     return candidates[0];
+}
+
+function buildMessageSourceHint(message: SessionMessage) {
+    const hasPublic = message.citations.some((citation) => citation.source_type === "public_policy");
+    const hasPrivate = message.citations.some((citation) => citation.source_type === "private_sample");
+    if (hasPublic && hasPrivate) {
+        return "政策 + 知识条目";
+    }
+    if (hasPublic) {
+        return "政策依据";
+    }
+    if (hasPrivate) {
+        return "知识条目依据";
+    }
+    return "一般来源";
+}
+
+function buildReportReadiness(
+    reportType: ReportType,
+    selectableMessages: SessionMessage[],
+    carbonResults: SessionCarbonCalculationSummary[],
+    selectedMessageIds: string[],
+    selectedCarbonResultId: string | undefined,
+) {
+    const suggestedMessage = pickDefaultMessage(selectableMessages, reportType);
+
+    if (reportType === "carbon_summary") {
+        if (selectedCarbonResultId || carbonResults.length > 0) {
+            return {
+                ready: true,
+                title: "",
+                description: "",
+                actionLabel: null,
+                actionTarget: null,
+            };
+        }
+        return {
+            ready: false,
+            title: "当前会话还没有可用的碳核算结果",
+            description: "先去碳核算页完成一次核算，再回来生成“碳核算结果说明”报告。",
+            actionLabel: "前往碳核算页",
+            actionTarget: "/carbon-calc",
+        };
+    }
+
+    if (selectedMessageIds.length > 0 || suggestedMessage) {
+        return {
+            ready: true,
+            title: "",
+            description: "",
+            actionLabel: null,
+            actionTarget: null,
+        };
+    }
+
+    return {
+        ready: false,
+        title: "当前会话还没有可用的报告来源",
+        description: "先在问答页完成至少一轮带依据的助手回答，再回来生成报告。",
+        actionLabel: "前往问答页",
+        actionTarget: "/",
+    };
 }
 
 function groupReportCitations(citations: ReportCitation[]) {

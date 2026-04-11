@@ -31,9 +31,10 @@ import {
     Typography,
 } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import { useSearchParams } from "react-router-dom";
+import { useAuth } from "../../app/AuthContext";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
 import { uploadSessionFile } from "../../services/files";
@@ -78,6 +79,7 @@ interface StreamContextSource {
 }
 
 export function AskPage() {
+    const { user } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const streamAbortRef = useRef<AbortController | null>(null);
@@ -105,6 +107,7 @@ export function AskPage() {
     const [transportError, setTransportError] = useState<string | null>(null);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const focusModeEnabled = searchParams.get("focus") !== "0";
+    const isAdmin = user?.role === "admin";
 
     const visibleMessages = useMemo<ChatMessageView[]>(() => {
         const baseMessages = (activeSession?.messages ?? []) as ChatMessageView[];
@@ -127,7 +130,6 @@ export function AskPage() {
     const currentContextSourceText = buildContextSourceText(
         effectiveMemoryState,
         currentSourceSummary,
-        knowledgeScope,
         visibleMessages.length,
         streamContextSource,
     );
@@ -161,6 +163,28 @@ export function AskPage() {
         }
         node.scrollIntoView({ behavior: "smooth", block: "end" });
     }, [visibleMessages, loadingSessionDetail, streamDraft]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        const syncSidebarState = () => {
+            setSidebarCollapsed((current) => {
+                if (window.innerWidth <= 1200) {
+                    return true;
+                }
+                if (window.innerWidth >= 1440) {
+                    return current;
+                }
+                return current;
+            });
+        };
+
+        syncSidebarState();
+        window.addEventListener("resize", syncSidebarState);
+        return () => window.removeEventListener("resize", syncSidebarState);
+    }, []);
 
     async function bootstrapWorkbench() {
         setLoadingSessions(true);
@@ -469,6 +493,20 @@ export function AskPage() {
         setSearchParams(nextParams, { replace: true });
     }
 
+    function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+            event.stopPropagation();
+            return;
+        }
+
+        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            if (!sending) {
+                void handleSubmit();
+            }
+        }
+    }
+
     const contextDetailOverlay = (
         <div className="chat-context-popover">
             <Space size={8} wrap>
@@ -569,7 +607,7 @@ export function AskPage() {
                                         <div className="chat-session-list__content">
                                             <Typography.Text strong>{session.title}</Typography.Text>
                                             <Typography.Text type="secondary" className="chat-session-list__meta">
-                                                更新于 {formatTimestamp(session.updated_at)} · {session.message_count} 条消息 · {session.file_count} 个附件 · {session.attached_private_sample_count} 个知识条目
+                                                {buildSessionRailMeta(session)}
                                             </Typography.Text>
                                         </div>
                                     )}
@@ -602,7 +640,7 @@ export function AskPage() {
                                 {focusModeEnabled ? "标准工作台" : "专注模式"}
                             </Button>
                             <Button icon={<SettingOutlined />} onClick={() => setSidePanelOpen(true)}>
-                                依据与状态 {currentSourceSummary.total_citation_count > 0 ? `(${currentSourceSummary.total_citation_count})` : ""}
+                                参考资料 {currentSourceSummary.total_citation_count > 0 ? `(${currentSourceSummary.total_citation_count})` : ""}
                             </Button>
                         </Space>
                     }
@@ -612,29 +650,21 @@ export function AskPage() {
                     ) : activeSession ? (
                         <>
                             <div className="chat-stream__topline">
-                                <Popover trigger="click" placement="bottomLeft" content={contextDetailOverlay}>
-                                    <button type="button" className="chat-context-pill">
-                                        <span className="chat-context-pill__eyebrow">上下文 {contextUsagePercent}%</span>
-                                        <span className="chat-context-pill__summary">{compactContextSummary}</span>
-                                        <span className="chat-context-pill__meter" aria-hidden="true">
-                                            <span style={{ width: `${contextUsagePercent}%` }} />
-                                        </span>
-                                    </button>
-                                </Popover>
-                                <Space size={8} wrap className="chat-stream__topline-tags">
-                                    <Tag color="blue">{scopeLabelMap[knowledgeScope]}</Tag>
-                                    <Tag color="green">附件 {uploadedAttachments.length}</Tag>
-                                    <Tag color="magenta">知识 {privateAttachments.length}</Tag>
-                                    {effectiveMemoryState ? (
-                                        <Tag color={compactionStatusColorMap[effectiveMemoryState.compaction_status]}>
-                                            {compactionStatusLabelMap[effectiveMemoryState.compaction_status]}
-                                        </Tag>
-                                    ) : null}
-                                </Space>
+                                <div className="chat-stream__topline-main">
+                                    <Popover trigger="click" placement="bottomLeft" content={contextDetailOverlay}>
+                                        <button type="button" className="chat-context-pill">
+                                            <span className="chat-context-pill__eyebrow">上下文 {contextUsagePercent}%</span>
+                                            <span className="chat-context-pill__summary">{compactContextSummary}</span>
+                                            <span className="chat-context-pill__meter" aria-hidden="true">
+                                                <span style={{ width: `${contextUsagePercent}%` }} />
+                                            </span>
+                                        </button>
+                                    </Popover>
+                                    <Typography.Paragraph type="secondary" className="chat-context-source chat-context-source--compact">
+                                        {currentContextSourceText}
+                                    </Typography.Paragraph>
+                                </div>
                             </div>
-                            <Typography.Paragraph type="secondary" className="chat-context-source chat-context-source--compact">
-                                {currentContextSourceText}
-                            </Typography.Paragraph>
                             <div className="chat-message-stream">
                                 {visibleMessages.length === 0 ? (
                                     <div className="chat-message-stream__empty">
@@ -651,11 +681,6 @@ export function AskPage() {
                                         />
                                     ))
                                 )}
-                                {sending ? (
-                                    <div className="chat-stream-hint">
-                                        <Tag color="processing">当前会话正在生成回答</Tag>
-                                    </div>
-                                ) : null}
                                 <div ref={messageStreamEndRef} />
                             </div>
                         </>
@@ -665,30 +690,34 @@ export function AskPage() {
                 </Card>
 
                 <div className="chat-composer-dock">
-                    <div className="chat-composer-dock__chips">
-                        <Space size={8} wrap>
-                            <Tag color="blue">当前范围：{scopeLabelMap[knowledgeScope]}</Tag>
-                            <Tag color="green">上传附件：{uploadedAttachments.length}</Tag>
-                            <Tag color="magenta">挂接知识条目：{privateAttachments.length}</Tag>
+                    <div className="chat-composer-dock__top">
+                        <Typography.Text type="secondary" className="chat-composer-dock__session">
+                            当前会话：{activeSession?.title ?? "未选择"}
+                        </Typography.Text>
+                        <Space size={8} wrap className="chat-composer-dock__chips">
+                            <Tag color="blue">{scopeLabelMap[knowledgeScope]}</Tag>
+                            {uploadedAttachments.length > 0 ? <Tag color="green">附件 {uploadedAttachments.length}</Tag> : null}
+                            {privateAttachments.length > 0 ? <Tag color="magenta">知识条目 {privateAttachments.length}</Tag> : null}
                             {currentStreamTag ? <Tag color={currentStreamTag.color}>{currentStreamTag.label}</Tag> : null}
                             {uploading ? <Tag color="processing">正在上传附件</Tag> : null}
                         </Space>
-                        <Typography.Text type="secondary">当前会话：{activeSession?.title ?? "未选择"}</Typography.Text>
+                        <Popover trigger="click" placement="topRight" content={composerSettings}>
+                            <Button icon={<MoreOutlined />}>更多设置</Button>
+                        </Popover>
                     </div>
                     <div className="chat-composer-dock__main">
-                        <Button icon={<PaperClipOutlined />} onClick={() => fileInputRef.current?.click()} loading={uploading}>
-                            添加附件
-                        </Button>
+                        <Tooltip title="添加附件">
+                            <Button icon={<PaperClipOutlined />} onClick={() => fileInputRef.current?.click()} loading={uploading} />
+                        </Tooltip>
                         <Input.TextArea
                             value={question}
                             onChange={(event) => setQuestion(event.target.value)}
+                            onKeyDown={handleComposerKeyDown}
                             autoSize={{ minRows: 2, maxRows: 7 }}
                             maxLength={2000}
+                            autoFocus
                             placeholder="例如：结合当前知识条目，压缩空气系统的能耗问题是什么？或者：双碳目标对这家知识条目意味着什么？"
                         />
-                        <Popover trigger="click" placement="topRight" content={composerSettings}>
-                            <Button icon={<MoreOutlined />}>更多</Button>
-                        </Popover>
                         <Button type="primary" icon={<MessageOutlined />} onClick={handleSubmit} loading={sending}>
                             发送
                         </Button>
@@ -704,24 +733,24 @@ export function AskPage() {
             </div>
 
             <Drawer
-                title="依据与系统状态"
-                width={420}
+                title="参考资料与状态"
+                width={400}
                 open={sidePanelOpen}
                 onClose={() => setSidePanelOpen(false)}
             >
                 <Card
-                    title="依据面板"
+                    title="当前回答依据"
                     extra={
                         <Space size={8} wrap>
-                            <Tag color="green">{currentSourceSummary.total_citation_count} 条依据</Tag>
-                            <Tag color="blue">{currentSourceSummary.public_policy_count} 条政策</Tag>
-                            <Tag color="magenta">{currentSourceSummary.private_sample_count} 条知识条目</Tag>
-                            <Tag color="green">{currentSourceSummary.private_upload_count ?? 0} 条个人上传</Tag>
+                            <Tag color="green">{currentSourceSummary.total_citation_count} 条引用</Tag>
+                            {currentSourceSummary.public_policy_count > 0 ? <Tag color="blue">政策 {currentSourceSummary.public_policy_count}</Tag> : null}
+                            {currentSourceSummary.private_sample_count > 0 ? <Tag color="magenta">知识条目 {currentSourceSummary.private_sample_count}</Tag> : null}
+                            {(currentSourceSummary.private_upload_count ?? 0) > 0 ? <Tag color="green">个人上传 {currentSourceSummary.private_upload_count ?? 0}</Tag> : null}
                         </Space>
                     }
                 >
                     <Typography.Paragraph type="secondary">
-                        当前依据来自本地公共政策样本、管理员共享知识条目和当前用户已挂接的个人上传知识。私有知识条目不代表真实客户审计结果。
+                        默认只在这里展开完整引用。先读回答正文，再按需查看政策、知识条目或个人上传片段。
                     </Typography.Paragraph>
                     {selectedCitationMessage?.citations.length ? (
                         <Collapse
@@ -734,9 +763,20 @@ export function AskPage() {
                         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选中一条带依据的助手消息后，这里会展示来源片段。" />
                     )}
                 </Card>
-                <div className="chat-side-drawer__system">
-                    <SystemInfoPanel />
-                </div>
+                {isAdmin ? (
+                    <Collapse
+                        className="chat-side-drawer__system"
+                        ghost
+                        defaultActiveKey={[]}
+                        items={[
+                            {
+                                key: "system-status",
+                                label: "系统状态",
+                                children: <SystemInfoPanel />,
+                            },
+                        ]}
+                    />
+                ) : null}
             </Drawer>
 
             <Drawer
@@ -819,9 +859,9 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
             >
                 <Space direction="vertical" size={12} style={{ width: "100%" }}>
                     <Space size={8} wrap className="chat-message__header">
-                        <Tag color={isAssistant ? "blue" : isSystem ? "purple" : "gold"}>
-                            {isAssistant ? "助手" : isSystem ? "系统" : "用户"}
-                        </Tag>
+                        <Typography.Text className={isAssistant ? "chat-message__speaker chat-message__speaker--assistant" : isSystem ? "chat-message__speaker chat-message__speaker--system" : "chat-message__speaker chat-message__speaker--user"}>
+                            {isAssistant ? "CarbonRag" : isSystem ? "系统消息" : "我"}
+                        </Typography.Text>
                         {message.client_state && message.client_state !== "done" && message.client_state !== "error" ? (
                             <span className={`chat-live-state chat-live-state--${message.client_state}`}>
                                 <span className="chat-live-state__dot" aria-hidden="true" />
@@ -837,7 +877,7 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
                         <Collapse
                             ghost
                             className="chat-message__thinking"
-                            defaultActiveKey={[]}
+                            defaultActiveKey={message.client_state === "pending" || message.client_state === "thinking" ? ["thinking"] : []}
                             items={[
                                 {
                                     key: "thinking",
@@ -865,11 +905,11 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
                             <Space size={12} wrap>
                                 {hasCitations ? (
                                     <>
-                                        <Tag color="blue">{messageSourceSummary.public_policy_count} 条政策</Tag>
-                                        <Tag color="magenta">{messageSourceSummary.private_sample_count} 条知识条目</Tag>
-                                        <Tag color="green">{messageSourceSummary.private_upload_count ?? 0} 条个人上传</Tag>
+                                        <Typography.Text type="secondary" className="chat-message__evidence-summary">
+                                            {buildAssistantEvidenceSummary(messageSourceSummary)}
+                                        </Typography.Text>
                                         <Button type={activeCitation ? "primary" : "default"} size="small" icon={<FileTextOutlined />} onClick={onSelectCitations}>
-                                            依据 {message.citations.length}
+                                            查看依据 {message.citations.length}
                                         </Button>
                                     </>
                                 ) : null}
@@ -882,7 +922,7 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
                                     items={[
                                         {
                                             key: "details",
-                                            label: "详细信息",
+                                            label: "查看详细信息",
                                             children: (
                                                 <Space direction="vertical" size={10} style={{ width: "100%" }}>
                                                     {message.trace_id ? (
@@ -1101,7 +1141,6 @@ function buildCitationCollapseItems(groups: ReturnType<typeof groupCitationsBySo
 function buildContextSourceText(
     memoryState: SessionDetail["memory_state"],
     sourceSummary: AskSourceSummary,
-    scope: KnowledgeScope,
     messageCount: number,
     contextSource?: StreamContextSource | null,
 ) {
@@ -1109,22 +1148,23 @@ function buildContextSourceText(
     const recentMessageCount = contextSource?.recent_message_count ?? Math.min(6, Math.max(1, messageCount));
     const summaryPresent = contextSource?.summary_present ?? memoryState?.summary_present ?? false;
     const citationCount = contextSource?.citation_count ?? sourceSummary.total_citation_count;
-    parts.push(`当前范围：${scopeLabelMap[scope]}`);
-    parts.push(`本次会结合最近 ${recentMessageCount} 轮消息与会话摘要`);
+    parts.push(`本轮使用最近 ${recentMessageCount} 轮消息`);
 
     if (summaryPresent) {
-        parts.push(`已启用会话摘要，覆盖了 ${memoryState?.compacted_message_count ?? 0} 条更早消息`);
+        parts.push("会话摘要");
     }
 
     if (citationCount > 0) {
-        parts.push(
-            `当前依据包含 ${sourceSummary.public_policy_count} 条政策、${sourceSummary.private_sample_count} 条知识条目、${sourceSummary.private_upload_count ?? 0} 条个人上传`,
-        );
+        parts.push(`${citationCount} 条依据`);
     } else {
-        parts.push("当前尚未选中带依据的回答，点击一条助手消息后可在右侧查看来源片段");
+        parts.push("当前无额外依据");
     }
 
-    return parts.join("，");
+    if (summaryPresent && memoryState?.compacted_message_count) {
+        parts.push(`已压缩 ${memoryState.compacted_message_count} 条更早消息`);
+    }
+
+    return parts.join(" + ");
 }
 
 function getContextUsagePercent(memoryState: SessionDetail["memory_state"]) {
@@ -1157,6 +1197,31 @@ function buildCompactContextSummary(
     }
 
     return parts.join(" + ");
+}
+
+function buildAssistantEvidenceSummary(sourceSummary: AskSourceSummary) {
+    const parts: string[] = [];
+    if (sourceSummary.public_policy_count > 0) {
+        parts.push(`政策 ${sourceSummary.public_policy_count}`);
+    }
+    if (sourceSummary.private_sample_count > 0) {
+        parts.push(`知识条目 ${sourceSummary.private_sample_count}`);
+    }
+    if ((sourceSummary.private_upload_count ?? 0) > 0) {
+        parts.push(`个人上传 ${sourceSummary.private_upload_count ?? 0}`);
+    }
+    return parts.join(" · ");
+}
+
+function buildSessionRailMeta(session: SessionSummary) {
+    const parts = [`更新于 ${formatTimestamp(session.updated_at)}`, `${session.message_count} 条消息`];
+    if (session.file_count > 0) {
+        parts.push(`${session.file_count} 个附件`);
+    }
+    if (session.attached_private_sample_count > 0) {
+        parts.push(`${session.attached_private_sample_count} 个知识条目`);
+    }
+    return parts.join(" · ");
 }
 
 function resolveMessageContent(message: ChatMessageView, isAssistant: boolean) {

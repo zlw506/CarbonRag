@@ -164,3 +164,70 @@ def test_report_route_creates_carbon_summary(monkeypatch, tmp_path) -> None:
     assert response.status_code == 200
     assert payload["report_type"] == "carbon_summary"
     assert payload["source_summary"]["carbon_factor_count"] == 3
+
+
+def test_report_route_uses_default_session_context_when_sources_omitted(monkeypatch, tmp_path) -> None:
+    session_service, carbon_service, report_service = build_services(tmp_path)
+    monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)
+    monkeypatch.setattr("app.api.v1.endpoints.reports.get_report_service", lambda: report_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+
+    register_and_login(client, prefix="report-defaults")
+    session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
+    current_user = client.get("/api/v1/auth/me").json()["user"]
+    session_service.record_exchange(
+        owner_user_id=current_user["user_id"],
+        session_id=session_id,
+        user_content="Please summarize the policy and enterprise gap.",
+        assistant_content="Mixed answer.",
+        assistant_status="ok",
+        trace_id="trace-ask-002",
+        citations=[
+            AskCitation(
+                doc_id="policy_001",
+                title="Policy Basis",
+                source_type="public_policy",
+                source="State Council",
+                source_url="https://example.com/policy",
+                snippet="Policy snippet",
+                chunk_id="policy_001_chunk_01",
+            ),
+            AskCitation(
+                doc_id="enterprise_doc_001",
+                title="Enterprise Sample",
+                source_type="private_sample",
+                source="Sample",
+                source_url=None,
+                snippet="Enterprise snippet",
+                chunk_id="enterprise_doc_001_chunk_01",
+            ),
+        ],
+    )
+    calc_result = client.post(
+        "/api/v1/calc-carbon",
+        json={"session_id": session_id, "electricity_kwh": 12000},
+    ).json()
+
+    mixed_response = client.post(
+        "/api/v1/reports",
+        json={
+            "session_id": session_id,
+            "report_type": "mixed_analysis",
+            "output_format": "markdown",
+        },
+    )
+    carbon_response = client.post(
+        "/api/v1/reports",
+        json={
+            "session_id": session_id,
+            "report_type": "carbon_summary",
+            "output_format": "markdown",
+        },
+    )
+
+    assert mixed_response.status_code == 200
+    assert mixed_response.json()["source_summary"]["private_sample_count"] == 1
+    assert carbon_response.status_code == 200
+    assert any(source["source_ref"] == calc_result["trace_id"] for source in carbon_response.json()["sources"])

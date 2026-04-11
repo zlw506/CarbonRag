@@ -57,11 +57,16 @@ class ReportService:
         if session is None:
             raise KeyError(payload.session_id)
 
-        selected_messages = self._resolve_selected_messages(session, payload.source_message_ids)
+        selected_messages = self._resolve_selected_messages(
+            session,
+            payload.source_message_ids,
+            report_type=payload.report_type,
+        )
         carbon_result = self._resolve_carbon_result(
             owner_user_id=owner_user_id,
             session_id=payload.session_id,
             carbon_result_id=payload.carbon_result_id,
+            report_type=payload.report_type,
         )
         self._validate_sources(
             report_type=payload.report_type,
@@ -147,9 +152,15 @@ class ReportService:
         return self.carbon_service.list_session_calculations(owner_user_id=owner_user_id, session_id=session_id)
 
     @staticmethod
-    def _resolve_selected_messages(session: SessionDetail, source_message_ids: list[str]) -> list[SessionMessage]:
+    def _resolve_selected_messages(
+        session: SessionDetail,
+        source_message_ids: list[str],
+        *,
+        report_type: str,
+    ) -> list[SessionMessage]:
         if not source_message_ids:
-            return []
+            fallback = ReportService._pick_default_message(session.messages, report_type)
+            return [fallback] if fallback is not None else []
 
         message_map = {message.message_id: message for message in session.messages}
         selected_messages: list[SessionMessage] = []
@@ -168,9 +179,18 @@ class ReportService:
         owner_user_id: str,
         session_id: str,
         carbon_result_id: str | None,
+        report_type: str,
     ) -> StoredCarbonCalculation | None:
         if not carbon_result_id:
-            return None
+            if report_type != "carbon_summary":
+                return None
+            recent_results = self.carbon_service.list_session_calculations(
+                owner_user_id=owner_user_id,
+                session_id=session_id,
+            )
+            if not recent_results:
+                return None
+            carbon_result_id = recent_results[0].trace_id
 
         stored = self.carbon_service.get_stored_calculation(owner_user_id=owner_user_id, trace_id=carbon_result_id)
         if stored is None:
@@ -178,6 +198,39 @@ class ReportService:
         if stored.session_id != session_id:
             raise ReportValidationError("Selected carbon result does not belong to the current session.")
         return stored
+
+    @staticmethod
+    def _pick_default_message(messages: list[SessionMessage], report_type: str) -> SessionMessage | None:
+        candidates = [
+            message
+            for message in reversed(messages)
+            if message.role == "assistant" and message.citations
+        ]
+        if not candidates:
+            return None
+
+        if report_type == "mixed_analysis":
+            return next(
+                (
+                    message
+                    for message in candidates
+                    if any(citation.source_type == "public_policy" for citation in message.citations)
+                    and any(citation.source_type == "private_sample" for citation in message.citations)
+                ),
+                None,
+            ) or candidates[0]
+
+        if report_type == "policy_summary":
+            return next(
+                (
+                    message
+                    for message in candidates
+                    if any(citation.source_type == "public_policy" for citation in message.citations)
+                ),
+                None,
+            ) or candidates[0]
+
+        return candidates[0]
 
     @staticmethod
     def _validate_sources(

@@ -267,6 +267,15 @@ def ask_in_session_stream(
             },
         )
         yield build_sse_event(
+            "status",
+            {
+                "status": "thinking",
+                "trace_id": chat_request.trace_id,
+                "user_message_id": user_message.message_id,
+                "assistant_message_id": assistant_placeholder.message_id,
+            },
+        )
+        yield build_sse_event(
             "thinking_delta",
             {
                 "delta": "正在梳理上下文。",

@@ -1,22 +1,19 @@
-import { FileAddOutlined, ReloadOutlined, RocketOutlined, SoundOutlined } from "@ant-design/icons";
+import { ReloadOutlined } from "@ant-design/icons";
 import {
     Alert,
     Button,
     Card,
-    Descriptions,
     Empty,
     List,
     Space,
     Spin,
     Statistic,
-    Table,
     Tabs,
     Tag,
     Typography,
 } from "antd";
-import type { ColumnsType } from "antd/es/table";
-import { useEffect, useMemo, useState } from "react";
-import { SystemInfoPanel } from "../../components/SystemInfoPanel";
+import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { loadMyKnowledgeWorkspace } from "../../services/knowledge";
 import type { KnowledgeItem, MyKnowledgeFeedback, MyKnowledgeReport, MyKnowledgeWorkspace } from "../../types/knowledge";
 import { useNavigate } from "react-router-dom";
@@ -39,156 +36,6 @@ export function MyKnowledgePage() {
         void refreshWorkspace();
     }, []);
 
-    const uploadColumns = useMemo<ColumnsType<KnowledgeItem>>(
-        () => [
-            { title: "文件名", dataIndex: "title", key: "title" },
-            {
-                title: "所属会话",
-                key: "session",
-                render: (_, record) => record.session_title ?? record.session_id ?? "未知会话",
-            },
-            {
-                title: "处理状态",
-                key: "status",
-                render: (_, record) => (
-                    <Tag color={statusColorMap[record.index_status]}>
-                        {knowledgeStatusLabelMap[record.index_status] ?? record.index_status}
-                    </Tag>
-                ),
-            },
-            { title: "类型", dataIndex: "mime_type", key: "mime_type", render: (value) => value ?? "未知" },
-            {
-                title: "上传时间",
-                key: "uploaded_at",
-                render: (_, record) => formatTimestamp(record.uploaded_at ?? record.updated_at ?? ""),
-            },
-        ],
-        [],
-    );
-
-    const knowledgeColumns = useMemo<ColumnsType<KnowledgeItem>>(
-        () => [
-            {
-                title: "知识条目",
-                key: "title",
-                render: (_, record) => (
-                    <Descriptions column={1} size="small">
-                        <Descriptions.Item label="标题">{record.title}</Descriptions.Item>
-                        <Descriptions.Item label="来源">{record.source_label}</Descriptions.Item>
-                    </Descriptions>
-                ),
-            },
-            {
-                title: "层级",
-                key: "scope",
-                render: (_, record) => (
-                    <Tag color={record.library_scope === "shared" ? "blue" : "green"}>
-                        {record.library_scope === "shared" ? "共享知识" : "个人知识"}
-                    </Tag>
-                ),
-            },
-            {
-                title: "来源类型",
-                key: "source_type",
-                render: (_, record) => <Tag>{knowledgeSourceLabelMap[record.source_type]}</Tag>,
-            },
-            {
-                title: "解析 / 入库 / 索引",
-                key: "pipeline",
-                render: (_, record) => (
-                    <Space size={6} wrap>
-                        <Tag color={statusColorMap[record.parse_status]}>
-                            解析 {knowledgeStatusLabelMap[record.parse_status] ?? record.parse_status}
-                        </Tag>
-                        <Tag color={statusColorMap[record.ingest_status]}>
-                            入库 {knowledgeStatusLabelMap[record.ingest_status] ?? record.ingest_status}
-                        </Tag>
-                        <Tag color={statusColorMap[record.index_status]}>
-                            索引 {knowledgeStatusLabelMap[record.index_status] ?? record.index_status}
-                        </Tag>
-                    </Space>
-                ),
-            },
-            {
-                title: "可挂接",
-                key: "attachable",
-                render: (_, record) => (
-                    <Tag color={record.session_attachable ? "green" : "default"}>
-                        {record.session_attachable ? "允许" : "不允许"}
-                    </Tag>
-                ),
-            },
-            {
-                title: "更新时间",
-                key: "updated_at",
-                render: (_, record) => formatTimestamp(record.updated_at ?? ""),
-            },
-        ],
-        [],
-    );
-
-    const reportColumns = useMemo<ColumnsType<MyKnowledgeReport>>(
-        () => [
-            { title: "报告标题", dataIndex: "title", key: "title" },
-            {
-                title: "所属会话",
-                key: "session",
-                render: (_, record) => record.session_title,
-            },
-            {
-                title: "类型",
-                key: "report_type",
-                render: (_, record) => <Tag>{reportTypeLabelMap[record.report_type]}</Tag>,
-            },
-            {
-                title: "更新时间",
-                key: "updated_at",
-                render: (_, record) => formatTimestamp(record.updated_at),
-            },
-            {
-                title: "操作",
-                key: "action",
-                render: () => (
-                    <Button size="small" onClick={() => navigate("/report")}>
-                        打开报告页
-                    </Button>
-                ),
-            },
-        ],
-        [navigate],
-    );
-
-    const feedbackColumns = useMemo<ColumnsType<MyKnowledgeFeedback>>(
-        () => [
-            { title: "反馈编号", dataIndex: "feedback_id", key: "feedback_id" },
-            {
-                title: "目标类型",
-                key: "target_type",
-                render: (_, record) => <Tag>{feedbackTargetLabelMap[record.target_type] ?? record.target_type}</Tag>,
-            },
-            {
-                title: "评价",
-                key: "rating",
-                render: (_, record) => (
-                    <Tag color={record.rating === "up" ? "green" : "red"}>
-                        {record.rating === "up" ? "正向" : "负向"}
-                    </Tag>
-                ),
-            },
-            {
-                title: "会话",
-                key: "session_id",
-                render: (_, record) => record.session_id ?? "未关联",
-            },
-            {
-                title: "时间",
-                key: "created_at",
-                render: (_, record) => formatTimestamp(record.created_at),
-            },
-        ],
-        [],
-    );
-
     async function refreshWorkspace() {
         setLoading(true);
         setErrorMessage(null);
@@ -210,7 +57,7 @@ export function MyKnowledgePage() {
                     extra={<Button icon={<ReloadOutlined />} onClick={() => void refreshWorkspace()} loading={loading}>刷新</Button>}
                 >
                     <Typography.Paragraph type="secondary">
-                        这里汇总你自己上传的文件、可挂接的知识条目、报告和反馈。当前版本先兼容现有会话数据，后续会直接对接知识条目主表。
+                        这里汇总你上传过的资料、已经入库的知识条目、生成过的报告和反馈记录。默认先展示“我有什么、现在可做什么”，而不是后台任务指标。
                     </Typography.Paragraph>
                     <div className="admin-stats">
                         <Statistic title="上传" value={workspace.uploads.length} />
@@ -233,7 +80,7 @@ export function MyKnowledgePage() {
                                         <Tag color={taskStatusColorMap[item.status]}>{taskStatusLabelMap[item.status]}</Tag>
                                         <Tag>{item.scope}</Tag>
                                     </Space>
-                                    <Typography.Text>{item.summary ?? "暂无摘要。"}</Typography.Text>
+                                    <Typography.Text>{item.summary ?? "系统正在处理这条知识任务。"}</Typography.Text>
                                     <Typography.Text type="secondary">{formatTimestamp(item.created_at)}</Typography.Text>
                                 </Space>
                             </List.Item>
@@ -270,13 +117,22 @@ export function MyKnowledgePage() {
                                     key: "uploads",
                                     label: "我的上传",
                                     children: (
-                                        <Table
-                                            rowKey="knowledge_item_id"
+                                        <List
                                             dataSource={workspace.uploads}
-                                            columns={uploadColumns}
-                                            pagination={false}
-                                            size="small"
                                             locale={{ emptyText: <Empty description="暂无上传文件。" /> }}
+                                            renderItem={(item) => (
+                                                <List.Item key={item.knowledge_item_id}>
+                                                    <KnowledgeCard
+                                                        title={item.title}
+                                                        subtitle={`所属会话：${item.session_title ?? item.session_id ?? "未关联会话"}`}
+                                                        tags={[
+                                                            { label: knowledgeStatusLabelMap[item.index_status] ?? item.index_status, color: statusColorMap[item.index_status] },
+                                                            { label: item.mime_type ?? "未知类型" },
+                                                            { label: `上传于 ${formatTimestamp(item.uploaded_at ?? item.updated_at ?? "")}` },
+                                                        ]}
+                                                    />
+                                                </List.Item>
+                                            )}
                                         />
                                     ),
                                 },
@@ -284,13 +140,26 @@ export function MyKnowledgePage() {
                                     key: "items",
                                     label: "我的知识条目",
                                     children: (
-                                        <Table
-                                            rowKey="knowledge_item_id"
+                                        <List
                                             dataSource={workspace.knowledgeItems}
-                                            columns={knowledgeColumns}
-                                            pagination={false}
-                                            size="small"
                                             locale={{ emptyText: <Empty description="当前没有可展示的知识条目。" /> }}
+                                            renderItem={(item) => (
+                                                <List.Item key={item.knowledge_item_id}>
+                                                    <KnowledgeCard
+                                                        title={item.title}
+                                                        subtitle={item.source_label}
+                                                        description={item.last_error ?? "知识条目已可用于检索或等待系统继续处理。"}
+                                                        tags={[
+                                                            { label: item.library_scope === "shared" ? "共享知识" : "个人知识", color: item.library_scope === "shared" ? "blue" : "green" },
+                                                            { label: knowledgeSourceLabelMap[item.source_type] },
+                                                            { label: `解析 ${knowledgeStatusLabelMap[item.parse_status]}`, color: statusColorMap[item.parse_status] },
+                                                            { label: `入库 ${knowledgeStatusLabelMap[item.ingest_status]}`, color: statusColorMap[item.ingest_status] },
+                                                            { label: `索引 ${knowledgeStatusLabelMap[item.index_status]}`, color: statusColorMap[item.index_status] },
+                                                            { label: item.session_attachable ? "允许挂接" : "暂不可挂接" },
+                                                        ]}
+                                                    />
+                                                </List.Item>
+                                            )}
                                         />
                                     ),
                                 },
@@ -298,13 +167,27 @@ export function MyKnowledgePage() {
                                     key: "reports",
                                     label: "我的报告",
                                     children: (
-                                        <Table
-                                            rowKey="report_id"
+                                        <List
                                             dataSource={workspace.reports}
-                                            columns={reportColumns}
-                                            pagination={false}
-                                            size="small"
                                             locale={{ emptyText: <Empty description="暂无报告。" /> }}
+                                            renderItem={(record) => (
+                                                <List.Item key={record.report_id}>
+                                                    <KnowledgeCard
+                                                        title={record.title}
+                                                        subtitle={`所属会话：${record.session_title}`}
+                                                        tags={[
+                                                            { label: reportTypeLabelMap[record.report_type] },
+                                                            { label: `更新于 ${formatTimestamp(record.updated_at)}` },
+                                                            { label: `${record.source_count} 个来源` },
+                                                        ]}
+                                                        action={(
+                                                            <Button size="small" onClick={() => navigate("/report")}>
+                                                                打开报告页
+                                                            </Button>
+                                                        )}
+                                                    />
+                                                </List.Item>
+                                            )}
                                         />
                                     ),
                                 },
@@ -312,43 +195,32 @@ export function MyKnowledgePage() {
                                     key: "feedback",
                                     label: "我的反馈",
                                     children: (
-                                        <Table
-                                            rowKey="feedback_id"
+                                        <List
                                             dataSource={workspace.feedback}
-                                            columns={feedbackColumns}
-                                            pagination={false}
-                                            size="small"
                                             locale={{
                                                 emptyText: (
-                                                    <Empty description="当前版本尚未暴露个人反馈列表，后续会接入我的反馈视图。" />
+                                                    <Empty description="当前还没有可展示的个人反馈。" />
                                                 ),
                                             }}
+                                            renderItem={(record) => (
+                                                <List.Item key={record.feedback_id}>
+                                                    <KnowledgeCard
+                                                        title={feedbackTargetLabelMap[record.target_type] ?? record.target_type}
+                                                        subtitle={record.comment ?? "未填写补充说明"}
+                                                        tags={[
+                                                            { label: record.rating === "up" ? "正向" : "负向", color: record.rating === "up" ? "green" : "red" },
+                                                            { label: record.session_id ?? "未关联会话" },
+                                                            { label: formatTimestamp(record.created_at) },
+                                                        ]}
+                                                    />
+                                                </List.Item>
+                                            )}
                                         />
                                     ),
                                 },
                             ]}
                         />
                     )}
-                </Card>
-            </div>
-
-            <div className="knowledge-workbench__panel">
-                <SystemInfoPanel />
-                <Card title="页面说明">
-                    <Space direction="vertical" size={8}>
-                        <Typography.Paragraph>
-                            V1.1.0 把知识库视图拆成“我的上传、我的样例、我的报告、我的反馈”四个标签页，便于后续接入个人知识库与管理员共享知识库。
-                        </Typography.Paragraph>
-                        <Button type="primary" icon={<FileAddOutlined />} onClick={() => navigate("/")}>
-                            返回问答工作台
-                        </Button>
-                        <Button icon={<RocketOutlined />} onClick={() => navigate("/carbon-calc")}>
-                            查看碳核算
-                        </Button>
-                        <Button icon={<SoundOutlined />} onClick={() => navigate("/report")}>
-                            查看报告页
-                        </Button>
-                    </Space>
                 </Card>
             </div>
         </div>
@@ -424,4 +296,38 @@ function extractDetailMessage(value: unknown): string | null {
     }
     const candidate = value as { detail?: unknown };
     return typeof candidate.detail === "string" ? candidate.detail : null;
+}
+
+interface KnowledgeCardProps {
+    title: string;
+    subtitle: string;
+    description?: string;
+    tags: Array<{ label: string; color?: string }>;
+    action?: ReactNode;
+}
+
+function KnowledgeCard({ title, subtitle, description, tags, action }: KnowledgeCardProps) {
+    return (
+        <div className="knowledge-card">
+            <div className="knowledge-card__body">
+                <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                    <Typography.Text strong>{title}</Typography.Text>
+                    <Typography.Text type="secondary">{subtitle}</Typography.Text>
+                    {description ? (
+                        <Typography.Paragraph type="secondary" className="knowledge-card__description">
+                            {description}
+                        </Typography.Paragraph>
+                    ) : null}
+                    <Space size={8} wrap>
+                        {tags.map((tag) => (
+                            <Tag key={`${title}-${tag.label}`} color={tag.color}>
+                                {tag.label}
+                            </Tag>
+                        ))}
+                    </Space>
+                </Space>
+            </div>
+            {action ? <div className="knowledge-card__action">{action}</div> : null}
+        </div>
+    );
 }
