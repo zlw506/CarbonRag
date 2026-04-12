@@ -1,5 +1,4 @@
 import {
-    DownOutlined,
     DesktopOutlined,
     ExperimentOutlined,
     FolderOpenOutlined,
@@ -7,7 +6,7 @@ import {
     LogoutOutlined,
     SearchOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Dropdown, Layout, Menu, Popover, Space, Tag, Typography } from "antd";
+import { Avatar, Button, Layout, Menu, Popover, Space, Tag, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
 import env from "../app/env";
@@ -47,35 +46,12 @@ export function AppShell() {
         isAskRoute ? "app-shell__content--chat-locked" : null,
         hideAskHeader ? "app-shell__content--headerless" : null,
     ].filter(Boolean).join(" ");
-    const userMenuItems = [
-        ...(user.role === "admin"
-            ? [{
-                key: ADMIN_NAV_ITEM.path,
-                label: ADMIN_NAV_ITEM.label,
-                icon: iconMap[ADMIN_NAV_ITEM.path as keyof typeof iconMap],
-            }]
-            : []),
-        {
-            key: "logout",
-            label: "退出登录",
-            icon: <LogoutOutlined />,
-        },
-    ];
-
     async function handleLogout() {
         await logout();
         navigate("/login", { replace: true });
     }
 
-    function handleUserMenuClick(key: string) {
-        if (key === "logout") {
-            void handleLogout();
-            return;
-        }
-        navigate(key);
-    }
-
-    const askFocusUserMenu = (
+    const siderUserMenu = (
         <div className="app-shell__focus-user-menu">
             <Space align="start" size={12}>
                 <Avatar size={44}>{user.username.slice(0, 1).toUpperCase()}</Avatar>
@@ -133,19 +109,17 @@ export function AppShell() {
                     }))}
                     onClick={({ key }) => navigate(key)}
                 />
-                {hideAskHeader ? (
-                    <div className="app-shell__sider-footer">
-                        <Popover trigger="click" placement="rightBottom" content={askFocusUserMenu}>
-                            <Button
-                                shape="circle"
-                                className="app-shell__focus-user-trigger"
-                                aria-label="打开当前用户菜单"
-                            >
-                                <Avatar size={34}>{user.username.slice(0, 1).toUpperCase()}</Avatar>
-                            </Button>
-                        </Popover>
-                    </div>
-                ) : null}
+                <div className="app-shell__sider-footer">
+                    <Popover trigger="click" placement="rightBottom" content={siderUserMenu}>
+                        <Button
+                            shape="circle"
+                            className="app-shell__focus-user-trigger"
+                            aria-label="打开当前用户菜单"
+                        >
+                            <Avatar size={34}>{user.username.slice(0, 1).toUpperCase()}</Avatar>
+                        </Button>
+                    </Popover>
+                </div>
             </Sider>
             <Layout className={isAskRoute ? "app-shell__main-shell app-shell__main-shell--chat-locked" : "app-shell__main-shell"}>
                 {!hideAskHeader ? (
@@ -168,26 +142,6 @@ export function AppShell() {
                                     </>
                                 )}
                             </div>
-                            <Dropdown
-                                trigger={["click"]}
-                                menu={{
-                                    items: userMenuItems,
-                                    onClick: ({ key }) => handleUserMenuClick(String(key)),
-                                }}
-                            >
-                                <Button className="app-shell__user-trigger">
-                                    <Space size={10}>
-                                        <Avatar>{user.username.slice(0, 1).toUpperCase()}</Avatar>
-                                        <span className="app-shell__user-copy">
-                                            <Typography.Text strong>{user.username}</Typography.Text>
-                                            <Tag color={user.role === "admin" ? "purple" : "blue"}>
-                                                {user.role === "admin" ? "管理员模式" : "个人空间"}
-                                            </Tag>
-                                        </span>
-                                        <DownOutlined />
-                                    </Space>
-                                </Button>
-                            </Dropdown>
                         </div>
                     </Header>
                 ) : null}

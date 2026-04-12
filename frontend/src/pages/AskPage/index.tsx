@@ -656,7 +656,7 @@ export function AskPage() {
             <div className="chat-workbench__sidebar">
                 <Card
                     className="chat-sidebar-card"
-                    title={sidebarCollapsed ? "会话" : "会话列表"}
+                    title={null}
                     extra={(
                         <Space size={8}>
                             <Tooltip title={sidebarCollapsed ? "展开会话栏" : "收起会话栏"}>
@@ -666,18 +666,11 @@ export function AskPage() {
                                 />
                             </Tooltip>
                             <Tooltip title="新建对话">
-                                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession}>
-                                    {sidebarCollapsed ? "" : "新建对话"}
-                                </Button>
+                                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession} aria-label="新建会话" />
                             </Tooltip>
                         </Space>
                     )}
                 >
-                    {!sidebarCollapsed ? (
-                        <Typography.Paragraph type="secondary">
-                            中间消息区是主视觉区；这里只保留会话切换。
-                        </Typography.Paragraph>
-                    ) : null}
                     <div className="chat-session-list-wrap">
                         {loadingSessions ? (
                             <div className="chat-workbench__loading"><Spin /></div>
@@ -692,7 +685,7 @@ export function AskPage() {
                                         onClick={() => setActiveSessionId(session.session_id)}
                                     >
                                         {sidebarCollapsed ? (
-                                            <Tooltip title={`${session.title} · ${session.message_count} 条消息`}>
+                                            <Tooltip title={session.title}>
                                                 <div className="chat-session-list__mini">
                                                     <Typography.Text strong>{session.title.slice(0, 2)}</Typography.Text>
                                                 </div>
@@ -700,9 +693,6 @@ export function AskPage() {
                                         ) : (
                                             <div className="chat-session-list__content">
                                                 <Typography.Text strong>{session.title}</Typography.Text>
-                                                <Typography.Text type="secondary" className="chat-session-list__meta">
-                                                    {buildSessionRailMeta(session)}
-                                                </Typography.Text>
                                             </div>
                                         )}
                                     </List.Item>
@@ -1316,17 +1306,6 @@ function buildAssistantEvidenceSummary(sourceSummary: AskSourceSummary) {
     }
     if ((sourceSummary.private_upload_count ?? 0) > 0) {
         parts.push(`个人上传 ${sourceSummary.private_upload_count ?? 0}`);
-    }
-    return parts.join(" · ");
-}
-
-function buildSessionRailMeta(session: SessionSummary) {
-    const parts = [`更新于 ${formatTimestamp(session.updated_at)}`, `${session.message_count} 条消息`];
-    if (session.file_count > 0) {
-        parts.push(`${session.file_count} 个附件`);
-    }
-    if (session.attached_private_sample_count > 0) {
-        parts.push(`${session.attached_private_sample_count} 个知识条目`);
     }
     return parts.join(" · ");
 }
