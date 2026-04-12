@@ -1,4 +1,4 @@
-import { ExperimentOutlined, FileTextOutlined, PlusOutlined } from "@ant-design/icons";
+import { ExperimentOutlined, FileTextOutlined } from "@ant-design/icons";
 import {
     Alert,
     Button,
@@ -17,6 +17,7 @@ import {
 } from "antd";
 import { useEffect, useState } from "react";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
+import { SessionRail, useResponsiveSessionRail } from "../../components/SessionRail";
 import { submitCarbonCalculation } from "../../services/carbon";
 import { createSession, getSession, listSessions } from "../../services/sessions";
 import type { CalcCarbonResponse } from "../../types/carbon";
@@ -40,6 +41,7 @@ export function CarbonCalcPage() {
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
+    const [sidebarCollapsed, setSidebarCollapsed] = useResponsiveSessionRail();
     const [formState, setFormState] = useState<CarbonFormState>(initialFormState);
     const [calcResult, setCalcResult] = useState<CalcCarbonResponse | null>(null);
     const [loadingSessions, setLoadingSessions] = useState(true);
@@ -142,36 +144,17 @@ export function CarbonCalcPage() {
     const privateSampleCount = activeSession?.attached_files.filter((item) => item.source_type === "private_sample").length ?? 0;
 
     return (
-        <div className="chat-workbench">
+        <div className={sidebarCollapsed ? "chat-workbench chat-workbench--sidebar-collapsed" : "chat-workbench"}>
             <div className="chat-workbench__sidebar">
-                <Card
-                    title="会话列表"
-                    extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession}>新建对话</Button>}
-                >
-                    <Typography.Paragraph type="secondary">
-                        v0.1.9A 在当前对话工作台上新增真实碳核算链路，并把结果与反馈落入本地数据库。
-                    </Typography.Paragraph>
-                    {loadingSessions ? (
-                        <div className="chat-workbench__loading"><Spin /></div>
-                    ) : (
-                        <List
-                            className="chat-session-list"
-                            dataSource={sessions}
-                            locale={{ emptyText: "当前还没有会话。" }}
-                            renderItem={(session) => (
-                                <List.Item
-                                    className={activeSessionId === session.session_id ? "chat-session-list__item chat-session-list__item--active" : "chat-session-list__item"}
-                                    onClick={() => setActiveSessionId(session.session_id)}
-                                >
-                                    <div className="chat-session-list__content">
-                                        <Typography.Text strong>{session.title}</Typography.Text>
-                                        <Typography.Text type="secondary">更新于 {formatTimestamp(session.updated_at)} · {session.message_count} 条消息</Typography.Text>
-                                    </div>
-                                </List.Item>
-                            )}
-                        />
-                    )}
-                </Card>
+                <SessionRail
+                    sessions={sessions}
+                    activeSessionId={activeSessionId}
+                    collapsed={sidebarCollapsed}
+                    loading={loadingSessions}
+                    onCreateSession={() => void handleCreateSession()}
+                    onSelectSession={setActiveSessionId}
+                    onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+                />
             </div>
 
             <div className="chat-workbench__main">

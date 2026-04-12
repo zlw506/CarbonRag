@@ -1,7 +1,6 @@
 import {
     CopyOutlined,
     FileTextOutlined,
-    PlusOutlined,
     ReloadOutlined,
     SaveOutlined,
 } from "@ant-design/icons";
@@ -25,6 +24,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate } from "react-router-dom";
+import { SessionRail, useResponsiveSessionRail } from "../../components/SessionRail";
 import { createSession, getSession, listSessions } from "../../services/sessions";
 import {
     createReport,
@@ -81,6 +81,7 @@ export function ReportPage() {
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
+    const [sidebarCollapsed, setSidebarCollapsed] = useResponsiveSessionRail();
     const [reports, setReports] = useState<ReportSummary[]>([]);
     const [carbonResults, setCarbonResults] = useState<SessionCarbonCalculationSummary[]>([]);
     const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
@@ -298,72 +299,47 @@ export function ReportPage() {
     }
 
     return (
-        <div className="chat-workbench">
+        <div className={sidebarCollapsed ? "chat-workbench chat-workbench--sidebar-collapsed" : "chat-workbench"}>
             <div className="chat-workbench__sidebar">
-                <Card
-                    title="会话列表"
-                    extra={(
-                        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession}>
-                            新建对话
-                        </Button>
-                    )}
-                >
-                    <Typography.Paragraph type="secondary">
-                        报告始终绑定在某个会话下生成与回看。先选会话，再从当前会话里挑选可用来源。
-                    </Typography.Paragraph>
-                    {loadingSessions ? (
-                        <div className="chat-workbench__loading"><Spin /></div>
-                    ) : (
-                        <List
-                            className="chat-session-list"
-                            dataSource={sessions}
-                            locale={{ emptyText: "当前还没有会话。" }}
-                            renderItem={(session) => (
-                                <List.Item
-                                    className={activeSessionId === session.session_id
-                                        ? "chat-session-list__item chat-session-list__item--active"
-                                        : "chat-session-list__item"}
-                                    onClick={() => setActiveSessionId(session.session_id)}
-                                >
-                                    <div className="chat-session-list__content">
-                                        <Typography.Text strong>{session.title}</Typography.Text>
-                                        <Typography.Text type="secondary">
-                                            更新于 {formatTimestamp(session.updated_at)} · {session.message_count} 条消息
-                                        </Typography.Text>
-                                    </div>
-                                </List.Item>
-                            )}
-                        />
-                    )}
-                </Card>
+                <SessionRail
+                    sessions={sessions}
+                    activeSessionId={activeSessionId}
+                    collapsed={sidebarCollapsed}
+                    loading={loadingSessions}
+                    onCreateSession={() => void handleCreateSession()}
+                    onSelectSession={setActiveSessionId}
+                    onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+                />
 
-                <Card title="当前会话报告列表">
-                    {loadingSessionDetail ? (
-                        <div className="chat-workbench__loading"><Spin /></div>
-                    ) : reports.length ? (
-                        <List
-                            className="chat-session-list"
-                            dataSource={reports}
-                            renderItem={(report) => (
-                                <List.Item
-                                    className={selectedReportId === report.report_id
-                                        ? "chat-session-list__item chat-session-list__item--active"
-                                        : "chat-session-list__item"}
-                                    onClick={() => setSelectedReportId(report.report_id)}
-                                >
-                                    <div className="chat-session-list__content">
-                                        <Typography.Text strong>{report.title}</Typography.Text>
-                                        <Typography.Text type="secondary">
-                                            {reportTypeLabelMap[report.report_type]} · {formatTimestamp(report.updated_at)}
-                                        </Typography.Text>
-                                    </div>
-                                </List.Item>
-                            )}
-                        />
-                    ) : (
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前会话还没有生成报告。" />
-                    )}
-                </Card>
+                {!sidebarCollapsed ? (
+                    <Card title="当前会话报告列表">
+                        {loadingSessionDetail ? (
+                            <div className="chat-workbench__loading"><Spin /></div>
+                        ) : reports.length ? (
+                            <List
+                                className="chat-session-list"
+                                dataSource={reports}
+                                renderItem={(report) => (
+                                    <List.Item
+                                        className={selectedReportId === report.report_id
+                                            ? "chat-session-list__item chat-session-list__item--active"
+                                            : "chat-session-list__item"}
+                                        onClick={() => setSelectedReportId(report.report_id)}
+                                    >
+                                        <div className="chat-session-list__content">
+                                            <Typography.Text strong>{report.title}</Typography.Text>
+                                            <Typography.Text type="secondary">
+                                                {reportTypeLabelMap[report.report_type]} · {formatTimestamp(report.updated_at)}
+                                            </Typography.Text>
+                                        </div>
+                                    </List.Item>
+                                )}
+                            />
+                        ) : (
+                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前会话还没有生成报告。" />
+                        )}
+                    </Card>
+                ) : null}
             </div>
 
             <div className="chat-workbench__main">

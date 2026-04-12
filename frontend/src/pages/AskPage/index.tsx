@@ -1,12 +1,9 @@
 import {
     FileTextOutlined,
     LinkOutlined,
-    MenuFoldOutlined,
-    MenuUnfoldOutlined,
     MessageOutlined,
     MoreOutlined,
     PaperClipOutlined,
-    PlusOutlined,
     SettingOutlined,
     TagsOutlined,
 } from "@ant-design/icons";
@@ -35,6 +32,7 @@ import ReactMarkdown from "react-markdown";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
+import { SessionRail, useResponsiveSessionRail } from "../../components/SessionRail";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
 import { uploadSessionFile } from "../../services/files";
 import { listAttachableKnowledgeItems, replaceAttachedKnowledgeItems } from "../../services/knowledge";
@@ -103,7 +101,7 @@ export function AskPage() {
     const [loadingPrivateSamples, setLoadingPrivateSamples] = useState(true);
     const [loadingSessions, setLoadingSessions] = useState(true);
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useResponsiveSessionRail();
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [sending, setSending] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -168,28 +166,6 @@ export function AskPage() {
             container.scrollTop = container.scrollHeight;
         }
     }, [visibleMessages, loadingSessionDetail, currentStreamState]);
-
-    useEffect(() => {
-        if (typeof window === "undefined") {
-            return;
-        }
-
-        const syncSidebarState = () => {
-            setSidebarCollapsed((current) => {
-                if (window.innerWidth <= 1200) {
-                    return true;
-                }
-                if (window.innerWidth >= 1440) {
-                    return current;
-                }
-                return current;
-            });
-        };
-
-        syncSidebarState();
-        window.addEventListener("resize", syncSidebarState);
-        return () => window.removeEventListener("resize", syncSidebarState);
-    }, []);
 
     async function bootstrapWorkbench() {
         setLoadingSessions(true);
@@ -654,53 +630,15 @@ export function AskPage() {
             }
         >
             <div className="chat-workbench__sidebar">
-                <Card
-                    className="chat-sidebar-card"
-                    title={null}
-                    extra={(
-                        <Space size={8}>
-                            <Tooltip title={sidebarCollapsed ? "展开会话栏" : "收起会话栏"}>
-                                <Button
-                                    icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                                    onClick={() => setSidebarCollapsed((current) => !current)}
-                                />
-                            </Tooltip>
-                            <Tooltip title="新建对话">
-                                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSession} aria-label="新建会话" />
-                            </Tooltip>
-                        </Space>
-                    )}
-                >
-                    <div className="chat-session-list-wrap">
-                        {loadingSessions ? (
-                            <div className="chat-workbench__loading"><Spin /></div>
-                        ) : (
-                            <List
-                                className={sidebarCollapsed ? "chat-session-list chat-session-list--collapsed" : "chat-session-list"}
-                                dataSource={sessions}
-                                locale={{ emptyText: "当前还没有会话。" }}
-                                renderItem={(session) => (
-                                    <List.Item
-                                        className={activeSessionId === session.session_id ? "chat-session-list__item chat-session-list__item--active" : "chat-session-list__item"}
-                                        onClick={() => setActiveSessionId(session.session_id)}
-                                    >
-                                        {sidebarCollapsed ? (
-                                            <Tooltip title={session.title}>
-                                                <div className="chat-session-list__mini">
-                                                    <Typography.Text strong>{session.title.slice(0, 2)}</Typography.Text>
-                                                </div>
-                                            </Tooltip>
-                                        ) : (
-                                            <div className="chat-session-list__content">
-                                                <Typography.Text strong>{session.title}</Typography.Text>
-                                            </div>
-                                        )}
-                                    </List.Item>
-                                )}
-                            />
-                        )}
-                    </div>
-                </Card>
+                <SessionRail
+                    sessions={sessions}
+                    activeSessionId={activeSessionId}
+                    collapsed={sidebarCollapsed}
+                    loading={loadingSessions}
+                    onCreateSession={() => void handleCreateSession()}
+                    onSelectSession={setActiveSessionId}
+                    onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+                />
             </div>
 
             <div className="chat-workbench__main">
