@@ -155,7 +155,7 @@ class FakeCursor:
             return
 
         if normalized.startswith("insert into messages"):
-            message_id, session_id, role, content, status, trace_id, citations_json, created_at = params
+            message_id, session_id, role, content, thinking_content, status, trace_id, citations_json, created_at = params
             self.db.messages.append(
                 {
                     "message_seq": len(self.db.messages) + 1,
@@ -163,6 +163,7 @@ class FakeCursor:
                     "session_id": session_id,
                     "role": role,
                     "content": content,
+                    "thinking_content": thinking_content,
                     "status": status,
                     "trace_id": trace_id,
                     "citations_json": citations_json,
@@ -170,6 +171,20 @@ class FakeCursor:
                 }
             )
             self.rowcount = 1
+            self._rows = []
+            return
+
+        if normalized.startswith("update messages set content = %s, thinking_content = %s, status = %s, trace_id = %s, citations_json = %s"):
+            content, thinking_content, status, trace_id, citations_json, session_id, message_id = params
+            for message in self.db.messages:
+                if message["session_id"] == session_id and message["message_id"] == message_id:
+                    message["content"] = content
+                    message["thinking_content"] = thinking_content
+                    message["status"] = status
+                    message["trace_id"] = trace_id
+                    message["citations_json"] = citations_json
+                    self.rowcount = 1
+                    break
             self._rows = []
             return
 

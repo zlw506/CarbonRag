@@ -193,6 +193,7 @@ function emitSyntheticStreamEvents(response: SessionAskResponse, callbacks: AskS
     callbacks.onStatus?.({ status: "thinking", trace_id: response.trace_id });
     callbacks.onThinkingDelta?.({
         delta: "模型正在组织上下文与回答，请稍候。",
+        synthetic: true,
         trace_id: response.trace_id,
     });
     if (response.answer) {
@@ -254,7 +255,7 @@ function applyStreamEvent(
         case "thinking_delta": {
             const thinkingEvent = payload as AskStreamDeltaEvent;
             const delta = extractDeltaText(thinkingEvent);
-            if (delta) {
+            if (delta && !thinkingEvent.synthetic) {
                 state.thinking += delta;
             }
             state.trace_id = thinkingEvent.trace_id ?? state.trace_id;
@@ -280,6 +281,11 @@ function applyStreamEvent(
             if (typeof metadata.answer === "string" && metadata.answer) {
                 state.answer = metadata.answer;
             }
+            if (typeof metadata.thinking_content === "string") {
+                state.thinking = metadata.thinking_content;
+            } else if (metadata.thinking_content === null) {
+                state.thinking = "";
+            }
             state.memory_state = normalizeMemoryState(metadata.memory_state, state.memory_state);
             callbacks.onMetadata?.(metadata);
             return;
@@ -292,6 +298,11 @@ function applyStreamEvent(
             state.status = doneEvent.status ?? state.status;
             if (typeof doneEvent.answer === "string" && doneEvent.answer) {
                 state.answer = doneEvent.answer;
+            }
+            if (typeof doneEvent.thinking_content === "string") {
+                state.thinking = doneEvent.thinking_content;
+            } else if (doneEvent.thinking_content === null) {
+                state.thinking = "";
             }
             state.memory_state = normalizeMemoryState(doneEvent.memory_state, state.memory_state);
             callbacks.onDone?.(doneEvent);

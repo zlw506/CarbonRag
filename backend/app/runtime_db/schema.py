@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS messages (
     session_id TEXT NOT NULL,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
+    thinking_content TEXT,
     status TEXT,
     trace_id TEXT,
     citations_json TEXT NOT NULL DEFAULT '[]',
@@ -367,6 +368,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
         session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
         role TEXT NOT NULL,
         content TEXT NOT NULL,
+        thinking_content TEXT,
         status TEXT,
         trace_id TEXT,
         citations_json TEXT NOT NULL DEFAULT '[]',
@@ -562,6 +564,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     """,
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS thinking_content TEXT",
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_summary TEXT",
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_message_seq_upto BIGINT",
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_updated_at TEXT",
@@ -610,6 +613,7 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "sessions", "summary_estimated_tokens", "INTEGER NOT NULL DEFAULT 0")
     _ensure_sqlite_column(connection, "sessions", "compaction_status", "TEXT NOT NULL DEFAULT 'idle'")
     _ensure_sqlite_column(connection, "sessions", "last_compaction_error", "TEXT")
+    _ensure_sqlite_column(connection, "messages", "thinking_content", "TEXT")
     _ensure_sqlite_column(connection, "files", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "source", "TEXT")

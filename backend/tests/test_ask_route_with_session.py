@@ -137,3 +137,46 @@ def test_session_ask_route_records_provider_error_message(monkeypatch, tmp_path)
     assert response.json()["status"] == "provider_error"
     assert detail["messages"][-1]["role"] == "assistant"
     assert detail["messages"][-1]["status"] == "provider_error"
+
+
+def test_session_ask_stream_persists_real_thinking_content(monkeypatch, tmp_path) -> None:
+    session_service, file_service = build_test_services(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+
+    def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
+        del method, url, headers, json, timeout
+        return FakeStreamingResponse(
+            status_code=200,
+            lines=[
+                'event: reasoning',
+                'data: {"id":"chatcmpl-session-thinking","choices":[{"delta":{"reasoning_content":"先梳理当前会话，再输出结论。"}}]}',
+                "",
+                'event: message',
+                'data: {"id":"chatcmpl-session-thinking","choices":[{"delta":{"content":"双碳目标包括碳达峰和碳中和。"}}]}',
+                "",
+                "data: [DONE]",
+            ],
+        )
+
+    monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", fake_stream)
+
+    register_and_login(client, prefix="ask-stream-thinking")
+    session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
+
+    with client.stream(
+        "POST",
+        f"/api/v1/sessions/{session_id}/ask/stream",
+        json={
+            "question": "什么是双碳目标？",
+            "knowledge_scope": "public",
+            "top_k": 3,
+        },
+    ) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+        assert "先梳理当前会话，再输出结论。" in body
+
+    detail = client.get(f"/api/v1/sessions/{session_id}").json()
+    assert detail["messages"][-1]["thinking_content"] == "先梳理当前会话，再输出结论。"

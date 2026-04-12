@@ -46,9 +46,14 @@ def test_bootstrap_runtime_database_creates_sqlite_schema(tmp_path) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
+        message_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(messages)").fetchall()
+        }
     finally:
         connection.close()
     assert set(CORE_TABLES).issubset(tables)
+    assert "thinking_content" in message_columns
 
 
 def test_bootstrap_runtime_database_executes_postgres_schema(monkeypatch) -> None:
@@ -67,3 +72,4 @@ def test_bootstrap_runtime_database_executes_postgres_schema(monkeypatch) -> Non
     assert any("CREATE TABLE IF NOT EXISTS carbon_calculations" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS reports" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS report_sources" in statement for statement in executed)
+    assert any("ALTER TABLE messages ADD COLUMN IF NOT EXISTS thinking_content TEXT" in statement for statement in executed)

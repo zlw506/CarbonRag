@@ -125,7 +125,7 @@ class SQLiteSessionStore(SessionStore):
             ).fetchall()
             message_rows = connection.execute(
                 """
-                SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                SELECT message_id, role, content, thinking_content, status, trace_id, citations_json, created_at
                 FROM messages
                 WHERE session_id = ?
                 ORDER BY message_seq ASC
@@ -229,6 +229,7 @@ class SQLiteSessionStore(SessionStore):
         status: MessageStatus | None = None,
         trace_id: str | None = None,
         citations: list[AskCitation] | None = None,
+        thinking_content: str | None = None,
     ) -> SessionMessage:
         citations_json = json.dumps(
             [citation.model_dump() for citation in (citations or [])],
@@ -242,14 +243,15 @@ class SQLiteSessionStore(SessionStore):
                     session_id,
                     role,
                     content,
+                    thinking_content,
                     status,
                     trace_id,
                     citations_json,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (message_id, session_id, role, content, status, trace_id, citations_json, created_at),
+                (message_id, session_id, role, content, thinking_content, status, trace_id, citations_json, created_at),
             )
             connection.execute(
                 "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
@@ -257,7 +259,7 @@ class SQLiteSessionStore(SessionStore):
             )
             row = connection.execute(
                 """
-                SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                SELECT message_id, role, content, thinking_content, status, trace_id, citations_json, created_at
                 FROM messages
                 WHERE message_id = ?
                 """,
@@ -275,6 +277,7 @@ class SQLiteSessionStore(SessionStore):
         status: MessageStatus | None = None,
         trace_id: str | None = None,
         citations: list[AskCitation] | None = None,
+        thinking_content: str | None = None,
     ) -> SessionMessage | None:
         citations_json = json.dumps(
             [citation.model_dump() for citation in (citations or [])],
@@ -284,10 +287,10 @@ class SQLiteSessionStore(SessionStore):
             cursor = connection.execute(
                 """
                 UPDATE messages
-                SET content = ?, status = ?, trace_id = ?, citations_json = ?
+                SET content = ?, thinking_content = ?, status = ?, trace_id = ?, citations_json = ?
                 WHERE session_id = ? AND message_id = ?
                 """,
-                (content, status, trace_id, citations_json, session_id, message_id),
+                (content, thinking_content, status, trace_id, citations_json, session_id, message_id),
             )
             if cursor.rowcount == 0:
                 return None
@@ -297,7 +300,7 @@ class SQLiteSessionStore(SessionStore):
             )
             row = connection.execute(
                 """
-                SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                SELECT message_id, role, content, thinking_content, status, trace_id, citations_json, created_at
                 FROM messages
                 WHERE session_id = ? AND message_id = ?
                 """,
@@ -309,7 +312,7 @@ class SQLiteSessionStore(SessionStore):
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                SELECT message_id, role, content, thinking_content, status, trace_id, citations_json, created_at
                 FROM messages
                 WHERE session_id = ?
                 ORDER BY message_seq DESC

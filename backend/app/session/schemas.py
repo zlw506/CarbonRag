@@ -14,6 +14,7 @@ class SessionMessage(BaseModel):
     message_id: str
     role: MessageRole
     content: str
+    thinking_content: str | None = None
     created_at: datetime
     status: MessageStatus | None = None
     trace_id: str | None = None

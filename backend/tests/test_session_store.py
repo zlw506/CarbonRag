@@ -20,6 +20,15 @@ def test_sqlite_session_store_persists_after_reopen(tmp_path) -> None:
         content="What is the dual-carbon target?",
         created_at="2026-04-04T10:00:01+00:00",
     )
+    store.append_message(
+        session_id=created.session_id,
+        message_id="msg-002",
+        role="assistant",
+        content="The dual-carbon target means carbon peaking and carbon neutrality.",
+        thinking_content="先提取问题，再结合上下文组织回答。",
+        created_at="2026-04-04T10:00:02+00:00",
+        status="done",
+    )
 
     reopened = SQLiteSessionStore(db_path)
     session = reopened.get_session(owner_user_id=owner_user_id, session_id=created.session_id)
@@ -27,6 +36,7 @@ def test_sqlite_session_store_persists_after_reopen(tmp_path) -> None:
     assert session is not None
     assert session.session_id == created.session_id
     assert session.messages[0].content == "What is the dual-carbon target?"
+    assert session.messages[1].thinking_content == "先提取问题，再结合上下文组织回答。"
 
 
 def test_sqlite_session_store_lists_sessions_by_updated_at_desc(tmp_path) -> None:

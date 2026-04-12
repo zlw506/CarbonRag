@@ -35,12 +35,14 @@ export interface SessionSummary {
     message_count: number;
     file_count: number;
     attached_private_sample_count: number;
+    attached_knowledge_item_count?: number;
 }
 
 export interface SessionMessage {
     message_id: string;
     role: "user" | "assistant" | "system";
     content: string;
+    thinking_content?: string | null;
     created_at: string;
     status?: MessageStatus | null;
     trace_id?: string | null;

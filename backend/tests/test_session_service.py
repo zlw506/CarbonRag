@@ -118,14 +118,17 @@ def test_session_service_begin_and_finalize_exchange_updates_placeholder(tmp_pat
                 chunk_id="policy_001_chunk_01",
             )
         ],
+        thinking_content="先梳理当前会话上下文，再生成最终回答。",
     )
 
     assert finalized_message is not None
     assert finalized_message.status == "done"
     assert finalized_message.trace_id == "trace-003"
+    assert finalized_message.thinking_content == "先梳理当前会话上下文，再生成最终回答。"
 
     refreshed = service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
     assert refreshed is not None
     assert refreshed.messages[-1].status == "done"
+    assert refreshed.messages[-1].thinking_content == "先梳理当前会话上下文，再生成最终回答。"
     assert refreshed.source_summary is not None
     assert refreshed.source_summary.total_citation_count == 1

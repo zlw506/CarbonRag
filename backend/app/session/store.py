@@ -51,6 +51,7 @@ class SessionStore(ABC):
         status: MessageStatus | None = None,
         trace_id: str | None = None,
         citations: list[AskCitation] | None = None,
+        thinking_content: str | None = None,
     ) -> SessionMessage:
         raise NotImplementedError
 
@@ -65,6 +66,7 @@ class SessionStore(ABC):
         status: MessageStatus | None = None,
         trace_id: str | None = None,
         citations: list[AskCitation] | None = None,
+        thinking_content: str | None = None,
     ) -> SessionMessage | None:
         raise NotImplementedError
 

@@ -249,6 +249,8 @@ def ask_in_session_stream(
     )
 
     def event_stream():
+        stream_handle = None
+        thinking_content: str | None = None
         yield build_sse_event(
             "message_start",
             {
@@ -302,6 +304,13 @@ def ask_in_session_stream(
             result = stream_handle.state.runtime_result
         except Exception:
             result = None
+        else:
+            aggregated_thinking = "".join(stream_handle.state.thinking_fragments).strip()
+            thinking_content = aggregated_thinking or None
+
+        if stream_handle is not None and thinking_content is None:
+            aggregated_thinking = "".join(stream_handle.state.thinking_fragments).strip()
+            thinking_content = aggregated_thinking or None
 
         if result is None:
             result_status = "provider_error"
@@ -324,6 +333,7 @@ def ask_in_session_stream(
             citations=citations,
             knowledge_scope=source_summary.knowledge_scope,
             source_summary=source_summary,
+            thinking_content=thinking_content,
         )
         if result_status == "ok":
             session_service.maybe_promote_title_from_first_question(
@@ -348,6 +358,7 @@ def ask_in_session_stream(
             "user_message_id": user_message.message_id,
             "assistant_message_id": assistant_placeholder.message_id,
             "message_id": finalized_message.message_id if finalized_message is not None else assistant_placeholder.message_id,
+            "thinking_content": thinking_content,
             "memory_state": memory_state,
             "context_source": context_source,
         }

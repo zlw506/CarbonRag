@@ -7,7 +7,7 @@ import {
     LogoutOutlined,
     SearchOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Dropdown, Layout, Menu, Space, Tag, Typography } from "antd";
+import { Avatar, Button, Dropdown, Layout, Menu, Popover, Space, Tag, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
 import env from "../app/env";
@@ -35,6 +35,7 @@ export function AppShell() {
     const navigationItems = getNavigationItems(user.role);
     const isAskRoute = location.pathname === "/";
     const focusModeEnabled = isAskRoute && new URLSearchParams(location.search).get("focus") !== "0";
+    const hideAskHeader = isAskRoute && focusModeEnabled;
     const shellClassName = [
         "app-shell",
         focusModeEnabled ? "app-shell--focus" : null,
@@ -44,6 +45,7 @@ export function AppShell() {
         "app-shell__content",
         focusModeEnabled ? "app-shell__content--focus" : null,
         isAskRoute ? "app-shell__content--chat-locked" : null,
+        hideAskHeader ? "app-shell__content--headerless" : null,
     ].filter(Boolean).join(" ");
     const userMenuItems = [
         ...(user.role === "admin"
@@ -72,6 +74,30 @@ export function AppShell() {
         }
         navigate(key);
     }
+
+    const askFocusUserMenu = (
+        <div className="app-shell__focus-user-menu">
+            <Space align="start" size={12}>
+                <Avatar size={44}>{user.username.slice(0, 1).toUpperCase()}</Avatar>
+                <div className="app-shell__focus-user-copy">
+                    <Typography.Text strong>{user.username}</Typography.Text>
+                    <Tag color={user.role === "admin" ? "purple" : "blue"}>
+                        {user.role === "admin" ? "管理员模式" : "个人空间"}
+                    </Tag>
+                </div>
+            </Space>
+            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                {user.role === "admin" ? (
+                    <Button block icon={<DesktopOutlined />} onClick={() => navigate(ADMIN_NAV_ITEM.path)}>
+                        管理后台
+                    </Button>
+                ) : null}
+                <Button block icon={<LogoutOutlined />} onClick={() => void handleLogout()}>
+                    退出登录
+                </Button>
+            </Space>
+        </div>
+    );
 
     return (
         <Layout className={shellClassName}>
@@ -107,49 +133,64 @@ export function AppShell() {
                     }))}
                     onClick={({ key }) => navigate(key)}
                 />
+                {hideAskHeader ? (
+                    <div className="app-shell__sider-footer">
+                        <Popover trigger="click" placement="rightBottom" content={askFocusUserMenu}>
+                            <Button
+                                shape="circle"
+                                className="app-shell__focus-user-trigger"
+                                aria-label="打开当前用户菜单"
+                            >
+                                <Avatar size={34}>{user.username.slice(0, 1).toUpperCase()}</Avatar>
+                            </Button>
+                        </Popover>
+                    </div>
+                ) : null}
             </Sider>
             <Layout className={isAskRoute ? "app-shell__main-shell app-shell__main-shell--chat-locked" : "app-shell__main-shell"}>
-                <Header className={focusModeEnabled ? "app-shell__header app-shell__header--focus" : "app-shell__header"}>
-                    <div className={focusModeEnabled ? "app-shell__header-bar app-shell__header-bar--focus" : "app-shell__header-bar"}>
-                        <div className={focusModeEnabled ? "app-shell__header-copy app-shell__header-copy--focus" : "app-shell__header-copy"}>
-                            {focusModeEnabled ? (
-                                <>
-                                    <Typography.Text strong>专注对话</Typography.Text>
-                                    <Typography.Text type="secondary">
-                                        对话优先，依据与系统状态按需展开。
-                                    </Typography.Text>
-                                </>
-                            ) : (
-                                <>
-                                    <Typography.Title level={3}>CarbonRag 工作台</Typography.Title>
-                                    <Typography.Paragraph>
-                                        当前账号下的问答、知识、核算与报告工作区。
-                                    </Typography.Paragraph>
-                                </>
-                            )}
+                {!hideAskHeader ? (
+                    <Header className={focusModeEnabled ? "app-shell__header app-shell__header--focus" : "app-shell__header"}>
+                        <div className={focusModeEnabled ? "app-shell__header-bar app-shell__header-bar--focus" : "app-shell__header-bar"}>
+                            <div className={focusModeEnabled ? "app-shell__header-copy app-shell__header-copy--focus" : "app-shell__header-copy"}>
+                                {focusModeEnabled ? (
+                                    <>
+                                        <Typography.Text strong>专注对话</Typography.Text>
+                                        <Typography.Text type="secondary">
+                                            对话优先，依据与系统状态按需展开。
+                                        </Typography.Text>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Typography.Title level={3}>CarbonRag 工作台</Typography.Title>
+                                        <Typography.Paragraph>
+                                            当前账号下的问答、知识、核算与报告工作区。
+                                        </Typography.Paragraph>
+                                    </>
+                                )}
+                            </div>
+                            <Dropdown
+                                trigger={["click"]}
+                                menu={{
+                                    items: userMenuItems,
+                                    onClick: ({ key }) => handleUserMenuClick(String(key)),
+                                }}
+                            >
+                                <Button className="app-shell__user-trigger">
+                                    <Space size={10}>
+                                        <Avatar>{user.username.slice(0, 1).toUpperCase()}</Avatar>
+                                        <span className="app-shell__user-copy">
+                                            <Typography.Text strong>{user.username}</Typography.Text>
+                                            <Tag color={user.role === "admin" ? "purple" : "blue"}>
+                                                {user.role === "admin" ? "管理员模式" : "个人空间"}
+                                            </Tag>
+                                        </span>
+                                        <DownOutlined />
+                                    </Space>
+                                </Button>
+                            </Dropdown>
                         </div>
-                        <Dropdown
-                            trigger={["click"]}
-                            menu={{
-                                items: userMenuItems,
-                                onClick: ({ key }) => handleUserMenuClick(String(key)),
-                            }}
-                        >
-                            <Button className="app-shell__user-trigger">
-                                <Space size={10}>
-                                    <Avatar>{user.username.slice(0, 1).toUpperCase()}</Avatar>
-                                    <span className="app-shell__user-copy">
-                                        <Typography.Text strong>{user.username}</Typography.Text>
-                                        <Tag color={user.role === "admin" ? "purple" : "blue"}>
-                                            {user.role === "admin" ? "管理员模式" : "个人空间"}
-                                        </Tag>
-                                    </span>
-                                    <DownOutlined />
-                                </Space>
-                            </Button>
-                        </Dropdown>
-                    </div>
-                </Header>
+                    </Header>
+                ) : null}
                 <Content className={contentClassName}>
                     <Outlet />
                 </Content>

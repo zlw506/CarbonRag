@@ -1,6 +1,4 @@
 import {
-    CompressOutlined,
-    ExpandOutlined,
     FileTextOutlined,
     LinkOutlined,
     MenuFoldOutlined,
@@ -18,6 +16,7 @@ import {
     Card,
     Checkbox,
     Collapse,
+    type CollapseProps,
     Drawer,
     Empty,
     Input,
@@ -64,7 +63,7 @@ type AssistantLifecycleState = "pending" | "thinking" | "streaming" | "done" | "
 
 interface ChatMessageView extends SessionMessage {
     client_state?: AssistantLifecycleState;
-    thinking_content?: string;
+    thinking_content?: string | null;
 }
 
 interface ChatDraft {
@@ -80,10 +79,14 @@ interface StreamContextSource {
 
 export function AskPage() {
     const { user } = useAuth();
-    const [searchParams, setSearchParams] = useSearchParams();
+    const [searchParams] = useSearchParams();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const streamAbortRef = useRef<AbortController | null>(null);
-    const messageStreamEndRef = useRef<HTMLDivElement | null>(null);
+    const messageStreamRef = useRef<HTMLDivElement | null>(null);
+    const streamDraftRef = useRef<ChatDraft | null>(null);
+    const streamMemoryStateRef = useRef<SessionDetail["memory_state"] | null>(null);
+    const streamContextSourceRef = useRef<StreamContextSource | null>(null);
+    const shouldAutoFollowMessageStreamRef = useRef(true);
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
@@ -126,7 +129,6 @@ export function AskPage() {
     const currentStreamState = streamDraft?.assistantMessage.client_state ?? null;
     const currentStreamTag = currentStreamState ? lifecycleTagMap[currentStreamState] : null;
     const contextUsagePercent = getContextUsagePercent(effectiveMemoryState);
-    const compactContextSummary = buildCompactContextSummary(effectiveMemoryState, currentSourceSummary, streamContextSource);
     const currentContextSourceText = buildContextSourceText(
         effectiveMemoryState,
         currentSourceSummary,
@@ -144,9 +146,10 @@ export function AskPage() {
         }
         streamAbortRef.current?.abort();
         streamAbortRef.current = null;
-        setStreamDraft(null);
-        setStreamMemoryState(null);
-        setStreamContextSource(null);
+        replaceStreamDraft(null);
+        replaceStreamMemoryState(null);
+        replaceStreamContextSource(null);
+        shouldAutoFollowMessageStreamRef.current = true;
         void loadSessionDetail(activeSessionId);
     }, [activeSessionId]);
 
@@ -157,12 +160,14 @@ export function AskPage() {
     }, []);
 
     useEffect(() => {
-        const node = messageStreamEndRef.current;
-        if (!node) {
+        const container = messageStreamRef.current;
+        if (!container) {
             return;
         }
-        node.scrollIntoView({ behavior: "smooth", block: "end" });
-    }, [visibleMessages, loadingSessionDetail, streamDraft]);
+        if (shouldAutoFollowMessageStreamRef.current) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }, [visibleMessages, loadingSessionDetail, currentStreamState]);
 
     useEffect(() => {
         if (typeof window === "undefined") {
@@ -216,13 +221,14 @@ export function AskPage() {
         const sessionList = await listSessions();
         setSessions(sessionList);
         if (!sessionList.length) {
-            return;
+            return sessionList;
         }
 
         const targetId = preferredSessionId && sessionList.some((item) => item.session_id === preferredSessionId)
             ? preferredSessionId
             : sessionList[0].session_id;
         setActiveSessionId(targetId);
+        return sessionList;
     }
 
     async function loadSessionDetail(sessionId: string) {
@@ -289,8 +295,8 @@ export function AskPage() {
         streamAbortRef.current?.abort();
         const controller = new AbortController();
         streamAbortRef.current = controller;
-        setStreamMemoryState(null);
-        setStreamContextSource(null);
+        replaceStreamMemoryState(null);
+        replaceStreamContextSource(null);
 
         const draftUserMessageId = createDraftMessageId("user");
         const draftAssistantMessageId = createDraftMessageId("assistant");
@@ -298,7 +304,7 @@ export function AskPage() {
         const draftQuestion = trimmed;
         setSelectedCitationMessageId(draftAssistantMessageId);
 
-        setStreamDraft({
+        replaceStreamDraft({
             userMessage: {
                 message_id: draftUserMessageId,
                 role: "user",
@@ -319,6 +325,7 @@ export function AskPage() {
         });
         setQuestion("");
 
+        let committedLocally = false;
         try {
             const response = await submitSessionAskStreamRequest(
                 activeSessionId,
@@ -331,7 +338,7 @@ export function AskPage() {
                 {
                 onMessageStart: (event) => {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
-                    setStreamDraft((current) => updateStreamDraft(current, (draft) => ({
+                    updateStreamDraftState((draft) => ({
                         ...draft,
                         userMessage: {
                             ...draft.userMessage,
@@ -344,10 +351,10 @@ export function AskPage() {
                             status: "thinking",
                             client_state: "thinking",
                         },
-                    })));
+                    }));
                 },
                 onStatus: (event) => {
-                    setStreamDraft((current) => updateStreamDraft(current, (draft) => {
+                    updateStreamDraftState((draft) => {
                         const nextState = mapLifecycleStatusToMessageState(event.status);
                         return {
                             ...draft,
@@ -357,29 +364,29 @@ export function AskPage() {
                                 client_state: nextState.client_state,
                             },
                         };
-                    }));
+                    });
                 },
                 onThinkingDelta: (event) => {
                     const delta = extractDeltaText(event);
                     if (!delta) {
                         return;
                     }
-                    setStreamDraft((current) => updateStreamDraft(current, (draft) => ({
+                    updateStreamDraftState((draft) => ({
                         ...draft,
                         assistantMessage: {
                             ...draft.assistantMessage,
                             status: "thinking",
                             client_state: "thinking",
-                            thinking_content: `${draft.assistantMessage.thinking_content ?? ""}${delta}`,
+                            thinking_content: event.synthetic ? draft.assistantMessage.thinking_content ?? "" : `${draft.assistantMessage.thinking_content ?? ""}${delta}`,
                         },
-                    })));
+                    }));
                 },
                 onAnswerDelta: (event) => {
                     const delta = extractDeltaText(event);
                     if (!delta) {
                         return;
                     }
-                    setStreamDraft((current) => updateStreamDraft(current, (draft) => ({
+                    updateStreamDraftState((draft) => ({
                         ...draft,
                         assistantMessage: {
                             ...draft.assistantMessage,
@@ -387,33 +394,33 @@ export function AskPage() {
                             client_state: "streaming",
                             content: `${draft.assistantMessage.content}${delta}`,
                         },
-                    })));
+                    }));
                 },
                 onMetadata: (event) => {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
-                    setStreamMemoryState(normalizeAskStreamMemoryState(event.memory_state));
-                    setStreamContextSource(event.context_source ?? null);
-                    setStreamDraft((current) => updateStreamDraft(current, (draft) => ({
+                    replaceStreamMemoryState(normalizeAskStreamMemoryState(event.memory_state));
+                    replaceStreamContextSource(event.context_source ?? null);
+                    updateStreamDraftState((draft) => ({
                         ...draft,
                         assistantMessage: mergeStreamMetadata(draft.assistantMessage, event),
-                    })));
+                    }));
                 },
                 onDone: (event) => {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
-                    setStreamMemoryState(normalizeAskStreamMemoryState(event.memory_state));
-                    setStreamContextSource(event.context_source ?? null);
-                    setStreamDraft((current) => updateStreamDraft(current, (draft) => ({
+                    replaceStreamMemoryState(normalizeAskStreamMemoryState(event.memory_state));
+                    replaceStreamContextSource(event.context_source ?? null);
+                    updateStreamDraftState((draft) => ({
                         ...draft,
                         assistantMessage: {
                             ...mergeStreamMetadata(draft.assistantMessage, event),
                             status: event.status ?? "ok",
                             client_state: "done",
                         },
-                    })));
+                    }));
                 },
                 onError: (event) => {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
-                    setStreamDraft((current) => updateStreamDraft(current, (draft) => ({
+                    updateStreamDraftState((draft) => ({
                         ...draft,
                         assistantMessage: {
                             ...draft.assistantMessage,
@@ -421,7 +428,7 @@ export function AskPage() {
                             client_state: "error",
                             content: event.message ?? event.detail ?? "当前问答服务暂不可用，请稍后重试。",
                         },
-                    })));
+                    }));
                 },
                 },
                 { signal: controller.signal },
@@ -434,8 +441,12 @@ export function AskPage() {
                 setTransportError("模型服务当前响应失败，系统已把这次失败记录到当前会话。");
             }
 
-            await refreshSessions(activeSessionId);
-            await loadSessionDetail(activeSessionId);
+            commitDraftToActiveSession(activeSessionId, knowledgeScope);
+            committedLocally = true;
+            replaceStreamDraft(null);
+
+            const sessionList = await refreshSessions(activeSessionId);
+            syncActiveSessionSummaryFromList(sessionList ?? [], activeSessionId);
         } catch (error) {
             if (controller.signal.aborted || isAbortLikeError(error)) {
                 return;
@@ -454,7 +465,9 @@ export function AskPage() {
         } finally {
             setSending(false);
             streamAbortRef.current = null;
-            setStreamDraft(null);
+            if (!committedLocally) {
+                replaceStreamDraft(null);
+            }
         }
     }
 
@@ -483,16 +496,6 @@ export function AskPage() {
         setSidePanelOpen(true);
     }
 
-    function toggleFocusMode() {
-        const nextParams = new URLSearchParams(searchParams);
-        if (focusModeEnabled) {
-            nextParams.set("focus", "0");
-        } else {
-            nextParams.delete("focus");
-        }
-        setSearchParams(nextParams, { replace: true });
-    }
-
     function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
             event.stopPropagation();
@@ -505,6 +508,88 @@ export function AskPage() {
                 void handleSubmit();
             }
         }
+    }
+
+    function replaceStreamDraft(next: ChatDraft | null) {
+        streamDraftRef.current = next;
+        setStreamDraft(next);
+    }
+
+    function updateStreamDraftState(updater: (draft: ChatDraft) => ChatDraft) {
+        setStreamDraft((current) => {
+            const next = updateStreamDraft(current, updater);
+            streamDraftRef.current = next;
+            return next;
+        });
+    }
+
+    function replaceStreamMemoryState(next: SessionDetail["memory_state"] | null) {
+        streamMemoryStateRef.current = next;
+        setStreamMemoryState(next);
+    }
+
+    function replaceStreamContextSource(next: StreamContextSource | null) {
+        streamContextSourceRef.current = next;
+        setStreamContextSource(next);
+    }
+
+    function commitDraftToActiveSession(sessionId: string, nextKnowledgeScope: KnowledgeScope) {
+        const draft = streamDraftRef.current;
+        if (!draft) {
+            return;
+        }
+        const nextMemoryState = streamMemoryStateRef.current;
+        setActiveSession((current) => {
+            if (!current || current.session_id !== sessionId) {
+                return current;
+            }
+            const existingMessages = current.messages.filter(
+                (message) =>
+                    message.message_id !== draft.userMessage.message_id &&
+                    message.message_id !== draft.assistantMessage.message_id,
+            );
+            const nextMessages = [...existingMessages, draft.userMessage, draft.assistantMessage];
+            return {
+                ...current,
+                messages: nextMessages,
+                message_count: nextMessages.length,
+                updated_at: draft.assistantMessage.created_at,
+                knowledge_scope_last_used: nextKnowledgeScope,
+                source_summary: draft.assistantMessage.source_summary ?? current.source_summary ?? null,
+                memory_state: nextMemoryState ?? current.memory_state ?? null,
+            };
+        });
+    }
+
+    function syncActiveSessionSummaryFromList(sessionList: SessionSummary[], sessionId: string) {
+        const matched = sessionList.find((session) => session.session_id === sessionId);
+        if (!matched) {
+            return;
+        }
+        setActiveSession((current) => {
+            if (!current || current.session_id !== sessionId) {
+                return current;
+            }
+            return {
+                ...current,
+                title: matched.title,
+                created_at: matched.created_at,
+                updated_at: matched.updated_at,
+                message_count: matched.message_count,
+                file_count: matched.file_count,
+                attached_private_sample_count: matched.attached_private_sample_count,
+                attached_knowledge_item_count: matched.attached_knowledge_item_count,
+            };
+        });
+    }
+
+    function handleMessageStreamScroll() {
+        const container = messageStreamRef.current;
+        if (!container) {
+            return;
+        }
+        const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        shouldAutoFollowMessageStreamRef.current = distanceToBottom <= 96;
     }
 
     const contextDetailOverlay = (
@@ -528,6 +613,11 @@ export function AskPage() {
             <Typography.Paragraph type="secondary" className="chat-context-popover__hint">
                 {effectiveMemoryState ? buildMemoryHint(effectiveMemoryState) : currentContextSourceText}
             </Typography.Paragraph>
+            {effectiveMemoryState ? (
+                <Typography.Paragraph type="secondary" className="chat-context-popover__hint">
+                    {currentContextSourceText}
+                </Typography.Paragraph>
+            ) : null}
         </div>
     );
 
@@ -551,6 +641,9 @@ export function AskPage() {
             </Typography.Paragraph>
         </div>
     );
+
+    const showComposerMeta = uploadedAttachments.length > 0 || privateAttachments.length > 0 || Boolean(currentStreamTag) || uploading;
+    const contextCircleBackground = `conic-gradient(#1677ff 0 ${contextUsagePercent}%, rgba(22, 119, 255, 0.14) ${contextUsagePercent}% 100%)`;
 
     return (
         <div
@@ -635,12 +728,31 @@ export function AskPage() {
 
                 <Card
                     className="chat-workbench__stream-card"
-                    title={activeSession?.title ?? "当前对话"}
+                    title={(
+                        <div className="chat-stream-card__title">
+                            <Typography.Text strong className="chat-stream-card__title-text">
+                                {activeSession?.title ?? "当前对话"}
+                            </Typography.Text>
+                            <Tag color={scopeColorMap[knowledgeScope]} className="chat-stream-card__scope-tag">
+                                {scopeLabelMap[knowledgeScope]}
+                            </Tag>
+                        </div>
+                    )}
                     extra={
-                        <Space size={8} wrap className="chat-stream-toolbar">
-                            <Button icon={focusModeEnabled ? <CompressOutlined /> : <ExpandOutlined />} onClick={toggleFocusMode}>
-                                {focusModeEnabled ? "标准工作台" : "专注模式"}
-                            </Button>
+                        <Space size={8} className="chat-stream-toolbar">
+                            <Popover trigger="click" placement="bottomRight" content={composerSettings}>
+                                <Button icon={<MoreOutlined />}>更多设置</Button>
+                            </Popover>
+                            <Popover trigger="click" placement="bottomRight" content={contextDetailOverlay}>
+                                <button
+                                    type="button"
+                                    className="chat-context-circle"
+                                    style={{ background: contextCircleBackground }}
+                                    aria-label={`查看上下文详情，当前占用 ${contextUsagePercent}%`}
+                                >
+                                    <span className="chat-context-circle__core">{contextUsagePercent}</span>
+                                </button>
+                            </Popover>
                             <Button icon={<SettingOutlined />} onClick={() => setSidePanelOpen(true)}>
                                 参考资料 {currentSourceSummary.total_citation_count > 0 ? `(${currentSourceSummary.total_citation_count})` : ""}
                             </Button>
@@ -651,23 +763,7 @@ export function AskPage() {
                         <div className="chat-workbench__loading"><Spin /></div>
                     ) : activeSession ? (
                         <>
-                            <div className="chat-stream__topline">
-                                <div className="chat-stream__topline-main">
-                                    <Popover trigger="click" placement="bottomLeft" content={contextDetailOverlay}>
-                                        <button type="button" className="chat-context-pill">
-                                            <span className="chat-context-pill__eyebrow">上下文 {contextUsagePercent}%</span>
-                                            <span className="chat-context-pill__summary">{compactContextSummary}</span>
-                                            <span className="chat-context-pill__meter" aria-hidden="true">
-                                                <span style={{ width: `${contextUsagePercent}%` }} />
-                                            </span>
-                                        </button>
-                                    </Popover>
-                                    <Typography.Paragraph type="secondary" className="chat-context-source chat-context-source--compact">
-                                        {currentContextSourceText}
-                                    </Typography.Paragraph>
-                                </div>
-                            </div>
-                            <div className="chat-message-stream">
+                            <div ref={messageStreamRef} className="chat-message-stream" onScroll={handleMessageStreamScroll}>
                                 {visibleMessages.length === 0 ? (
                                     <div className="chat-message-stream__empty">
                                         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前会话还没有消息，先问一个双碳问题试试。" />
@@ -683,7 +779,6 @@ export function AskPage() {
                                         />
                                     ))
                                 )}
-                                <div ref={messageStreamEndRef} />
                             </div>
                         </>
                     ) : (
@@ -692,38 +787,34 @@ export function AskPage() {
                 </Card>
 
                 <div className="chat-composer-dock">
-                    <div className="chat-composer-dock__top">
-                        <Typography.Text type="secondary" className="chat-composer-dock__session">
-                            当前会话：{activeSession?.title ?? "未选择"}
-                        </Typography.Text>
-                        <Space size={8} wrap className="chat-composer-dock__chips">
-                            <Tag color="blue">{scopeLabelMap[knowledgeScope]}</Tag>
-                            {uploadedAttachments.length > 0 ? <Tag color="green">附件 {uploadedAttachments.length}</Tag> : null}
-                            {privateAttachments.length > 0 ? <Tag color="magenta">知识条目 {privateAttachments.length}</Tag> : null}
-                            {currentStreamTag ? <Tag color={currentStreamTag.color}>{currentStreamTag.label}</Tag> : null}
-                            {uploading ? <Tag color="processing">正在上传附件</Tag> : null}
-                        </Space>
-                        <Popover trigger="click" placement="topRight" content={composerSettings}>
-                            <Button icon={<MoreOutlined />}>更多设置</Button>
-                        </Popover>
-                    </div>
                     <div className="chat-composer-dock__main">
                         <Tooltip title="添加附件">
-                            <Button icon={<PaperClipOutlined />} onClick={() => fileInputRef.current?.click()} loading={uploading} />
+                            <Button className="chat-composer-dock__action" icon={<PaperClipOutlined />} onClick={() => fileInputRef.current?.click()} loading={uploading} />
                         </Tooltip>
                         <Input.TextArea
+                            className="chat-composer-dock__input"
                             value={question}
                             onChange={(event) => setQuestion(event.target.value)}
                             onKeyDown={handleComposerKeyDown}
-                            autoSize={{ minRows: 2, maxRows: 7 }}
+                            autoSize={{ minRows: 1, maxRows: 6 }}
                             maxLength={2000}
                             autoFocus
                             placeholder="例如：结合当前知识条目，压缩空气系统的能耗问题是什么？或者：双碳目标对这家知识条目意味着什么？"
                         />
-                        <Button type="primary" icon={<MessageOutlined />} onClick={handleSubmit} loading={sending}>
+                        <Button className="chat-composer-dock__send" type="primary" icon={<MessageOutlined />} onClick={handleSubmit} loading={sending}>
                             发送
                         </Button>
                     </div>
+                    {showComposerMeta ? (
+                        <div className="chat-composer-dock__meta">
+                            <Space size={8} wrap className="chat-composer-dock__chips">
+                                {uploadedAttachments.length > 0 ? <Tag color="green">附件 {uploadedAttachments.length}</Tag> : null}
+                                {privateAttachments.length > 0 ? <Tag color="magenta">知识条目 {privateAttachments.length}</Tag> : null}
+                                {currentStreamTag ? <Tag color={currentStreamTag.color}>{currentStreamTag.label}</Tag> : null}
+                                {uploading ? <Tag color="processing">正在上传附件</Tag> : null}
+                            </Space>
+                        </div>
+                    ) : null}
                     <input
                         ref={fileInputRef}
                         hidden
@@ -835,9 +926,55 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
     const lifecycleTag = message.client_state ? lifecycleTagMap[message.client_state] : null;
     const finalStatusTag = isAssistant && isFinalAskStatus(message.status) ? statusColorMap[message.status] : null;
     const finalStatusLabel = isAssistant && isFinalAskStatus(message.status) ? statusLabelMap[message.status] : null;
-    const shouldShowThinking = isAssistant && (message.client_state === "pending" || message.client_state === "thinking" || Boolean(message.thinking_content));
+    const hasRealThinkingContent = Boolean(message.thinking_content?.trim());
+    const shouldShowThinking = isAssistant && (message.client_state === "pending" || message.client_state === "thinking" || hasRealThinkingContent);
     const shouldShowDetails = Boolean(message.trace_id) || Boolean(message.trace_id && (!message.client_state || message.client_state === "done" || message.client_state === "error"));
     const liveStateText = message.client_state ? lifecycleStatusTextMap[message.client_state] : null;
+    const [thinkingExpanded, setThinkingExpanded] = useState(
+        message.client_state === "pending" || message.client_state === "thinking",
+    );
+    const previousClientStateRef = useRef<AssistantLifecycleState | undefined>(message.client_state);
+
+    useEffect(() => {
+        const previousState = previousClientStateRef.current;
+        const currentState = message.client_state;
+
+        if (currentState === "pending" || currentState === "thinking") {
+            setThinkingExpanded(true);
+        } else if (
+            hasRealThinkingContent &&
+            (currentState === "done" || currentState === "error") &&
+            previousState !== currentState
+        ) {
+            setThinkingExpanded(false);
+        } else if (!hasRealThinkingContent) {
+            setThinkingExpanded(false);
+        }
+
+        previousClientStateRef.current = currentState;
+    }, [hasRealThinkingContent, message.client_state, message.message_id]);
+
+    const thinkingCollapseItems: CollapseProps["items"] = shouldShowThinking
+        ? [
+            {
+                key: "thinking",
+                label: (
+                    <Space size={8} wrap className="chat-message__thinking-label">
+                        <span className="chat-thinking-pulse" aria-hidden="true" />
+                        <Typography.Text strong>
+                            {message.client_state === "pending" || message.client_state === "thinking" ? "思考中" : "思考过程"}
+                        </Typography.Text>
+                        {message.client_state ? <Tag color={lifecycleTag?.color ?? "processing"}>{lifecycleTag?.label ?? "生成中"}</Tag> : null}
+                    </Space>
+                ),
+                children: (
+                    <Typography.Paragraph className="chat-message__thinking-content">
+                        {message.thinking_content || "模型正在组织上下文与回答，请稍候。"}
+                    </Typography.Paragraph>
+                ),
+            },
+        ]
+        : [];
 
     return (
         <div
@@ -879,24 +1016,9 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
                         <Collapse
                             ghost
                             className="chat-message__thinking"
-                            defaultActiveKey={message.client_state === "pending" || message.client_state === "thinking" ? ["thinking"] : []}
-                            items={[
-                                {
-                                    key: "thinking",
-                                    label: (
-                                        <Space size={8} wrap className="chat-message__thinking-label">
-                                            <span className="chat-thinking-pulse" aria-hidden="true" />
-                                            <Typography.Text strong>思考中</Typography.Text>
-                                            {message.client_state ? <Tag color={lifecycleTag?.color ?? "processing"}>{lifecycleTag?.label ?? "生成中"}</Tag> : null}
-                                        </Space>
-                                    ),
-                                    children: (
-                                        <Typography.Paragraph className="chat-message__thinking-content">
-                            {message.thinking_content || "模型正在组织上下文与回答，请稍候。"}
-                                        </Typography.Paragraph>
-                                    ),
-                                },
-                            ]}
+                            activeKey={thinkingExpanded ? ["thinking"] : []}
+                            onChange={(keys) => setThinkingExpanded(Array.isArray(keys) ? keys.includes("thinking") : keys === "thinking")}
+                            items={thinkingCollapseItems}
                         />
                     ) : null}
                     <div className={isAssistant ? "chat-message__content chat-message__content--assistant" : "chat-message__content"}>
@@ -1011,6 +1133,12 @@ const scopeLabelMap: Record<KnowledgeScope, string> = {
     public: "公共政策",
     private_sample: "知识条目",
     mixed: "混合",
+};
+
+const scopeColorMap: Record<KnowledgeScope, string> = {
+    public: "blue",
+    private_sample: "magenta",
+    mixed: "gold",
 };
 
 const compactionStatusColorMap = {
@@ -1178,29 +1306,6 @@ function getContextUsagePercent(memoryState: SessionDetail["memory_state"]) {
     return Math.max(0, Math.min(percent, 100));
 }
 
-function buildCompactContextSummary(
-    memoryState: SessionDetail["memory_state"],
-    sourceSummary: AskSourceSummary,
-    contextSource?: StreamContextSource | null,
-) {
-    const recentMessageCount = contextSource?.recent_message_count ?? 6;
-    const summaryPresent = contextSource?.summary_present ?? memoryState?.summary_present ?? false;
-    const citationCount = contextSource?.citation_count ?? sourceSummary.total_citation_count;
-    const parts = [`最近 ${recentMessageCount} 轮`];
-
-    if (summaryPresent) {
-        parts.push("会话摘要");
-    }
-
-    if (citationCount > 0) {
-        parts.push(`${citationCount} 条依据`);
-    } else {
-        parts.push("无额外依据");
-    }
-
-    return parts.join(" + ");
-}
-
 function buildAssistantEvidenceSummary(sourceSummary: AskSourceSummary) {
     const parts: string[] = [];
     if (sourceSummary.public_policy_count > 0) {
@@ -1362,6 +1467,12 @@ function mergeStreamMetadata(message: ChatMessageView, event: AskStreamMetadataE
         trace_id: event.trace_id ?? message.trace_id ?? null,
         citations: event.citations ?? message.citations,
         source_summary: event.source_summary ?? message.source_summary ?? null,
+        thinking_content:
+            typeof event.thinking_content === "string"
+                ? event.thinking_content
+                : event.thinking_content === null
+                    ? null
+                    : message.thinking_content ?? null,
         content: typeof event.answer === "string" && event.answer ? event.answer : message.content,
         status: event.status ?? message.status ?? "ok",
     } as ChatMessageView;

@@ -126,7 +126,7 @@ class PostgreSQLSessionStore(SessionStore):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                    SELECT message_id, role, content, thinking_content, status, trace_id, citations_json, created_at
                     FROM messages
                     WHERE session_id = %s
                     ORDER BY message_seq ASC
@@ -237,6 +237,7 @@ class PostgreSQLSessionStore(SessionStore):
         status: MessageStatus | None = None,
         trace_id: str | None = None,
         citations: list[AskCitation] | None = None,
+        thinking_content: str | None = None,
     ) -> SessionMessage:
         citations_json = json.dumps([citation.model_dump() for citation in (citations or [])], ensure_ascii=False)
         with self._connect() as connection:
@@ -248,14 +249,15 @@ class PostgreSQLSessionStore(SessionStore):
                         session_id,
                         role,
                         content,
+                        thinking_content,
                         status,
                         trace_id,
                         citations_json,
                         created_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (message_id, session_id, role, content, status, trace_id, citations_json, created_at),
+                    (message_id, session_id, role, content, thinking_content, status, trace_id, citations_json, created_at),
                 )
                 cursor.execute(
                     "UPDATE sessions SET updated_at = %s WHERE session_id = %s",
@@ -263,7 +265,7 @@ class PostgreSQLSessionStore(SessionStore):
                 )
                 cursor.execute(
                     """
-                    SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                    SELECT message_id, role, content, thinking_content, status, trace_id, citations_json, created_at
                     FROM messages
                     WHERE message_id = %s
                     """,
@@ -282,6 +284,7 @@ class PostgreSQLSessionStore(SessionStore):
         status: MessageStatus | None = None,
         trace_id: str | None = None,
         citations: list[AskCitation] | None = None,
+        thinking_content: str | None = None,
     ) -> SessionMessage | None:
         citations_json = json.dumps([citation.model_dump() for citation in (citations or [])], ensure_ascii=False)
         with self._connect() as connection:
@@ -289,10 +292,10 @@ class PostgreSQLSessionStore(SessionStore):
                 cursor.execute(
                     """
                     UPDATE messages
-                    SET content = %s, status = %s, trace_id = %s, citations_json = %s
+                    SET content = %s, thinking_content = %s, status = %s, trace_id = %s, citations_json = %s
                     WHERE session_id = %s AND message_id = %s
                     """,
-                    (content, status, trace_id, citations_json, session_id, message_id),
+                    (content, thinking_content, status, trace_id, citations_json, session_id, message_id),
                 )
                 if cursor.rowcount == 0:
                     return None
@@ -302,7 +305,7 @@ class PostgreSQLSessionStore(SessionStore):
                 )
                 cursor.execute(
                     """
-                    SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                    SELECT message_id, role, content, thinking_content, status, trace_id, citations_json, created_at
                     FROM messages
                     WHERE session_id = %s AND message_id = %s
                     """,
@@ -316,7 +319,7 @@ class PostgreSQLSessionStore(SessionStore):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT message_id, role, content, status, trace_id, citations_json, created_at
+                    SELECT message_id, role, content, thinking_content, status, trace_id, citations_json, created_at
                     FROM messages
                     WHERE session_id = %s
                     ORDER BY message_seq DESC

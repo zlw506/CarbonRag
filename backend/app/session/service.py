@@ -153,6 +153,7 @@ class SessionService:
         citations: list[AskCitation],
         knowledge_scope: KnowledgeScope = "public",
         source_summary: AskSourceSummary | None = None,
+        thinking_content: str | None = None,
     ) -> SessionMessage | None:
         self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         updated_message = self.store.update_message(
@@ -163,6 +164,7 @@ class SessionService:
             status=assistant_status,
             trace_id=trace_id,
             citations=citations,
+            thinking_content=thinking_content,
         )
         effective_source_summary = source_summary or AskSourceSummary(
             knowledge_scope=knowledge_scope,

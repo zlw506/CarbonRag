@@ -65,6 +65,7 @@ export interface AskStreamDeltaEvent {
     delta?: string | null;
     text?: string | null;
     content?: string | null;
+    synthetic?: boolean | null;
     user_message_id?: string | null;
     assistant_message_id?: string | null;
     trace_id?: string | null;
@@ -73,6 +74,7 @@ export interface AskStreamDeltaEvent {
 export interface AskStreamMetadataEvent extends Partial<AskResponse> {
     user_message_id?: string | null;
     assistant_message_id?: string | null;
+    thinking_content?: string | null;
     memory_state?: {
         context_usage_estimate: number;
         context_budget_estimate: number;
