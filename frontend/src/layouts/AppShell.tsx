@@ -52,12 +52,16 @@ export function AppShell() {
         "app-shell",
         focusModeEnabled ? "app-shell--focus" : null,
         isAskRoute ? "app-shell--chat-locked" : null,
+        routeNeedsSession ? "app-shell--workbench" : null,
+        sessionRailCollapsed && routeNeedsSession ? "app-shell--workbench-collapsed" : null,
     ].filter(Boolean).join(" ");
     const contentClassName = [
         "app-shell__content",
         focusModeEnabled ? "app-shell__content--focus" : null,
         isAskRoute ? "app-shell__content--chat-locked" : null,
         hideAskHeader ? "app-shell__content--headerless" : null,
+        routeNeedsSession ? "app-shell__content--workbench" : null,
+        sessionRailCollapsed && routeNeedsSession ? "app-shell__content--workbench-collapsed" : null,
     ].filter(Boolean).join(" ");
 
     useEffect(() => {

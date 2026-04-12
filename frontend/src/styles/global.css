@@ -218,11 +218,19 @@ body {
     padding: 0 24px 24px;
 }
 
+.app-shell__content--workbench {
+    padding: 0 18px 18px;
+}
+
 .app-shell__content--chat-locked {
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
     overflow: hidden;
+}
+
+.app-shell__content--workbench-collapsed {
+    padding: 0 8px 8px;
 }
 
 .app-shell__content--focus {
@@ -306,6 +314,8 @@ body {
     flex-direction: column;
     grid-template-columns: none;
     gap: 10px;
+    width: 100%;
+    flex: 1 1 auto;
 }
 
 .chat-workbench--focus-mode {
@@ -421,6 +431,7 @@ body {
     flex: 1 1 auto;
     gap: 10px;
     height: 100%;
+    width: 100%;
     overflow: hidden;
 }
 
@@ -434,6 +445,7 @@ body {
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+    width: 100%;
     border-radius: 24px;
     box-shadow: var(--cr-shadow-medium);
     background: var(--cr-surface);
@@ -892,6 +904,7 @@ body {
     background: var(--cr-composer-bg);
     box-shadow: var(--cr-shadow-strong);
     backdrop-filter: blur(16px);
+    width: 100%;
 }
 
 .chat-composer-dock__chips {
