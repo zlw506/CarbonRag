@@ -6,9 +6,10 @@ import {
     LogoutOutlined,
     SearchOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Layout, Menu, Popover, Space, Tag, Typography } from "antd";
+import { Avatar, Button, Layout, Menu, Popover, Segmented, Space, Tag, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
+import { type ThemeMode, useTheme } from "../app/ThemeContext";
 import env from "../app/env";
 import { ADMIN_NAV_ITEM, getNavigationItems } from "../constants/navigation";
 
@@ -26,6 +27,7 @@ export function AppShell() {
     const location = useLocation();
     const navigate = useNavigate();
     const { user, logout } = useAuth();
+    const { themeMode, resolvedTheme, setThemeMode } = useTheme();
 
     if (!user) {
         return null;
@@ -62,6 +64,25 @@ export function AppShell() {
                     </Tag>
                 </div>
             </Space>
+            <div className="app-shell__theme-group">
+                <div className="app-shell__theme-copy">
+                    <Typography.Text strong>界面主题</Typography.Text>
+                    <Typography.Text type="secondary">
+                        当前{resolvedTheme === "dark" ? "暗色" : "浅色"}界面
+                    </Typography.Text>
+                </div>
+                <Segmented
+                    block
+                    size="middle"
+                    value={themeMode}
+                    options={[
+                        { label: "浅色", value: "light" },
+                        { label: "暗色", value: "dark" },
+                        { label: "跟随系统", value: "system" },
+                    ]}
+                    onChange={(value) => setThemeMode(value as ThemeMode)}
+                />
+            </div>
             <Space direction="vertical" size={8} style={{ width: "100%" }}>
                 {user.role === "admin" ? (
                     <Button block icon={<DesktopOutlined />} onClick={() => navigate(ADMIN_NAV_ITEM.path)}>

@@ -1,14 +1,14 @@
-import { App as AntdApp } from "antd";
 import { RouterProvider } from "react-router-dom";
 import { AuthProvider } from "./AuthContext";
+import { ThemeProvider } from "./ThemeContext";
 import { router } from "../router";
 
 export function App() {
     return (
-        <AntdApp>
+        <ThemeProvider>
             <AuthProvider>
                 <RouterProvider router={router} />
             </AuthProvider>
-        </AntdApp>
+        </ThemeProvider>
     );
 }
