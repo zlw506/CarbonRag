@@ -611,7 +611,7 @@ body {
 }
 
 .chat-message__card {
-    width: min(100%, 980px);
+    width: 100%;
     border-radius: 22px;
     border: 1px solid var(--cr-border);
     box-shadow: var(--cr-shadow-medium);
@@ -622,6 +622,7 @@ body {
 }
 
 .chat-message__card--assistant {
+    width: 100%;
     background: var(--cr-assistant-bg);
     border-color: rgba(37, 99, 235, 0.16);
 }
