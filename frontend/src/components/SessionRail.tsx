@@ -59,9 +59,6 @@ export function SessionRail({
 
             {!collapsed ? (
                 <div className="chat-session-rail__body">
-                    <Typography.Text strong className="chat-session-rail__section-title">
-                        对话列表
-                    </Typography.Text>
                     {loading ? (
                         <div className="chat-workbench__loading"><Spin /></div>
                     ) : sessions.length ? (

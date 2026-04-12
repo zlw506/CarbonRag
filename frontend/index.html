@@ -4,6 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CarbonRag Conversation Workbench</title>
+    <script>
+      (function () {
+        const root = document.documentElement;
+        const themeModeKey = "carbonrag-theme-mode";
+        const themePresetKey = "carbonrag-theme-preset";
+        const storedMode = localStorage.getItem(themeModeKey);
+        const storedPreset = localStorage.getItem(themePresetKey);
+        const mode = storedMode === "light" || storedMode === "dark" || storedMode === "system"
+          ? storedMode
+          : "system";
+        const resolvedTheme = mode === "system"
+          ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+          : mode;
+        const preset = storedPreset || "carbon-blue";
+
+        root.dataset.theme = resolvedTheme;
+        root.dataset.themeMode = mode;
+        root.dataset.themePreset = preset;
+        root.style.colorScheme = resolvedTheme;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
