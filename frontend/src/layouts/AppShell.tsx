@@ -35,6 +35,16 @@ export function AppShell() {
     const navigationItems = getNavigationItems(user.role);
     const isAskRoute = location.pathname === "/";
     const focusModeEnabled = isAskRoute && new URLSearchParams(location.search).get("focus") !== "0";
+    const shellClassName = [
+        "app-shell",
+        focusModeEnabled ? "app-shell--focus" : null,
+        isAskRoute ? "app-shell--chat-locked" : null,
+    ].filter(Boolean).join(" ");
+    const contentClassName = [
+        "app-shell__content",
+        focusModeEnabled ? "app-shell__content--focus" : null,
+        isAskRoute ? "app-shell__content--chat-locked" : null,
+    ].filter(Boolean).join(" ");
     const userMenuItems = [
         ...(user.role === "admin"
             ? [{
@@ -64,7 +74,7 @@ export function AppShell() {
     }
 
     return (
-        <Layout className={focusModeEnabled ? "app-shell app-shell--focus" : "app-shell"}>
+        <Layout className={shellClassName}>
             <Sider
                 breakpoint="lg"
                 collapsedWidth={focusModeEnabled ? 72 : 0}
@@ -98,7 +108,7 @@ export function AppShell() {
                     onClick={({ key }) => navigate(key)}
                 />
             </Sider>
-            <Layout>
+            <Layout className={isAskRoute ? "app-shell__main-shell app-shell__main-shell--chat-locked" : "app-shell__main-shell"}>
                 <Header className={focusModeEnabled ? "app-shell__header app-shell__header--focus" : "app-shell__header"}>
                     <div className={focusModeEnabled ? "app-shell__header-bar app-shell__header-bar--focus" : "app-shell__header-bar"}>
                         <div className={focusModeEnabled ? "app-shell__header-copy app-shell__header-copy--focus" : "app-shell__header-copy"}>
@@ -140,7 +150,7 @@ export function AppShell() {
                         </Dropdown>
                     </div>
                 </Header>
-                <Content className={focusModeEnabled ? "app-shell__content app-shell__content--focus" : "app-shell__content"}>
+                <Content className={contentClassName}>
                     <Outlet />
                 </Content>
             </Layout>

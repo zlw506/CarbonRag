@@ -585,36 +585,38 @@ export function AskPage() {
                             中间消息区是主视觉区；这里只保留会话切换。
                         </Typography.Paragraph>
                     ) : null}
-                    {loadingSessions ? (
-                        <div className="chat-workbench__loading"><Spin /></div>
-                    ) : (
-                        <List
-                            className={sidebarCollapsed ? "chat-session-list chat-session-list--collapsed" : "chat-session-list"}
-                            dataSource={sessions}
-                            locale={{ emptyText: "当前还没有会话。" }}
-                            renderItem={(session) => (
-                                <List.Item
-                                    className={activeSessionId === session.session_id ? "chat-session-list__item chat-session-list__item--active" : "chat-session-list__item"}
-                                    onClick={() => setActiveSessionId(session.session_id)}
-                                >
-                                    {sidebarCollapsed ? (
-                                        <Tooltip title={`${session.title} · ${session.message_count} 条消息`}>
-                                            <div className="chat-session-list__mini">
-                                                <Typography.Text strong>{session.title.slice(0, 2)}</Typography.Text>
+                    <div className="chat-session-list-wrap">
+                        {loadingSessions ? (
+                            <div className="chat-workbench__loading"><Spin /></div>
+                        ) : (
+                            <List
+                                className={sidebarCollapsed ? "chat-session-list chat-session-list--collapsed" : "chat-session-list"}
+                                dataSource={sessions}
+                                locale={{ emptyText: "当前还没有会话。" }}
+                                renderItem={(session) => (
+                                    <List.Item
+                                        className={activeSessionId === session.session_id ? "chat-session-list__item chat-session-list__item--active" : "chat-session-list__item"}
+                                        onClick={() => setActiveSessionId(session.session_id)}
+                                    >
+                                        {sidebarCollapsed ? (
+                                            <Tooltip title={`${session.title} · ${session.message_count} 条消息`}>
+                                                <div className="chat-session-list__mini">
+                                                    <Typography.Text strong>{session.title.slice(0, 2)}</Typography.Text>
+                                                </div>
+                                            </Tooltip>
+                                        ) : (
+                                            <div className="chat-session-list__content">
+                                                <Typography.Text strong>{session.title}</Typography.Text>
+                                                <Typography.Text type="secondary" className="chat-session-list__meta">
+                                                    {buildSessionRailMeta(session)}
+                                                </Typography.Text>
                                             </div>
-                                        </Tooltip>
-                                    ) : (
-                                        <div className="chat-session-list__content">
-                                            <Typography.Text strong>{session.title}</Typography.Text>
-                                            <Typography.Text type="secondary" className="chat-session-list__meta">
-                                                {buildSessionRailMeta(session)}
-                                            </Typography.Text>
-                                        </div>
-                                    )}
-                                </List.Item>
-                            )}
-                        />
-                    )}
+                                        )}
+                                    </List.Item>
+                                )}
+                            />
+                        )}
+                    </div>
                 </Card>
             </div>
 
