@@ -32,14 +32,12 @@ import ReactMarkdown from "react-markdown";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
-import { SessionRail, useResponsiveSessionRail } from "../../components/SessionRail";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
+import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { uploadSessionFile } from "../../services/files";
 import { listAttachableKnowledgeItems, replaceAttachedKnowledgeItems } from "../../services/knowledge";
 import {
-    createSession,
     getSession,
-    listSessions,
     submitSessionAskStreamRequest,
 } from "../../services/sessions";
 import type {
@@ -77,6 +75,7 @@ interface StreamContextSource {
 
 export function AskPage() {
     const { user } = useAuth();
+    const { activeSessionId, refreshSessions } = useWorkbenchShellContext();
     const [searchParams] = useSearchParams();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const streamAbortRef = useRef<AbortController | null>(null);
@@ -85,8 +84,6 @@ export function AskPage() {
     const streamMemoryStateRef = useRef<SessionDetail["memory_state"] | null>(null);
     const streamContextSourceRef = useRef<StreamContextSource | null>(null);
     const shouldAutoFollowMessageStreamRef = useRef(true);
-    const [sessions, setSessions] = useState<SessionSummary[]>([]);
-    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
     const [selectedCitationMessageId, setSelectedCitationMessageId] = useState<string | null>(null);
     const [streamDraft, setStreamDraft] = useState<ChatDraft | null>(null);
@@ -99,9 +96,7 @@ export function AskPage() {
     const [draftAttachedDocIds, setDraftAttachedDocIds] = useState<string[]>([]);
     const [savingAttachedSamples, setSavingAttachedSamples] = useState(false);
     const [loadingPrivateSamples, setLoadingPrivateSamples] = useState(true);
-    const [loadingSessions, setLoadingSessions] = useState(true);
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
-    const [sidebarCollapsed, setSidebarCollapsed] = useResponsiveSessionRail();
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [sending, setSending] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -135,11 +130,12 @@ export function AskPage() {
     );
 
     useEffect(() => {
-        void bootstrapWorkbench();
+        void loadKnowledgeCatalog();
     }, []);
 
     useEffect(() => {
         if (!activeSessionId) {
+            setActiveSession(null);
             return;
         }
         streamAbortRef.current?.abort();
@@ -167,44 +163,18 @@ export function AskPage() {
         }
     }, [visibleMessages, loadingSessionDetail, currentStreamState]);
 
-    async function bootstrapWorkbench() {
-        setLoadingSessions(true);
+    async function loadKnowledgeCatalog() {
         setLoadingPrivateSamples(true);
         setTransportError(null);
 
         try {
-            const [sessionList, knowledgeCatalog] = await Promise.all([listSessions(), listAttachableKnowledgeItems()]);
+            const knowledgeCatalog = await listAttachableKnowledgeItems();
             setKnowledgeItems(knowledgeCatalog);
-
-            if (sessionList.length === 0) {
-                const created = await createSession();
-                setSessions([created]);
-                setActiveSessionId(created.session_id);
-                return;
-            }
-
-            setSessions(sessionList);
-            setActiveSessionId((current) => current ?? sessionList[0].session_id);
         } catch {
             setTransportError("当前无法初始化对话工作台，请确认后端已启动。");
         } finally {
-            setLoadingSessions(false);
             setLoadingPrivateSamples(false);
         }
-    }
-
-    async function refreshSessions(preferredSessionId?: string) {
-        const sessionList = await listSessions();
-        setSessions(sessionList);
-        if (!sessionList.length) {
-            return sessionList;
-        }
-
-        const targetId = preferredSessionId && sessionList.some((item) => item.session_id === preferredSessionId)
-            ? preferredSessionId
-            : sessionList[0].session_id;
-        setActiveSessionId(targetId);
-        return sessionList;
     }
 
     async function loadSessionDetail(sessionId: string) {
@@ -222,17 +192,6 @@ export function AskPage() {
             setTransportError("当前无法读取选中会话，请稍后重试。");
         } finally {
             setLoadingSessionDetail(false);
-        }
-    }
-
-    async function handleCreateSession() {
-        setTransportError(null);
-        try {
-            const created = await createSession();
-            setKnowledgeScope("public");
-            await refreshSessions(created.session_id);
-        } catch {
-            setTransportError("当前无法创建新会话，请稍后重试。");
         }
     }
 
@@ -622,25 +581,7 @@ export function AskPage() {
     const contextCircleBackground = `conic-gradient(#1677ff 0 ${contextUsagePercent}%, rgba(22, 119, 255, 0.14) ${contextUsagePercent}% 100%)`;
 
     return (
-        <div
-            className={
-                sidebarCollapsed
-                    ? `chat-workbench${focusModeEnabled ? " chat-workbench--focus-mode" : ""} chat-workbench--sidebar-collapsed`
-                    : `chat-workbench${focusModeEnabled ? " chat-workbench--focus-mode" : ""}`
-            }
-        >
-            <div className="chat-workbench__sidebar">
-                <SessionRail
-                    sessions={sessions}
-                    activeSessionId={activeSessionId}
-                    collapsed={sidebarCollapsed}
-                    loading={loadingSessions}
-                    onCreateSession={() => void handleCreateSession()}
-                    onSelectSession={setActiveSessionId}
-                    onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
-                />
-            </div>
-
+        <div className={`chat-workbench chat-workbench--single-column${focusModeEnabled ? " chat-workbench--focus-mode" : ""}`}>
             <div className="chat-workbench__main">
                 {transportError ? <Alert type="warning" showIcon className="chat-workbench__alert" message="对话工作台提示" description={transportError} /> : null}
                 {uploadError ? <Alert type="warning" showIcon className="chat-workbench__alert" message="附件上传提示" description={uploadError} /> : null}

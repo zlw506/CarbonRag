@@ -24,8 +24,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate } from "react-router-dom";
-import { SessionRail, useResponsiveSessionRail } from "../../components/SessionRail";
-import { createSession, getSession, listSessions } from "../../services/sessions";
+import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
+import { getSession } from "../../services/sessions";
 import {
     createReport,
     getReport,
@@ -33,7 +33,7 @@ import {
     listSessionReports,
     updateReport,
 } from "../../services/reports";
-import type { SessionDetail, SessionMessage, SessionSummary } from "../../types/session";
+import type { SessionDetail, SessionMessage } from "../../types/session";
 import type {
     ReportCitation,
     ReportDetail,
@@ -78,10 +78,8 @@ const emptyReportSourceSummary: ReportSourceSummary = {
 
 export function ReportPage() {
     const navigate = useNavigate();
-    const [sessions, setSessions] = useState<SessionSummary[]>([]);
-    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+    const { activeSessionId, refreshSessions } = useWorkbenchShellContext();
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
-    const [sidebarCollapsed, setSidebarCollapsed] = useResponsiveSessionRail();
     const [reports, setReports] = useState<ReportSummary[]>([]);
     const [carbonResults, setCarbonResults] = useState<SessionCarbonCalculationSummary[]>([]);
     const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
@@ -92,7 +90,6 @@ export function ReportPage() {
     const [selectedCarbonResultId, setSelectedCarbonResultId] = useState<string | undefined>(undefined);
     const [previewMode, setPreviewMode] = useState<PreviewMode>("preview");
     const [editorContent, setEditorContent] = useState("");
-    const [loadingSessions, setLoadingSessions] = useState(true);
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
     const [loadingReport, setLoadingReport] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -115,11 +112,12 @@ export function ReportPage() {
     );
 
     useEffect(() => {
-        void bootstrapWorkbench();
-    }, []);
-
-    useEffect(() => {
         if (!activeSessionId) {
+            setActiveSession(null);
+            setReports([]);
+            setCarbonResults([]);
+            setSelectedReportId(null);
+            setActiveReport(null);
             return;
         }
         void loadSessionWorkspace(activeSessionId);
@@ -138,39 +136,6 @@ export function ReportPage() {
         }
         applyDefaults(reportType, activeSession, carbonResults, setSelectedMessageIds, setSelectedCarbonResultId);
     }, [reportType, activeSession, carbonResults, selectedReportId]);
-
-    async function bootstrapWorkbench() {
-        setLoadingSessions(true);
-        setTransportError(null);
-        try {
-            const sessionList = await listSessions();
-            if (sessionList.length === 0) {
-                const created = await createSession();
-                setSessions([created]);
-                setActiveSessionId(created.session_id);
-                return;
-            }
-
-            setSessions(sessionList);
-            setActiveSessionId((current) => current ?? sessionList[0].session_id);
-        } catch {
-            setTransportError("当前无法初始化报告工作台，请确认后端已启动。");
-        } finally {
-            setLoadingSessions(false);
-        }
-    }
-
-    async function refreshSessions(preferredSessionId?: string) {
-        const sessionList = await listSessions();
-        setSessions(sessionList);
-        if (!sessionList.length) {
-            return;
-        }
-        const targetId = preferredSessionId && sessionList.some((item) => item.session_id === preferredSessionId)
-            ? preferredSessionId
-            : sessionList[0].session_id;
-        setActiveSessionId(targetId);
-    }
 
     async function loadSessionWorkspace(sessionId: string) {
         setLoadingSessionDetail(true);
@@ -220,16 +185,6 @@ export function ReportPage() {
             setTransportError("当前无法读取所选报告，请稍后重试。");
         } finally {
             setLoadingReport(false);
-        }
-    }
-
-    async function handleCreateSession() {
-        setTransportError(null);
-        try {
-            const created = await createSession();
-            await refreshSessions(created.session_id);
-        } catch {
-            setTransportError("当前无法创建新会话，请稍后重试。");
         }
     }
 
@@ -299,49 +254,7 @@ export function ReportPage() {
     }
 
     return (
-        <div className={sidebarCollapsed ? "chat-workbench chat-workbench--sidebar-collapsed" : "chat-workbench"}>
-            <div className="chat-workbench__sidebar">
-                <SessionRail
-                    sessions={sessions}
-                    activeSessionId={activeSessionId}
-                    collapsed={sidebarCollapsed}
-                    loading={loadingSessions}
-                    onCreateSession={() => void handleCreateSession()}
-                    onSelectSession={setActiveSessionId}
-                    onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
-                />
-
-                {!sidebarCollapsed ? (
-                    <Card title="当前会话报告列表">
-                        {loadingSessionDetail ? (
-                            <div className="chat-workbench__loading"><Spin /></div>
-                        ) : reports.length ? (
-                            <List
-                                className="chat-session-list"
-                                dataSource={reports}
-                                renderItem={(report) => (
-                                    <List.Item
-                                        className={selectedReportId === report.report_id
-                                            ? "chat-session-list__item chat-session-list__item--active"
-                                            : "chat-session-list__item"}
-                                        onClick={() => setSelectedReportId(report.report_id)}
-                                    >
-                                        <div className="chat-session-list__content">
-                                            <Typography.Text strong>{report.title}</Typography.Text>
-                                            <Typography.Text type="secondary">
-                                                {reportTypeLabelMap[report.report_type]} · {formatTimestamp(report.updated_at)}
-                                            </Typography.Text>
-                                        </div>
-                                    </List.Item>
-                                )}
-                            />
-                        ) : (
-                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前会话还没有生成报告。" />
-                        )}
-                    </Card>
-                ) : null}
-            </div>
-
+        <div className="chat-workbench chat-workbench--single-column">
             <div className="chat-workbench__main">
                 {transportError ? (
                     <Alert
@@ -352,6 +265,34 @@ export function ReportPage() {
                         description={transportError}
                     />
                 ) : null}
+
+                <Card title="当前会话报告列表">
+                    {loadingSessionDetail ? (
+                        <div className="chat-workbench__loading"><Spin /></div>
+                    ) : reports.length ? (
+                        <List
+                            className="chat-session-list"
+                            dataSource={reports}
+                            renderItem={(report) => (
+                                <List.Item
+                                    className={selectedReportId === report.report_id
+                                        ? "chat-session-list__item chat-session-list__item--active"
+                                        : "chat-session-list__item"}
+                                    onClick={() => setSelectedReportId(report.report_id)}
+                                >
+                                    <div className="chat-session-list__content">
+                                        <Typography.Text strong>{report.title}</Typography.Text>
+                                        <Typography.Text type="secondary">
+                                            {reportTypeLabelMap[report.report_type]} · {formatTimestamp(report.updated_at)}
+                                        </Typography.Text>
+                                    </div>
+                                </List.Item>
+                            )}
+                        />
+                    ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前会话还没有生成报告。" />
+                    )}
+                </Card>
 
                 <Card
                     className="report-workbench__config-card"

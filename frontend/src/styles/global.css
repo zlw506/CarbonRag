@@ -125,7 +125,7 @@ body {
     background: var(--cr-sider-bg) !important;
     display: flex;
     flex-direction: column;
-    padding: 20px 16px;
+    padding: 18px 12px;
 }
 
 .app-shell--chat-locked .app-shell__sider {
@@ -189,6 +189,20 @@ body {
 
 .app-shell__sider .ant-menu {
     flex: 0 0 auto;
+}
+
+.app-shell__sider-scroll {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.app-shell__sider-scroll .ant-menu {
+    background: transparent;
+    border-inline-end: none !important;
 }
 
 .app-shell__main-shell {
@@ -287,6 +301,13 @@ body {
     grid-template-columns: 96px minmax(0, 1fr);
 }
 
+.chat-workbench--single-column {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+    gap: 10px;
+}
+
 .chat-workbench--focus-mode {
     gap: 14px;
 }
@@ -310,16 +331,13 @@ body {
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-    padding: 10px 8px 12px;
-    border: 1px solid var(--cr-border);
-    border-radius: 18px;
-    background: var(--cr-surface);
-    box-shadow: var(--cr-shadow-soft);
+    padding: 0;
+    background: transparent;
 }
 
 .chat-session-rail--collapsed {
     align-items: center;
-    padding: 10px 6px 12px;
+    justify-content: flex-start;
 }
 
 .chat-session-rail__header {
@@ -331,7 +349,9 @@ body {
 }
 
 .chat-session-rail--collapsed .chat-session-rail__header {
-    justify-content: center;
+    flex-direction: column;
+    justify-content: flex-start;
+    width: 100%;
 }
 
 .chat-session-rail__icon-button {
@@ -339,6 +359,12 @@ body {
     min-width: 36px;
     height: 36px;
     border-radius: 12px;
+}
+
+.chat-session-rail__create-button {
+    flex: 1 1 auto;
+    height: 40px;
+    border-radius: 14px;
 }
 
 .chat-session-rail__body {
@@ -350,9 +376,10 @@ body {
     padding-right: 2px;
 }
 
-.chat-session-rail--collapsed .chat-session-rail__body {
-    width: 100%;
-    padding-right: 0;
+.chat-session-rail__section-title {
+    display: inline-flex;
+    margin-bottom: 10px;
+    color: rgba(226, 232, 240, 0.82) !important;
 }
 
 .chat-sidebar-card {
@@ -476,7 +503,7 @@ body {
     border-radius: 14px;
     padding: 12px 14px;
     transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-    background: var(--cr-surface);
+    background: rgba(15, 23, 42, 0.26);
 }
 
 .chat-session-list__item:hover {
@@ -512,6 +539,10 @@ body {
     display: flex;
     flex-direction: column;
     gap: 0;
+}
+
+.chat-session-list__content .ant-typography {
+    color: #f8fafc;
 }
 
 .chat-session-list__mini {

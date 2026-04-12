@@ -17,11 +17,11 @@ import {
 } from "antd";
 import { useEffect, useState } from "react";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
-import { SessionRail, useResponsiveSessionRail } from "../../components/SessionRail";
+import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { submitCarbonCalculation } from "../../services/carbon";
-import { createSession, getSession, listSessions } from "../../services/sessions";
+import { getSession } from "../../services/sessions";
 import type { CalcCarbonResponse } from "../../types/carbon";
-import type { SessionDetail, SessionSummary } from "../../types/session";
+import type { SessionDetail } from "../../types/session";
 
 interface CarbonFormState {
     period_label: string;
@@ -38,59 +38,21 @@ const initialFormState: CarbonFormState = {
 };
 
 export function CarbonCalcPage() {
-    const [sessions, setSessions] = useState<SessionSummary[]>([]);
-    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+    const { activeSessionId, refreshSessions } = useWorkbenchShellContext();
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
-    const [sidebarCollapsed, setSidebarCollapsed] = useResponsiveSessionRail();
     const [formState, setFormState] = useState<CarbonFormState>(initialFormState);
     const [calcResult, setCalcResult] = useState<CalcCarbonResponse | null>(null);
-    const [loadingSessions, setLoadingSessions] = useState(true);
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [transportError, setTransportError] = useState<string | null>(null);
 
     useEffect(() => {
-        void bootstrapWorkbench();
-    }, []);
-
-    useEffect(() => {
         if (!activeSessionId) {
+            setActiveSession(null);
             return;
         }
         void loadSessionDetail(activeSessionId);
     }, [activeSessionId]);
-
-    async function bootstrapWorkbench() {
-        setLoadingSessions(true);
-        setTransportError(null);
-        try {
-            const sessionList = await listSessions();
-            if (sessionList.length === 0) {
-                const created = await createSession();
-                setSessions([created]);
-                setActiveSessionId(created.session_id);
-                return;
-            }
-            setSessions(sessionList);
-            setActiveSessionId((current) => current ?? sessionList[0].session_id);
-        } catch {
-            setTransportError("当前无法初始化碳核算工作台，请确认 backend 已启动。");
-        } finally {
-            setLoadingSessions(false);
-        }
-    }
-
-    async function refreshSessions(preferredSessionId?: string) {
-        const sessionList = await listSessions();
-        setSessions(sessionList);
-        if (!sessionList.length) {
-            return;
-        }
-        const targetId = preferredSessionId && sessionList.some((item) => item.session_id === preferredSessionId)
-            ? preferredSessionId
-            : sessionList[0].session_id;
-        setActiveSessionId(targetId);
-    }
 
     async function loadSessionDetail(sessionId: string) {
         setLoadingSessionDetail(true);
@@ -103,16 +65,6 @@ export function CarbonCalcPage() {
             setTransportError("当前无法读取选中的会话，请稍后重试。");
         } finally {
             setLoadingSessionDetail(false);
-        }
-    }
-
-    async function handleCreateSession() {
-        setTransportError(null);
-        try {
-            const created = await createSession();
-            await refreshSessions(created.session_id);
-        } catch {
-            setTransportError("当前无法创建新会话，请稍后重试。");
         }
     }
 
@@ -144,19 +96,7 @@ export function CarbonCalcPage() {
     const privateSampleCount = activeSession?.attached_files.filter((item) => item.source_type === "private_sample").length ?? 0;
 
     return (
-        <div className={sidebarCollapsed ? "chat-workbench chat-workbench--sidebar-collapsed" : "chat-workbench"}>
-            <div className="chat-workbench__sidebar">
-                <SessionRail
-                    sessions={sessions}
-                    activeSessionId={activeSessionId}
-                    collapsed={sidebarCollapsed}
-                    loading={loadingSessions}
-                    onCreateSession={() => void handleCreateSession()}
-                    onSelectSession={setActiveSessionId}
-                    onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
-                />
-            </div>
-
+        <div className="chat-workbench chat-workbench--single-column">
             <div className="chat-workbench__main">
                 {transportError ? (
                     <Alert

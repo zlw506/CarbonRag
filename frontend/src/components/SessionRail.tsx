@@ -35,50 +35,58 @@ export function SessionRail({
                         aria-label={collapsed ? "展开会话栏" : "收起会话栏"}
                     />
                 </Tooltip>
-                <Tooltip title="新建对话">
+                {collapsed ? (
+                    <Tooltip title="新建对话">
+                        <Button
+                            type="primary"
+                            className="chat-session-rail__icon-button"
+                            icon={<PlusOutlined />}
+                            onClick={onCreateSession}
+                            aria-label="新建会话"
+                        />
+                    </Tooltip>
+                ) : (
                     <Button
                         type="primary"
-                        className="chat-session-rail__icon-button"
+                        className="chat-session-rail__create-button"
                         icon={<PlusOutlined />}
                         onClick={onCreateSession}
-                        aria-label="新建会话"
-                    />
-                </Tooltip>
+                    >
+                        新建对话
+                    </Button>
+                )}
             </div>
 
-            <div className="chat-session-rail__body">
-                {loading ? (
-                    <div className="chat-workbench__loading"><Spin /></div>
-                ) : sessions.length ? (
-                    <List
-                        className={collapsed ? "chat-session-list chat-session-list--collapsed" : "chat-session-list"}
-                        dataSource={sessions}
-                        locale={{ emptyText }}
-                        renderItem={(session) => (
-                            <List.Item
-                                className={activeSessionId === session.session_id
-                                    ? "chat-session-list__item chat-session-list__item--active"
-                                    : "chat-session-list__item"}
-                                onClick={() => onSelectSession(session.session_id)}
-                            >
-                                {collapsed ? (
-                                    <Tooltip title={session.title}>
-                                        <div className="chat-session-list__mini">
-                                            <Typography.Text strong>{buildSessionMiniTitle(session.title)}</Typography.Text>
-                                        </div>
-                                    </Tooltip>
-                                ) : (
+            {!collapsed ? (
+                <div className="chat-session-rail__body">
+                    <Typography.Text strong className="chat-session-rail__section-title">
+                        对话列表
+                    </Typography.Text>
+                    {loading ? (
+                        <div className="chat-workbench__loading"><Spin /></div>
+                    ) : sessions.length ? (
+                        <List
+                            className="chat-session-list"
+                            dataSource={sessions}
+                            locale={{ emptyText }}
+                            renderItem={(session) => (
+                                <List.Item
+                                    className={activeSessionId === session.session_id
+                                        ? "chat-session-list__item chat-session-list__item--active"
+                                        : "chat-session-list__item"}
+                                    onClick={() => onSelectSession(session.session_id)}
+                                >
                                     <div className="chat-session-list__content">
                                         <Typography.Text strong>{session.title}</Typography.Text>
                                     </div>
-                                )}
-                            </List.Item>
-                        )}
-                    />
-                ) : (
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
-                )}
-            </div>
+                                </List.Item>
+                            )}
+                        />
+                    ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
+                    )}
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -109,9 +117,4 @@ export function useResponsiveSessionRail() {
     }, []);
 
     return [collapsed, setCollapsed] as const;
-}
-
-function buildSessionMiniTitle(title: string) {
-    const normalized = title.replace(/\s+/g, "").trim();
-    return (normalized || "会话").slice(0, 2);
 }

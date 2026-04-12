@@ -7,11 +7,16 @@ import {
     SearchOutlined,
 } from "@ant-design/icons";
 import { Avatar, Button, Layout, Menu, Popover, Segmented, Space, Tag, Typography } from "antd";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
 import { type ThemeMode, useTheme } from "../app/ThemeContext";
+import { SessionRail, useResponsiveSessionRail } from "../components/SessionRail";
 import env from "../app/env";
 import { ADMIN_NAV_ITEM, getNavigationItems } from "../constants/navigation";
+import { createSession, listSessions } from "../services/sessions";
+import type { SessionSummary } from "../types/session";
+import type { WorkbenchShellContextValue } from "./WorkbenchShellContext";
 
 const { Header, Content, Sider } = Layout;
 
@@ -28,6 +33,11 @@ export function AppShell() {
     const navigate = useNavigate();
     const { user, logout } = useAuth();
     const { themeMode, resolvedTheme, setThemeMode } = useTheme();
+    const [sessions, setSessions] = useState<SessionSummary[]>([]);
+    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+    const [loadingSessions, setLoadingSessions] = useState(true);
+    const [sessionRailError, setSessionRailError] = useState<string | null>(null);
+    const [sessionRailCollapsed, setSessionRailCollapsed] = useResponsiveSessionRail();
 
     if (!user) {
         return null;
@@ -35,6 +45,7 @@ export function AppShell() {
 
     const navigationItems = getNavigationItems(user.role);
     const isAskRoute = location.pathname === "/";
+    const routeNeedsSession = location.pathname === "/" || location.pathname === "/carbon-calc" || location.pathname === "/report";
     const focusModeEnabled = isAskRoute && new URLSearchParams(location.search).get("focus") !== "0";
     const hideAskHeader = isAskRoute && focusModeEnabled;
     const shellClassName = [
@@ -48,6 +59,98 @@ export function AppShell() {
         isAskRoute ? "app-shell__content--chat-locked" : null,
         hideAskHeader ? "app-shell__content--headerless" : null,
     ].filter(Boolean).join(" ");
+
+    useEffect(() => {
+        void bootstrapSessionRail(routeNeedsSession);
+    }, [routeNeedsSession]);
+
+    async function bootstrapSessionRail(shouldCreateSession: boolean) {
+        setLoadingSessions(true);
+        try {
+            let sessionList = await listSessions();
+            if (!sessionList.length && shouldCreateSession) {
+                const created = await createSession();
+                sessionList = [created];
+            }
+            setSessionRailError(null);
+            setSessions(sessionList);
+            setActiveSessionId((current) => {
+                if (!sessionList.length) {
+                    return null;
+                }
+                if (current && sessionList.some((item) => item.session_id === current)) {
+                    return current;
+                }
+                return sessionList[0].session_id;
+            });
+        } catch {
+            setSessionRailError("当前无法读取对话列表。");
+            setSessions([]);
+            setActiveSessionId(null);
+        } finally {
+            setLoadingSessions(false);
+        }
+    }
+
+    async function refreshSessions(preferredSessionId?: string | null) {
+        try {
+            let sessionList = await listSessions();
+            if (!sessionList.length && routeNeedsSession) {
+                const created = await createSession();
+                sessionList = [created];
+            }
+            setSessionRailError(null);
+            setSessions(sessionList);
+            setActiveSessionId((current) => {
+                if (!sessionList.length) {
+                    return null;
+                }
+                const targetId = preferredSessionId ?? current;
+                if (targetId && sessionList.some((item) => item.session_id === targetId)) {
+                    return targetId;
+                }
+                return sessionList[0].session_id;
+            });
+            return sessionList;
+        } catch {
+            setSessionRailError("当前无法读取对话列表。");
+            setSessions([]);
+            setActiveSessionId(null);
+            return [];
+        }
+    }
+
+    async function handleCreateSession() {
+        try {
+            const created = await createSession();
+            await refreshSessions(created.session_id);
+        } catch {
+            setSessionRailError("当前无法创建新对话。");
+        }
+    }
+
+    function handleSelectSession(sessionId: string) {
+        setActiveSessionId(sessionId);
+        if (typeof window !== "undefined" && window.innerWidth <= 1200) {
+            setSessionRailCollapsed(true);
+        }
+    }
+
+    function handleToggleSessionRail() {
+        setSessionRailCollapsed((current) => !current);
+    }
+
+    const outletContext: WorkbenchShellContextValue = {
+        sessions,
+        activeSessionId,
+        loadingSessions,
+        sessionRailCollapsed,
+        createSession: handleCreateSession,
+        refreshSessions,
+        selectSession: handleSelectSession,
+        toggleSessionRail: handleToggleSessionRail,
+    };
+
     async function handleLogout() {
         await logout();
         navigate("/login", { replace: true });
@@ -100,13 +203,13 @@ export function AppShell() {
         <Layout className={shellClassName}>
             <Sider
                 breakpoint="lg"
-                collapsedWidth={focusModeEnabled ? 72 : 0}
-                collapsed={focusModeEnabled}
-                width={228}
+                collapsedWidth={72}
+                collapsed={sessionRailCollapsed}
+                width={304}
                 className={focusModeEnabled ? "app-shell__sider app-shell__sider--focus" : "app-shell__sider"}
             >
-                <div className={focusModeEnabled ? "app-shell__brand app-shell__brand--compact" : "app-shell__brand"}>
-                    {focusModeEnabled ? (
+                <div className={sessionRailCollapsed ? "app-shell__brand app-shell__brand--compact" : "app-shell__brand"}>
+                    {sessionRailCollapsed ? (
                         <>
                             <Typography.Title level={5}>CR</Typography.Title>
                             <Typography.Text type="secondary">对话</Typography.Text>
@@ -120,16 +223,28 @@ export function AppShell() {
                         </>
                     )}
                 </div>
-                <Menu
-                    mode="inline"
-                    selectedKeys={[location.pathname]}
-                    items={navigationItems.map((item) => ({
-                        key: item.path,
-                        icon: iconMap[item.path as keyof typeof iconMap],
-                        label: item.label,
-                    }))}
-                    onClick={({ key }) => navigate(key)}
-                />
+                <div className="app-shell__sider-scroll">
+                    <Menu
+                        mode="inline"
+                        selectedKeys={[location.pathname]}
+                        items={navigationItems.map((item) => ({
+                            key: item.path,
+                            icon: iconMap[item.path as keyof typeof iconMap],
+                            label: item.label,
+                        }))}
+                        onClick={({ key }) => navigate(key)}
+                    />
+                    <SessionRail
+                        sessions={sessions}
+                        activeSessionId={activeSessionId}
+                        collapsed={sessionRailCollapsed}
+                        loading={loadingSessions}
+                        emptyText={sessionRailError ?? "当前还没有对话。"}
+                        onCreateSession={() => void handleCreateSession()}
+                        onSelectSession={handleSelectSession}
+                        onToggleCollapsed={handleToggleSessionRail}
+                    />
+                </div>
                 <div className="app-shell__sider-footer">
                     <Popover trigger="click" placement="rightBottom" content={siderUserMenu}>
                         <Button
@@ -167,7 +282,7 @@ export function AppShell() {
                     </Header>
                 ) : null}
                 <Content className={contentClassName}>
-                    <Outlet />
+                    <Outlet context={outletContext} />
                 </Content>
             </Layout>
         </Layout>
