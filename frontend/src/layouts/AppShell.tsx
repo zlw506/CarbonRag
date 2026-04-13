@@ -259,7 +259,7 @@ export function AppShell() {
                         </>
                     )}
                 </div>
-                <div className="app-shell__sider-scroll">
+                <div className="app-shell__sider-nav">
                     <Menu
                         mode="inline"
                         selectedKeys={[location.pathname]}
@@ -270,6 +270,8 @@ export function AppShell() {
                         }))}
                         onClick={({ key }) => navigate(key)}
                     />
+                </div>
+                <div className="app-shell__session-region">
                     <SessionRail
                         sessions={sessions}
                         activeSessionId={activeSessionId}
@@ -284,11 +286,21 @@ export function AppShell() {
                 <div className="app-shell__sider-footer">
                     <Popover trigger="click" placement="rightBottom" content={siderUserMenu}>
                         <Button
-                            shape="circle"
-                            className="app-shell__focus-user-trigger"
+                            className={sessionRailCollapsed
+                                ? "app-shell__focus-user-trigger"
+                                : "app-shell__focus-user-trigger app-shell__focus-user-trigger--expanded"}
                             aria-label="打开当前用户菜单"
                         >
-                            <Avatar size={34}>{user.username.slice(0, 1).toUpperCase()}</Avatar>
+                            <span className="app-shell__focus-user-inline">
+                                <Avatar size={34}>{user.username.slice(0, 1).toUpperCase()}</Avatar>
+                                {!sessionRailCollapsed ? (
+                                    <span className="app-shell__focus-user-name">
+                                        <Typography.Text strong ellipsis>
+                                            {user.username}
+                                        </Typography.Text>
+                                    </span>
+                                ) : null}
+                            </span>
                         </Button>
                     </Popover>
                 </div>
