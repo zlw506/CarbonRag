@@ -1,3 +1,4 @@
+import inspect
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -5,6 +6,7 @@ from app.core.config import get_settings
 from app.private_samples.catalog import list_attachable_private_sample_catalog
 from app.memory.service import get_memory_service
 from app.schemas.ask import AskCitation, AskSourceSummary, KnowledgeScope, MessageStatus
+from app.settings.schemas import LocalProviderOverride
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
 from app.session.store import SessionStore, get_session_store
 
@@ -75,13 +77,21 @@ class SessionService:
         session_id: str,
         max_turns: int = DEFAULT_CONTEXT_TURNS,
         upcoming_user_input: str = "",
+        provider_override: LocalProviderOverride | dict | None = None,
     ) -> dict:
         self.require_session(owner_user_id=owner_user_id, session_id=session_id)
-        return self._get_memory_service().build_session_context(
-            owner_user_id=owner_user_id,
-            session_id=session_id,
-            max_turns=max_turns,
-            upcoming_user_input=upcoming_user_input,
+        memory_service = self._get_memory_service()
+        build_method = memory_service.build_session_context
+        kwargs = {
+            "owner_user_id": owner_user_id,
+            "session_id": session_id,
+            "max_turns": max_turns,
+            "upcoming_user_input": upcoming_user_input,
+        }
+        if "provider_override" in inspect.signature(build_method).parameters:
+            kwargs["provider_override"] = provider_override
+        return build_method(
+            **kwargs,
         ).model_dump(mode="json")
 
     def record_exchange(
@@ -113,6 +123,12 @@ class SessionService:
             knowledge_scope=knowledge_scope,
             source_summary=source_summary,
         )
+        if assistant_status in {"ok", "done"}:
+            self.maybe_promote_title_after_success(
+                owner_user_id=owner_user_id,
+                session_id=session_id,
+                enabled=True,
+            )
         return user_message, assistant_message
 
     def begin_exchange(
@@ -181,28 +197,63 @@ class SessionService:
         )
         return updated_message
 
+    def maybe_promote_title_after_success(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        enabled: bool = True,
+    ) -> SessionSummary | None:
+        if not enabled:
+            return self.get_session(owner_user_id=owner_user_id, session_id=session_id)
+
+        session = self.get_session(owner_user_id=owner_user_id, session_id=session_id)
+        if session is None:
+            return None
+
+        user_messages = [message.content.strip() for message in session.messages if message.role == "user" and message.content.strip()]
+        if not user_messages:
+            return session
+
+        if len(user_messages) > 3 and not session.title.startswith(DEFAULT_TITLE_PREFIX):
+            return session
+
+        promoted = self._build_auto_title_from_user_messages(user_messages[:3])
+        if not promoted or promoted == session.title:
+            return session
+        return self.update_session_title(owner_user_id=owner_user_id, session_id=session_id, title=promoted)
+
     def maybe_promote_title_from_first_question(
         self,
         *,
         owner_user_id: str,
         session_id: str,
-        question: str,
+        question: str | None = None,
     ) -> SessionSummary | None:
         session = self.get_session(owner_user_id=owner_user_id, session_id=session_id)
         if session is None:
             return None
-        if not session.title.startswith(DEFAULT_TITLE_PREFIX):
-            return session
-        if len(session.messages) > 2:
-            return session
 
-        trimmed = question.strip()
-        if not trimmed:
+        user_messages = [message.content.strip() for message in session.messages if message.role == "user" and message.content.strip()]
+        if question and question.strip() and not user_messages:
+            user_messages = [question.strip()]
+        promoted = self._build_auto_title_from_user_messages(user_messages[:3])
+        if not promoted or promoted == session.title:
             return session
-
-        max_length = 24
-        promoted = trimmed if len(trimmed) <= max_length else f"{trimmed[:max_length].rstrip()}..."
         return self.update_session_title(owner_user_id=owner_user_id, session_id=session_id, title=promoted)
+
+    @staticmethod
+    def _build_auto_title_from_user_messages(user_messages: list[str]) -> str:
+        merged = " ".join(fragment.replace("\n", " ").strip() for fragment in user_messages if fragment.strip())
+        normalized = " ".join(merged.split())
+        if not normalized:
+            return DEFAULT_TITLE_PREFIX
+
+        normalized = normalized.replace("？", "?").replace("。", " ").replace("，", " ")
+        if "?" in normalized:
+            normalized = normalized.split("?", 1)[0]
+        max_length = 26
+        return normalized if len(normalized) <= max_length else f"{normalized[:max_length].rstrip()}..."
 
     def record_system_message(self, *, owner_user_id: str, session_id: str, content: str) -> SessionMessage:
         self.require_session(owner_user_id=owner_user_id, session_id=session_id)

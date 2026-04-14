@@ -14,6 +14,8 @@ from app.memory.schemas import (
     SessionMemorySnapshot,
     UpdateMemoryNoteRequest,
 )
+from app.settings.schemas import LocalProviderOverride
+from app.settings.service import get_settings_service
 from app.memory.store import MemoryStore, get_memory_store
 
 
@@ -67,12 +69,20 @@ class MemoryService:
         session_id: str,
         upcoming_user_input: str,
         max_turns: int | None = None,
+        provider_override: LocalProviderOverride | dict | None = None,
     ) -> SessionMemoryBundle:
         snapshot = self.store.get_session_memory_snapshot(owner_user_id=owner_user_id, session_id=session_id)
         if snapshot is None:
             raise KeyError(f"Unknown session: {session_id}")
 
-        self._maybe_compact(snapshot=snapshot, owner_user_id=owner_user_id, session_id=session_id, upcoming_user_input=upcoming_user_input, max_turns=max_turns)
+        self._maybe_compact(
+            snapshot=snapshot,
+            owner_user_id=owner_user_id,
+            session_id=session_id,
+            upcoming_user_input=upcoming_user_input,
+            max_turns=max_turns,
+            provider_override=provider_override,
+        )
         refreshed = self.store.get_session_memory_snapshot(owner_user_id=owner_user_id, session_id=session_id)
         if refreshed is None:
             raise KeyError(f"Unknown session: {session_id}")
@@ -101,6 +111,7 @@ class MemoryService:
         session_id: str,
         upcoming_user_input: str,
         max_turns: int | None,
+        provider_override: LocalProviderOverride | dict | None,
     ) -> None:
         recent_keep_count = self._recent_keep_count(max_turns=max_turns)
         conversation_messages = [message for message in snapshot.messages if message.role in {"user", "assistant"}]
@@ -144,7 +155,12 @@ class MemoryService:
             return
 
         try:
-            new_summary = self._generate_summary(existing_summary=snapshot.session_summary, messages=messages_to_compact)
+            new_summary = self._generate_summary(
+                owner_user_id=owner_user_id,
+                existing_summary=snapshot.session_summary,
+                messages=messages_to_compact,
+                provider_override=provider_override,
+            )
         except ChatProviderError as exc:
             self.store.update_session_memory(
                 owner_user_id=owner_user_id,
@@ -170,7 +186,14 @@ class MemoryService:
             last_compaction_error=None,
         )
 
-    def _generate_summary(self, *, existing_summary: str | None, messages) -> str:
+    def _generate_summary(
+        self,
+        *,
+        owner_user_id: str,
+        existing_summary: str | None,
+        messages,
+        provider_override: LocalProviderOverride | dict | None,
+    ) -> str:
         transcript_lines = []
         if existing_summary:
             transcript_lines.extend(
@@ -185,7 +208,14 @@ class MemoryService:
             role_label = "用户" if message.role == "user" else "助手"
             transcript_lines.append(f"[{index}] {role_label}：{message.content}")
 
-        result = self.chat_provider.generate_response(
+        chat_provider = self.chat_provider
+        if provider_override is not None or self.chat_provider is None:
+            _, chat_provider = get_settings_service().build_chat_provider(
+                owner_user_id=owner_user_id,
+                provider_override=provider_override,
+            )
+
+        result = chat_provider.generate_response(
             system_prompt=(
                 "你是 CarbonRag 的会话压缩器。"
                 "你的任务是把较早的对话压缩为一段稳定、精炼的会话摘要，"

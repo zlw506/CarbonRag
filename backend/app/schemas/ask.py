@@ -1,6 +1,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.settings.schemas import LocalProviderOverride
 
 
 KnowledgeScope = Literal["public", "private_sample", "mixed"]
@@ -37,11 +38,22 @@ class AskRequest(BaseModel):
     top_k: int = Field(default=5, ge=1)
     attached_file_ids: list[str] = Field(default_factory=list)
     attached_knowledge_item_ids: list[str] = Field(default_factory=list)
+    request_group_id: str | None = None
+    resume_cursor: int | None = Field(default=None, ge=0)
+    provider_override: LocalProviderOverride | None = None
 
     @field_validator("question")
     @classmethod
     def normalize_question(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("request_group_id")
+    @classmethod
+    def normalize_request_group_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class AskResponse(BaseModel):

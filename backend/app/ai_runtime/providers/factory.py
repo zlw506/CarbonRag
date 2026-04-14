@@ -16,6 +16,7 @@ def get_chat_provider() -> BaseChatProvider:
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         timeout_seconds=config.timeout_seconds,
+        max_retries=config.max_retries,
     )
 
 

@@ -1,18 +1,17 @@
 import {
-    BgColorsOutlined,
     DesktopOutlined,
     ExperimentOutlined,
     FolderOpenOutlined,
     FileTextOutlined,
     LogoutOutlined,
     SearchOutlined,
+    SettingOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Drawer, Layout, Menu, Popover, Segmented, Space, Tag, Typography } from "antd";
+import { Avatar, Button, Layout, Menu, Popover, Space, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
-import { type ThemeMode, useTheme } from "../app/ThemeContext";
-import type { ThemePreset } from "../theme/tokens";
+import { useSettings } from "../app/SettingsContext";
 import { SessionRail, useResponsiveSessionRail } from "../components/SessionRail";
 import env from "../app/env";
 import { ADMIN_NAV_ITEM, getNavigationItems } from "../constants/navigation";
@@ -34,22 +33,12 @@ export function AppShell() {
     const location = useLocation();
     const navigate = useNavigate();
     const { user, logout } = useAuth();
-    const {
-        themeMode,
-        resolvedTheme,
-        themePreset,
-        activePreset,
-        quickPresets,
-        allPresets,
-        setThemeMode,
-        setThemePreset,
-    } = useTheme();
+    const { settings } = useSettings();
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [loadingSessions, setLoadingSessions] = useState(true);
     const [sessionRailError, setSessionRailError] = useState<string | null>(null);
     const [sessionRailCollapsed, setSessionRailCollapsed] = useResponsiveSessionRail();
-    const [themeDrawerOpen, setThemeDrawerOpen] = useState(false);
 
     if (!user) {
         return null;
@@ -85,6 +74,17 @@ export function AppShell() {
     useEffect(() => {
         void bootstrapSessionRail(routeNeedsSession);
     }, [routeNeedsSession]);
+
+    useEffect(() => {
+        if (!routeNeedsSession || !settings || typeof window === "undefined") {
+            return;
+        }
+        if (window.innerWidth <= 1200) {
+            setSessionRailCollapsed(true);
+            return;
+        }
+        setSessionRailCollapsed(settings.appearance.sidebar_default === "collapsed");
+    }, [routeNeedsSession, settings?.appearance.sidebar_default, setSessionRailCollapsed]);
 
     async function bootstrapSessionRail(shouldCreateSession: boolean) {
         setLoadingSessions(true);
@@ -189,40 +189,10 @@ export function AppShell() {
                     </Tag>
                 </div>
             </Space>
-            <div className="app-shell__theme-group">
-                <div className="app-shell__theme-copy">
-                    <Typography.Text strong>界面主题</Typography.Text>
-                    <Typography.Text type="secondary">
-                        当前 {activePreset.label} · {resolvedTheme === "dark" ? "暗色" : "浅色"}
-                    </Typography.Text>
-                </div>
-                <Segmented
-                    block
-                    size="middle"
-                    value={themeMode}
-                    options={[
-                        { label: "浅色", value: "light" },
-                        { label: "暗色", value: "dark" },
-                        { label: "跟随系统", value: "system" },
-                    ]}
-                    onChange={(value) => setThemeMode(value as ThemeMode)}
-                />
-                <div className="app-shell__theme-grid">
-                    {quickPresets.map((preset) => (
-                        <ThemePresetCard
-                            key={preset.id}
-                            preset={preset}
-                            active={preset.id === themePreset}
-                            onClick={() => setThemePreset(preset.id)}
-                            compact
-                        />
-                    ))}
-                </div>
-                <Button icon={<BgColorsOutlined />} onClick={() => setThemeDrawerOpen(true)}>
-                    更多主题
-                </Button>
-            </div>
             <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                <Button block icon={<SettingOutlined />} onClick={() => navigate("/settings")}>
+                    通用设置
+                </Button>
                 {user.role === "admin" ? (
                     <Button block icon={<DesktopOutlined />} onClick={() => navigate(ADMIN_NAV_ITEM.path)}>
                         管理后台
@@ -333,68 +303,6 @@ export function AppShell() {
                     <Outlet context={outletContext} />
                 </Content>
             </Layout>
-            <Drawer
-                title="主题外观"
-                width={420}
-                open={themeDrawerOpen}
-                onClose={() => setThemeDrawerOpen(false)}
-            >
-                <div className="app-shell__theme-drawer">
-                    <div className="app-shell__theme-copy">
-                        <Typography.Text strong>显示模式</Typography.Text>
-                        <Typography.Text type="secondary">
-                            手动选择优先于系统；主题会保存到本地。
-                        </Typography.Text>
-                    </div>
-                    <Segmented
-                        block
-                        value={themeMode}
-                        options={[
-                            { label: "浅色", value: "light" },
-                            { label: "暗色", value: "dark" },
-                            { label: "跟随系统", value: "system" },
-                        ]}
-                        onChange={(value) => setThemeMode(value as ThemeMode)}
-                    />
-                    <div className="app-shell__theme-grid app-shell__theme-grid--full">
-                        {allPresets.map((preset) => (
-                            <ThemePresetCard
-                                key={preset.id}
-                                preset={preset}
-                                active={preset.id === themePreset}
-                                onClick={() => setThemePreset(preset.id)}
-                            />
-                        ))}
-                    </div>
-                </div>
-            </Drawer>
         </Layout>
-    );
-}
-
-interface ThemePresetCardProps {
-    preset: ThemePreset;
-    active: boolean;
-    compact?: boolean;
-    onClick: () => void;
-}
-
-function ThemePresetCard({ preset, active, compact = false, onClick }: ThemePresetCardProps) {
-    return (
-        <button
-            type="button"
-            className={active ? "theme-preset-card theme-preset-card--active" : "theme-preset-card"}
-            onClick={onClick}
-        >
-            <span className="theme-preset-card__swatches">
-                {preset.preview.map((color, index) => (
-                    <span key={`${preset.id}-${index}`} className="theme-preset-card__swatch" style={{ background: color }} />
-                ))}
-            </span>
-            <span className="theme-preset-card__copy">
-                <Typography.Text strong>{preset.label}</Typography.Text>
-                {!compact ? <Typography.Text type="secondary">{preset.description}</Typography.Text> : null}
-            </span>
-        </button>
     );
 }

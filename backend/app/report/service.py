@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.ai_runtime.providers.base import ChatProviderError
-from app.ai_runtime.providers.factory import get_chat_provider
 from app.carbon.schemas import StoredCarbonCalculation
 from app.carbon.service import CarbonService, get_carbon_service
 from app.report.composer import ReportComposer
@@ -16,9 +15,26 @@ from app.report.schemas import (
     UpdateReportRequest,
 )
 from app.report.storage import ReportStorage
+from app.settings.service import get_settings_service
 from app.report.templates import get_report_template
 from app.session.schemas import SessionDetail, SessionMessage
 from app.session.service import SessionService, get_session_service
+
+
+def get_chat_provider(*, owner_user_id: str | None = None, provider_override=None):
+    if owner_user_id is None and provider_override is None:
+        from app.ai_runtime.providers.factory import get_chat_provider as get_default_chat_provider
+
+        return get_default_chat_provider()
+
+    if owner_user_id is None:
+        raise ReportValidationError("owner_user_id is required when resolving a custom provider.")
+
+    _, chat_provider = get_settings_service().build_chat_provider(
+        owner_user_id=owner_user_id,
+        provider_override=provider_override,
+    )
+    return chat_provider
 
 
 class ReportValidationError(ValueError):
@@ -92,7 +108,14 @@ class ReportService:
         provider_system_prompt = self.composer.build_provider_system_prompt(template)
 
         try:
-            provider_result = get_chat_provider().generate_response(
+            try:
+                chat_provider = get_chat_provider(
+                    owner_user_id=owner_user_id,
+                    provider_override=payload.provider_override,
+                )
+            except TypeError:
+                chat_provider = get_chat_provider()
+            provider_result = chat_provider.generate_response(
                 system_prompt=provider_system_prompt,
                 user_input=provider_user_input,
             )

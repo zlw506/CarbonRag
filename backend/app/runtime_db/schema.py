@@ -5,6 +5,8 @@ CORE_TABLES = (
     "auth_sessions",
     "sessions",
     "messages",
+    "user_settings",
+    "user_provider_profiles",
     "memory_notes",
     "files",
     "session_knowledge_items",
@@ -22,6 +24,8 @@ CORE_TABLES = (
 
 OWNER_TABLES = (
     "sessions",
+    "user_settings",
+    "user_provider_profiles",
     "files",
     "memory_notes",
     "knowledge_items",
@@ -82,6 +86,32 @@ CREATE TABLE IF NOT EXISTS messages (
     citations_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    owner_user_id TEXT PRIMARY KEY,
+    appearance_json TEXT NOT NULL DEFAULT '{}',
+    chat_json TEXT NOT NULL DEFAULT '{}',
+    data_privacy_json TEXT NOT NULL DEFAULT '{}',
+    advanced_json TEXT NOT NULL DEFAULT '{}',
+    active_provider_ref TEXT NOT NULL DEFAULT 'builtin:carbonrag-cloud',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_provider_profiles (
+    profile_id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL,
+    provider_type TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    base_url TEXT,
+    model_name TEXT,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    api_key_encrypted TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS memory_notes (
@@ -286,6 +316,8 @@ CREATE INDEX IF NOT EXISTS idx_users_username
     ON users(username);
 CREATE INDEX IF NOT EXISTS idx_messages_session_seq
     ON messages(session_id, message_seq);
+CREATE INDEX IF NOT EXISTS idx_user_provider_profiles_owner_updated_at
+    ON user_provider_profiles(owner_user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_notes_owner_updated_at
     ON memory_notes(owner_user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_owner_session_seq
@@ -373,6 +405,32 @@ POSTGRES_SCHEMA_STATEMENTS = (
         trace_id TEXT,
         citations_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS user_settings (
+        owner_user_id TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+        appearance_json TEXT NOT NULL DEFAULT '{}',
+        chat_json TEXT NOT NULL DEFAULT '{}',
+        data_privacy_json TEXT NOT NULL DEFAULT '{}',
+        advanced_json TEXT NOT NULL DEFAULT '{}',
+        active_provider_ref TEXT NOT NULL DEFAULT 'builtin:carbonrag-cloud',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS user_provider_profiles (
+        profile_id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        provider_type TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        base_url TEXT,
+        model_name TEXT,
+        config_json TEXT NOT NULL DEFAULT '{}',
+        api_key_encrypted TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     )
     """,
     """
@@ -583,6 +641,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id, expires_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
     "CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, message_seq)",
+    "CREATE INDEX IF NOT EXISTS idx_user_provider_profiles_owner_updated_at ON user_provider_profiles(owner_user_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_memory_notes_owner_updated_at ON memory_notes(owner_user_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_files_owner_session_seq ON files(owner_user_id, session_id, file_seq)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at ON sessions(owner_user_id, updated_at DESC)",

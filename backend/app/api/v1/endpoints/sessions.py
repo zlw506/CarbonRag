@@ -1,16 +1,22 @@
 import json
+import threading
+import time
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.ai_runtime.config import get_ai_runtime_config
+from app.ai_runtime.providers.base import ChatProviderError
 from app.ai_runtime.runtime.orchestrator import AIRuntimeOrchestrator
 from app.ai_runtime.schemas.chat import ChatRequest
 from app.auth.dependencies import require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
 from app.schemas.ask import AskCitation, AskRequest, AskResponse, AskSourceSummary, MessageStatus
+from app.settings.service import SettingsValidationError, get_settings_service
 from app.session.schemas import CreateSessionRequest, SessionDetail, SessionSummary, UpdateSessionRequest
 from app.session.service import get_session_service
+from app.session.streaming import get_active_stream_registry, get_retry_delay, is_retryable_provider_error
 
 router = APIRouter(prefix="/sessions")
 
@@ -59,12 +65,14 @@ def build_chat_request(
                 session_id=session_id,
                 max_turns=6,
                 upcoming_user_input=payload.question,
+                provider_override=payload.provider_override,
             ),
             "knowledge_scope_requested": payload.knowledge_scope,
             "knowledge_scope_effective": payload.knowledge_scope,
             "top_k": payload.top_k,
             "attached_file_ids": payload.attached_file_ids,
             "attached_knowledge_item_ids": effective_knowledge_item_ids,
+            "request_group_id": payload.request_group_id,
         },
     )
     return chat_request, effective_knowledge_item_ids
@@ -109,6 +117,327 @@ def resolve_final_message_status(result_status: str) -> MessageStatus:
     if result_status == "invalid_input":
         return "invalid_input"
     return "provider_error"
+
+
+def build_stream_status_payload(
+    *,
+    status: str,
+    stream_session,
+    attempt: int,
+    max_attempts: int,
+    recovered: bool = False,
+) -> dict:
+    return {
+        "status": status,
+        "trace_id": stream_session.trace_id,
+        "user_message_id": stream_session.user_message_id,
+        "assistant_message_id": stream_session.assistant_message_id,
+        "request_group_id": stream_session.request_group_id,
+        "attempt": attempt,
+        "max_attempts": max_attempts,
+        "recovered": recovered,
+        "resume_supported": True,
+        "provider_ref": stream_session.provider_ref,
+    }
+
+
+def emit_terminal_stream_error(
+    *,
+    stream_session,
+    session_service,
+    owner_user_id: str,
+    requested_scope: str,
+    answer: str,
+    attempt: int,
+    max_attempts: int,
+) -> None:
+    source_summary = empty_source_summary(requested_scope)
+    finalized_message = session_service.finalize_exchange(
+        owner_user_id=owner_user_id,
+        session_id=stream_session.session_id,
+        assistant_message_id=stream_session.assistant_message_id,
+        assistant_content=answer,
+        assistant_status="provider_error",
+        trace_id=stream_session.trace_id,
+        citations=[],
+        knowledge_scope=requested_scope,
+        source_summary=source_summary,
+        thinking_content=None,
+    )
+    refreshed_session = session_service.get_session(owner_user_id=owner_user_id, session_id=stream_session.session_id)
+    memory_state = refreshed_session.memory_state.model_dump(mode="json") if refreshed_session and refreshed_session.memory_state else None
+    metadata_payload = {
+        "answer": answer,
+        "status": "provider_error",
+        "citations": [],
+        "source_summary": source_summary.model_dump(),
+        "trace_id": stream_session.trace_id,
+        "user_message_id": stream_session.user_message_id,
+        "assistant_message_id": stream_session.assistant_message_id,
+        "message_id": finalized_message.message_id if finalized_message is not None else stream_session.assistant_message_id,
+        "thinking_content": None,
+        "memory_state": memory_state,
+        "context_source": {
+            "recent_message_count": 0,
+            "summary_present": bool(memory_state.get("summary_present")) if isinstance(memory_state, dict) else False,
+            "citation_count": 0,
+        },
+        "request_group_id": stream_session.request_group_id,
+        "provider_ref": stream_session.provider_ref,
+        "title_updated": False,
+    }
+    stream_session.append(event="metadata", data=metadata_payload)
+    stream_session.append(
+        event="status",
+        data=build_stream_status_payload(
+            status="failed",
+            stream_session=stream_session,
+            attempt=attempt,
+            max_attempts=max_attempts,
+        ),
+    )
+    stream_session.append(event="error", data={**metadata_payload, "message": answer})
+    stream_session.complete()
+
+
+def run_stream_worker(
+    *,
+    stream_session,
+    chat_request: ChatRequest,
+    current_user: AuthenticatedUser,
+    requested_scope: str,
+    provider_override,
+) -> None:
+    session_service = get_session_service()
+    settings_service = get_settings_service()
+    max_attempts = 5
+
+    try:
+        user_settings = settings_service.get_user_settings(owner_user_id=current_user.user_id)
+        resolved_provider, chat_provider = settings_service.build_chat_provider(
+            owner_user_id=current_user.user_id,
+            provider_override=provider_override,
+        )
+        stream_session.provider_ref = resolved_provider.provider_ref
+    except Exception:
+        emit_terminal_stream_error(
+            stream_session=stream_session,
+            session_service=session_service,
+            owner_user_id=current_user.user_id,
+            requested_scope=requested_scope,
+            answer="本次未能连接到模型，请稍后重试或检查模型设置。",
+            attempt=1,
+            max_attempts=max_attempts,
+        )
+        return
+
+    stream_session.append(
+        event="message_start",
+        data={
+            "trace_id": stream_session.trace_id,
+            "user_message_id": stream_session.user_message_id,
+            "assistant_message_id": stream_session.assistant_message_id,
+            "request_group_id": stream_session.request_group_id,
+        },
+    )
+
+    attempt = 1
+    while attempt <= max_attempts:
+        stream_session.attempt = attempt
+        synthetic_thinking_emitted = False
+        stream_session.append(
+            event="status",
+            data=build_stream_status_payload(
+                status="connecting" if attempt == 1 else "reconnecting",
+                stream_session=stream_session,
+                attempt=attempt,
+                max_attempts=max_attempts,
+            ),
+        )
+
+        try:
+            handle = AIRuntimeOrchestrator(chat_provider=chat_provider).run_stream(chat_request)
+            streaming_announced = False
+            for event in handle.events:
+                if event.kind == "status":
+                    status = event.data.get("status")
+                    if status == "thinking":
+                        stream_session.append(
+                            event="status",
+                            data=build_stream_status_payload(
+                                status="thinking",
+                                stream_session=stream_session,
+                                attempt=attempt,
+                                max_attempts=max_attempts,
+                            ),
+                        )
+                        if not synthetic_thinking_emitted:
+                            synthetic_thinking_emitted = True
+                            stream_session.append(
+                                event="thinking_delta",
+                                data={
+                                    "delta": "正在整理问题与依据…",
+                                    "trace_id": stream_session.trace_id,
+                                    "user_message_id": stream_session.user_message_id,
+                                    "assistant_message_id": stream_session.assistant_message_id,
+                                    "request_group_id": stream_session.request_group_id,
+                                    "synthetic": True,
+                                },
+                            )
+                    continue
+
+                if event.kind == "thinking_delta":
+                    stream_session.append(
+                        event="thinking_delta",
+                        data={
+                            **event.data,
+                            "trace_id": stream_session.trace_id,
+                            "user_message_id": stream_session.user_message_id,
+                            "assistant_message_id": stream_session.assistant_message_id,
+                            "request_group_id": stream_session.request_group_id,
+                        },
+                    )
+                    continue
+
+                if event.kind == "answer_delta":
+                    if not streaming_announced:
+                        streaming_announced = True
+                        stream_session.has_first_answer_token = True
+                        stream_session.append(
+                            event="status",
+                            data=build_stream_status_payload(
+                                status="streaming",
+                                stream_session=stream_session,
+                                attempt=attempt,
+                                max_attempts=max_attempts,
+                                recovered=attempt > 1,
+                            ),
+                        )
+                    stream_session.append(
+                        event="answer_delta",
+                        data={
+                            **event.data,
+                            "trace_id": stream_session.trace_id,
+                            "user_message_id": stream_session.user_message_id,
+                            "assistant_message_id": stream_session.assistant_message_id,
+                            "request_group_id": stream_session.request_group_id,
+                        },
+                    )
+                    continue
+
+                if event.kind == "error":
+                    raise ChatProviderError(
+                        event.data.get("message", "Chat provider stream failed."),
+                        reason=str(event.data.get("reason", "network_error")),
+                        status_code=event.data.get("status_code"),
+                    )
+
+            result = handle.state.runtime_result
+            if result is None:
+                raise ChatProviderError(
+                    "Chat provider stream ended unexpectedly.",
+                    reason="invalid_response",
+                )
+
+            if result.status != "ok":
+                raise ChatProviderError(
+                    result.response.answer or "Chat provider stream failed.",
+                    reason=str(result.metadata.get("provider_metadata", {}).get("error_reason", "network_error")),
+                    status_code=result.metadata.get("provider_metadata", {}).get("provider_status_code"),
+                )
+
+            citations = [AskCitation.model_validate(item) for item in result.citations]
+            source_summary = AskSourceSummary.model_validate(result.source_summary)
+            thinking_content = "".join(handle.state.thinking_fragments).strip() or None
+            finalized_message = session_service.finalize_exchange(
+                owner_user_id=current_user.user_id,
+                session_id=stream_session.session_id,
+                assistant_message_id=stream_session.assistant_message_id,
+                assistant_content=result.response.answer,
+                assistant_status=resolve_final_message_status(result.status),
+                trace_id=stream_session.trace_id,
+                citations=citations,
+                knowledge_scope=source_summary.knowledge_scope,
+                source_summary=source_summary,
+                thinking_content=thinking_content,
+            )
+            previous_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=stream_session.session_id)
+            previous_title = previous_session.title if previous_session else ""
+            updated_summary = session_service.maybe_promote_title_after_success(
+                owner_user_id=current_user.user_id,
+                session_id=stream_session.session_id,
+                enabled=user_settings.chat.auto_generate_title_for_new_session,
+            )
+            title_updated = bool(updated_summary and updated_summary.title != previous_title)
+            refreshed_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=stream_session.session_id)
+            memory_state = refreshed_session.memory_state.model_dump(mode="json") if refreshed_session and refreshed_session.memory_state else None
+            context_source = {
+                "recent_message_count": result.context_summary.get("session_message_count", 0),
+                "summary_present": result.context_summary.get("summary_present", False),
+                "citation_count": len(citations),
+            }
+            metadata_payload = {
+                "answer": result.response.answer,
+                "status": result.status,
+                "citations": [citation.model_dump() for citation in citations],
+                "source_summary": source_summary.model_dump(),
+                "trace_id": stream_session.trace_id,
+                "user_message_id": stream_session.user_message_id,
+                "assistant_message_id": stream_session.assistant_message_id,
+                "message_id": finalized_message.message_id if finalized_message is not None else stream_session.assistant_message_id,
+                "thinking_content": thinking_content,
+                "memory_state": memory_state,
+                "context_source": context_source,
+                "request_group_id": stream_session.request_group_id,
+                "provider_ref": stream_session.provider_ref,
+                "title_updated": title_updated,
+            }
+            stream_session.append(event="metadata", data=metadata_payload)
+            stream_session.append(
+                event="status",
+                data=build_stream_status_payload(
+                    status="done",
+                    stream_session=stream_session,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    recovered=attempt > 1,
+                ),
+            )
+            stream_session.append(event="done", data=metadata_payload)
+            stream_session.complete()
+            return
+        except ChatProviderError as exc:
+            if not stream_session.has_first_answer_token and attempt < max_attempts and is_retryable_provider_error(exc, first_token_received=False):
+                time.sleep(get_retry_delay(attempt))
+                attempt += 1
+                continue
+
+            emit_terminal_stream_error(
+                stream_session=stream_session,
+                session_service=session_service,
+                owner_user_id=current_user.user_id,
+                requested_scope=requested_scope,
+                answer="本次未能连接到模型，请稍后重试或检查模型设置。",
+                attempt=attempt,
+                max_attempts=max_attempts,
+            )
+            return
+        except Exception:
+            if not stream_session.has_first_answer_token and attempt < max_attempts:
+                time.sleep(get_retry_delay(attempt))
+                attempt += 1
+                continue
+
+            emit_terminal_stream_error(
+                stream_session=stream_session,
+                session_service=session_service,
+                owner_user_id=current_user.user_id,
+                requested_scope=requested_scope,
+                answer="本次未能连接到模型，请稍后重试或检查模型设置。",
+                attempt=attempt,
+                max_attempts=max_attempts,
+            )
+            return
 
 
 @router.post("", response_model=SessionSummary)
@@ -169,7 +498,20 @@ def ask_in_session(
         return validation_error
 
     try:
-        result = AIRuntimeOrchestrator().run(chat_request)
+        settings_service = get_settings_service()
+        user_settings = settings_service.get_user_settings(owner_user_id=current_user.user_id)
+        _, chat_provider = settings_service.build_chat_provider(
+            owner_user_id=current_user.user_id,
+            provider_override=payload.provider_override,
+        )
+        result = AIRuntimeOrchestrator(chat_provider=chat_provider).run(chat_request)
+    except SettingsValidationError as exc:
+        return build_error_response(
+            status_code=422,
+            answer=str(exc),
+            trace_id=chat_request.trace_id,
+            knowledge_scope=requested_scope,
+        )
     except Exception:
         source_summary = empty_source_summary(requested_scope)
         session_service.record_exchange(
@@ -204,10 +546,10 @@ def ask_in_session(
         source_summary=source_summary,
     )
     if result.status == "ok":
-        session_service.maybe_promote_title_from_first_question(
+        session_service.maybe_promote_title_after_success(
             owner_user_id=current_user.user_id,
             session_id=session_id,
-            question=chat_request.user_input,
+            enabled=user_settings.chat.auto_generate_title_for_new_session,
         )
 
     response = AskResponse(
@@ -242,157 +584,50 @@ def ask_in_session_stream(
     if validation_error is not None:
         return validation_error
 
-    user_message, assistant_placeholder = session_service.begin_exchange(
-        owner_user_id=current_user.user_id,
-        session_id=session_id,
-        user_content=chat_request.user_input,
-    )
+    request_group_id = payload.request_group_id or f"reqgrp-{uuid4().hex[:12]}"
+    registry = get_active_stream_registry()
+    stream_session = registry.get(request_group_id)
 
-    def event_stream():
-        stream_handle = None
-        thinking_content: str | None = None
-        yield build_sse_event(
-            "message_start",
-            {
-                "trace_id": chat_request.trace_id,
-                "user_message_id": user_message.message_id,
-                "assistant_message_id": assistant_placeholder.message_id,
-            },
-        )
-        yield build_sse_event(
-            "status",
-            {
-                "status": "pending",
-                "trace_id": chat_request.trace_id,
-                "user_message_id": user_message.message_id,
-                "assistant_message_id": assistant_placeholder.message_id,
-            },
-        )
-        yield build_sse_event(
-            "status",
-            {
-                "status": "thinking",
-                "trace_id": chat_request.trace_id,
-                "user_message_id": user_message.message_id,
-                "assistant_message_id": assistant_placeholder.message_id,
-            },
-        )
-        yield build_sse_event(
-            "thinking_delta",
-            {
-                "delta": "正在梳理上下文。",
-                "synthetic": True,
-                "trace_id": chat_request.trace_id,
-                "user_message_id": user_message.message_id,
-                "assistant_message_id": assistant_placeholder.message_id,
-            },
-        )
-
-        try:
-            stream_handle = AIRuntimeOrchestrator().run_stream(chat_request)
-            for event in stream_handle.events:
-                if event.kind not in {"status", "thinking_delta", "answer_delta"}:
-                    continue
-                payload_data = {
-                    **event.data,
-                    "trace_id": chat_request.trace_id,
-                    "user_message_id": user_message.message_id,
-                    "assistant_message_id": assistant_placeholder.message_id,
-                }
-                yield build_sse_event(event.kind, payload_data)
-
-            result = stream_handle.state.runtime_result
-        except Exception:
-            result = None
-        else:
-            aggregated_thinking = "".join(stream_handle.state.thinking_fragments).strip()
-            thinking_content = aggregated_thinking or None
-
-        if stream_handle is not None and thinking_content is None:
-            aggregated_thinking = "".join(stream_handle.state.thinking_fragments).strip()
-            thinking_content = aggregated_thinking or None
-
-        if result is None:
-            result_status = "provider_error"
-            answer = "当前问答服务暂不可用，请稍后重试。"
-            citations: list[AskCitation] = []
-            source_summary = empty_source_summary(requested_scope)
-        else:
-            result_status = result.status
-            answer = result.response.answer
-            citations = [AskCitation.model_validate(item) for item in result.citations]
-            source_summary = AskSourceSummary.model_validate(result.source_summary)
-
-        finalized_message = session_service.finalize_exchange(
+    if stream_session is not None:
+        if stream_session.owner_user_id != current_user.user_id or stream_session.session_id != session_id:
+            raise HTTPException(status_code=409, detail="request_group_id is already bound to another session.")
+    else:
+        user_message, assistant_placeholder = session_service.begin_exchange(
             owner_user_id=current_user.user_id,
             session_id=session_id,
-            assistant_message_id=assistant_placeholder.message_id,
-            assistant_content=answer,
-            assistant_status=resolve_final_message_status(result_status),
-            trace_id=chat_request.trace_id,
-            citations=citations,
-            knowledge_scope=source_summary.knowledge_scope,
-            source_summary=source_summary,
-            thinking_content=thinking_content,
+            user_content=chat_request.user_input,
         )
-        if result_status == "ok":
-            session_service.maybe_promote_title_from_first_question(
-                owner_user_id=current_user.user_id,
-                session_id=session_id,
-                question=chat_request.user_input,
-            )
+        stream_session = registry.create(
+            request_group_id=request_group_id,
+            owner_user_id=current_user.user_id,
+            session_id=session_id,
+            user_message_id=user_message.message_id,
+            assistant_message_id=assistant_placeholder.message_id,
+            trace_id=chat_request.trace_id,
+        )
+        threading.Thread(
+            target=run_stream_worker,
+            kwargs={
+                "stream_session": stream_session,
+                "chat_request": chat_request,
+                "current_user": current_user,
+                "requested_scope": requested_scope,
+                "provider_override": payload.provider_override,
+            },
+            daemon=True,
+        ).start()
 
-        refreshed_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=session_id)
-        memory_state = refreshed_session.memory_state.model_dump(mode="json") if refreshed_session and refreshed_session.memory_state else None
-        context_source = {
-            "recent_message_count": result.context_summary.get("session_message_count", 0) if result is not None else 0,
-            "summary_present": result.context_summary.get("summary_present", False) if result is not None else False,
-            "citation_count": len(citations),
-        }
-        metadata_payload = {
-            "answer": answer,
-            "status": result_status,
-            "citations": [citation.model_dump() for citation in citations],
-            "source_summary": source_summary.model_dump(),
-            "trace_id": chat_request.trace_id,
-            "user_message_id": user_message.message_id,
-            "assistant_message_id": assistant_placeholder.message_id,
-            "message_id": finalized_message.message_id if finalized_message is not None else assistant_placeholder.message_id,
-            "thinking_content": thinking_content,
-            "memory_state": memory_state,
-            "context_source": context_source,
-        }
-        yield build_sse_event("metadata", metadata_payload)
+    resume_cursor = payload.resume_cursor or 0
 
-        if result_status == "ok":
+    def event_stream():
+        for buffered_event in stream_session.subscribe(after_cursor=resume_cursor):
             yield build_sse_event(
-                "status",
+                buffered_event.event,
                 {
-                    "status": "done",
-                    "trace_id": chat_request.trace_id,
-                    "user_message_id": user_message.message_id,
-                    "assistant_message_id": assistant_placeholder.message_id,
+                    **buffered_event.data,
+                    "event_seq": buffered_event.seq,
                 },
             )
-            yield build_sse_event("done", metadata_payload)
-            return
-
-        yield build_sse_event(
-            "status",
-            {
-                "status": "error",
-                "trace_id": chat_request.trace_id,
-                "user_message_id": user_message.message_id,
-                "assistant_message_id": assistant_placeholder.message_id,
-            },
-        )
-        yield build_sse_event(
-            "error",
-            {
-                **metadata_payload,
-                "message": answer,
-            },
-        )
 
     return StreamingResponse(
         event_stream(),

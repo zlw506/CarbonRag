@@ -24,6 +24,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate } from "react-router-dom";
+import { useSettings } from "../../app/SettingsContext";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { getSession } from "../../services/sessions";
 import {
@@ -78,6 +79,7 @@ const emptyReportSourceSummary: ReportSourceSummary = {
 
 export function ReportPage() {
     const navigate = useNavigate();
+    const { getActiveProviderOverride } = useSettings();
     const { activeSessionId, refreshSessions } = useWorkbenchShellContext();
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
     const [reports, setReports] = useState<ReportSummary[]>([]);
@@ -204,6 +206,7 @@ export function ReportPage() {
                 source_message_ids: selectedMessageIds,
                 carbon_result_id: selectedCarbonResultId,
                 output_format: "markdown",
+                provider_override: getActiveProviderOverride(),
             });
             await loadSessionWorkspace(activeSessionId);
             setSelectedReportId(created.report_id);

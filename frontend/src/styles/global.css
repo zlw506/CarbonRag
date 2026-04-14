@@ -455,6 +455,49 @@ body {
     gap: 2px;
 }
 
+.settings-page {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+
+.settings-page--loading {
+    display: flex;
+    min-height: 320px;
+    align-items: center;
+    justify-content: center;
+}
+
+.settings-page > .ant-alert,
+.settings-page > .ant-card:last-child {
+    grid-column: 1 / -1;
+}
+
+.settings-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.settings-theme-grid--extended {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-provider-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.settings-provider-columns {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) minmax(320px, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
 .chat-workbench {
     display: grid;
     grid-template-columns: 220px minmax(0, 1fr);
@@ -982,13 +1025,17 @@ body {
 }
 
 .chat-live-state--pending,
-.chat-live-state--thinking {
+.chat-live-state--connecting,
+.chat-live-state--thinking,
+.chat-live-state--reconnecting {
     color: var(--cr-evidence-public);
     background: var(--cr-primary-soft);
 }
 
 .chat-live-state--thinking .chat-live-state__dot,
-.chat-live-state--pending .chat-live-state__dot {
+.chat-live-state--pending .chat-live-state__dot,
+.chat-live-state--connecting .chat-live-state__dot,
+.chat-live-state--reconnecting .chat-live-state__dot {
     animation: chat-thinking-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1003,6 +1050,19 @@ body {
 
 .chat-message__details .ant-collapse-header {
     padding-inline: 0 !important;
+}
+
+:root[data-chat-density="compact"] .chat-message__card .ant-card-body,
+:root[data-chat-density="compact"] .report-workbench__markdown {
+    padding: 16px 18px;
+}
+
+:root[data-chat-density="compact"] .chat-message-stream {
+    gap: 14px;
+}
+
+:root[data-font-scale="large"] {
+    font-size: 17px;
 }
 
 .chat-message__details .ant-collapse-content-box {
@@ -1424,7 +1484,11 @@ body {
     }
 
     .admin-grid,
-    .admin-stats {
+    .admin-stats,
+    .settings-page,
+    .settings-provider-columns,
+    .settings-theme-grid,
+    .settings-theme-grid--extended {
         grid-template-columns: 1fr;
     }
 }

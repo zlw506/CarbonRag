@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from app.settings.schemas import LocalProviderOverride
 
 ReportType = Literal["policy_summary", "mixed_analysis", "carbon_summary"]
 ReportOutputFormat = Literal["markdown"]
@@ -43,8 +44,11 @@ class CreateReportRequest(BaseModel):
     source_message_ids: list[str] = Field(default_factory=list)
     carbon_result_id: str | None = None
     output_format: ReportOutputFormat = "markdown"
+    request_group_id: str | None = None
+    resume_cursor: int | None = Field(default=None, ge=0)
+    provider_override: LocalProviderOverride | None = None
 
-    @field_validator("session_id", "title", "carbon_result_id")
+    @field_validator("session_id", "title", "carbon_result_id", "request_group_id")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:

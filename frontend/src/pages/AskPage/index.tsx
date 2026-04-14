@@ -25,12 +25,14 @@ import {
     Tag,
     Tooltip,
     Typography,
+    message as antdMessage,
 } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
+import { useSettings } from "../../app/SettingsContext";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
@@ -55,11 +57,12 @@ import type {
 import type { KnowledgeItem } from "../../types/knowledge";
 import type { SessionAttachment, SessionDetail, SessionMessage, SessionSummary } from "../../types/session";
 
-type AssistantLifecycleState = "pending" | "thinking" | "streaming" | "done" | "error";
+type AssistantLifecycleState = "pending" | "connecting" | "thinking" | "reconnecting" | "streaming" | "done" | "error" | "failed";
 
 interface ChatMessageView extends SessionMessage {
     client_state?: AssistantLifecycleState;
     thinking_content?: string | null;
+    status_note?: string | null;
 }
 
 interface ChatDraft {
@@ -75,6 +78,7 @@ interface StreamContextSource {
 
 export function AskPage() {
     const { user } = useAuth();
+    const { settings, getActiveProviderOverride } = useSettings();
     const { activeSessionId, refreshSessions } = useWorkbenchShellContext();
     const [searchParams] = useSearchParams();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -104,6 +108,9 @@ export function AskPage() {
     const [uploadError, setUploadError] = useState<string | null>(null);
     const focusModeEnabled = searchParams.get("focus") !== "0";
     const isAdmin = user?.role === "admin";
+    const sendShortcut = settings?.chat.send_shortcut ?? "enter";
+    const reconnectNoticeMode = settings?.chat.reconnect_notice_mode ?? "message_only";
+    const shouldShowContextDebug = settings?.chat.show_context_debug_by_default ?? false;
 
     const visibleMessages = useMemo<ChatMessageView[]>(() => {
         const baseMessages = (activeSession?.messages ?? []) as ChatMessageView[];
@@ -152,6 +159,13 @@ export function AskPage() {
             streamAbortRef.current?.abort();
         };
     }, []);
+
+    useEffect(() => {
+        if (!settings) {
+            return;
+        }
+        setSidePanelOpen(settings.chat.show_evidence_panel_by_default);
+    }, [settings?.chat.show_evidence_panel_by_default]);
 
     useEffect(() => {
         const container = messageStreamRef.current;
@@ -216,6 +230,7 @@ export function AskPage() {
 
     async function handleSubmit() {
         const trimmed = question.trim();
+        const providerOverride = getActiveProviderOverride();
         if (!activeSessionId) {
             setTransportError("当前没有可用会话，请先创建会话。");
             return;
@@ -252,10 +267,11 @@ export function AskPage() {
                 role: "assistant",
                 content: "",
                 created_at: now,
-                status: "pending",
+                status: "connecting",
                 citations: [],
-                client_state: "pending",
+                client_state: "connecting",
                 thinking_content: "",
+                status_note: "正在连接模型…",
             },
         });
         setQuestion("");
@@ -269,6 +285,7 @@ export function AskPage() {
                     knowledge_scope: knowledgeScope,
                     top_k: 5,
                     attached_file_ids: knowledgeScope === "public" ? [] : draftAttachedDocIds,
+                    provider_override: providerOverride,
                 },
                 {
                 onMessageStart: (event) => {
@@ -283,20 +300,23 @@ export function AskPage() {
                             ...draft.assistantMessage,
                             message_id: event.assistant_message_id ?? draft.assistantMessage.message_id,
                             trace_id: event.trace_id ?? draft.assistantMessage.trace_id ?? null,
-                            status: "thinking",
-                            client_state: "thinking",
+                            status: "connecting",
+                            client_state: "connecting",
+                            status_note: "正在连接模型…",
                         },
                     }));
                 },
                 onStatus: (event) => {
+                    maybeShowReconnectToast(event, reconnectNoticeMode);
                     updateStreamDraftState((draft) => {
-                        const nextState = mapLifecycleStatusToMessageState(event.status);
+                        const nextState = mapLifecycleStatusToMessageState(event.status, event.attempt, event.max_attempts, event.recovered);
                         return {
                             ...draft,
                             assistantMessage: {
                                 ...draft.assistantMessage,
                                 status: nextState.status,
                                 client_state: nextState.client_state,
+                                status_note: nextState.status_note,
                             },
                         };
                     });
@@ -312,6 +332,7 @@ export function AskPage() {
                             ...draft.assistantMessage,
                             status: "thinking",
                             client_state: "thinking",
+                            status_note: "正在结合上下文组织回答…",
                             thinking_content: event.synthetic ? draft.assistantMessage.thinking_content ?? "" : `${draft.assistantMessage.thinking_content ?? ""}${delta}`,
                         },
                     }));
@@ -327,6 +348,7 @@ export function AskPage() {
                             ...draft.assistantMessage,
                             status: "streaming",
                             client_state: "streaming",
+                            status_note: "已建立连接，正在输出…",
                             content: `${draft.assistantMessage.content}${delta}`,
                         },
                     }));
@@ -350,6 +372,7 @@ export function AskPage() {
                             ...mergeStreamMetadata(draft.assistantMessage, event),
                             status: event.status ?? "ok",
                             client_state: "done",
+                            status_note: event.title_updated ? "标题已自动更新" : draft.assistantMessage.status_note ?? null,
                         },
                     }));
                 },
@@ -360,8 +383,9 @@ export function AskPage() {
                         assistantMessage: {
                             ...draft.assistantMessage,
                             status: event.status ?? "provider_error",
-                            client_state: "error",
+                            client_state: event.status === "provider_error" ? "failed" : "error",
                             content: event.message ?? event.detail ?? "当前问答服务暂不可用，请稍后重试。",
+                            status_note: "本次未能连接到模型，请稍后重试或检查模型设置",
                         },
                     }));
                 },
@@ -437,7 +461,12 @@ export function AskPage() {
             return;
         }
 
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+        const shouldSendWithEnter =
+            sendShortcut === "enter"
+                ? event.key === "Enter" && !event.shiftKey
+                : event.key === "Enter" && (event.ctrlKey || event.metaKey);
+
+        if (shouldSendWithEnter && !event.nativeEvent.isComposing) {
             event.preventDefault();
             if (!sending) {
                 void handleSubmit();
@@ -612,16 +641,18 @@ export function AskPage() {
                             <Popover trigger="click" placement="bottomRight" content={composerSettings}>
                                 <Button icon={<MoreOutlined />}>更多设置</Button>
                             </Popover>
-                            <Popover trigger="click" placement="bottomRight" content={contextDetailOverlay}>
-                                <button
-                                    type="button"
-                                    className="chat-context-circle"
-                                    style={{ background: contextCircleBackground }}
-                                    aria-label={`查看上下文详情，当前占用 ${contextUsagePercent}%`}
-                                >
-                                    <span className="chat-context-circle__core">{contextUsagePercent}</span>
-                                </button>
-                            </Popover>
+                            {shouldShowContextDebug ? (
+                                <Popover trigger="click" placement="bottomRight" content={contextDetailOverlay}>
+                                    <button
+                                        type="button"
+                                        className="chat-context-circle"
+                                        style={{ background: contextCircleBackground }}
+                                        aria-label={`查看上下文详情，当前占用 ${contextUsagePercent}%`}
+                                    >
+                                        <span className="chat-context-circle__core">{contextUsagePercent}</span>
+                                    </button>
+                                </Popover>
+                            ) : null}
                             <Button icon={<SettingOutlined />} onClick={() => setSidePanelOpen(true)}>
                                 参考资料 {currentSourceSummary.total_citation_count > 0 ? `(${currentSourceSummary.total_citation_count})` : ""}
                             </Button>
@@ -644,6 +675,7 @@ export function AskPage() {
                                             message={message}
                                             sessionId={activeSession.session_id}
                                             activeCitation={message.message_id === selectedCitationMessageId}
+                                            expandThinkingByDefault={settings?.chat.expand_thinking_by_default ?? false}
                                             onSelectCitations={() => openCitationPanel(message.message_id)}
                                         />
                                     ))
@@ -784,10 +816,11 @@ interface MessageBubbleProps {
     message: ChatMessageView;
     sessionId: string;
     activeCitation: boolean;
+    expandThinkingByDefault: boolean;
     onSelectCitations: () => void;
 }
 
-function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }: MessageBubbleProps) {
+function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDefault, onSelectCitations }: MessageBubbleProps) {
     const isAssistant = message.role === "assistant";
     const isSystem = message.role === "system";
     const hasCitations = isAssistant && message.citations.length > 0;
@@ -800,7 +833,7 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
     const shouldShowDetails = Boolean(message.trace_id) || Boolean(message.trace_id && (!message.client_state || message.client_state === "done" || message.client_state === "error"));
     const liveStateText = message.client_state ? lifecycleStatusTextMap[message.client_state] : null;
     const [thinkingExpanded, setThinkingExpanded] = useState(
-        message.client_state === "pending" || message.client_state === "thinking",
+        expandThinkingByDefault || message.client_state === "pending" || message.client_state === "thinking",
     );
     const previousClientStateRef = useRef<AssistantLifecycleState | undefined>(message.client_state);
 
@@ -821,7 +854,7 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
         }
 
         previousClientStateRef.current = currentState;
-    }, [hasRealThinkingContent, message.client_state, message.message_id]);
+    }, [expandThinkingByDefault, hasRealThinkingContent, message.client_state, message.message_id]);
 
     const thinkingCollapseItems: CollapseProps["items"] = shouldShowThinking
         ? [
@@ -870,13 +903,16 @@ function MessageBubble({ message, sessionId, activeCitation, onSelectCitations }
                         <Typography.Text className={isAssistant ? "chat-message__speaker chat-message__speaker--assistant" : isSystem ? "chat-message__speaker chat-message__speaker--system" : "chat-message__speaker chat-message__speaker--user"}>
                             {isAssistant ? "CarbonRag" : isSystem ? "系统消息" : "我"}
                         </Typography.Text>
-                        {message.client_state && message.client_state !== "done" && message.client_state !== "error" ? (
+                        {message.client_state && ["pending", "connecting", "thinking", "reconnecting", "streaming"].includes(message.client_state) ? (
                             <span className={`chat-live-state chat-live-state--${message.client_state}`}>
                                 <span className="chat-live-state__dot" aria-hidden="true" />
                                 <span>{liveStateText}</span>
                             </span>
                         ) : lifecycleTag ? (
                             <Tag color={lifecycleTag.color}>{lifecycleTag.label}</Tag>
+                        ) : null}
+                        {message.status_note ? (
+                            <Typography.Text type="secondary">{message.status_note}</Typography.Text>
                         ) : null}
                         {finalStatusTag && finalStatusLabel ? <Tag color={finalStatusTag}>{finalStatusLabel}</Tag> : null}
                         <Typography.Text type="secondary">{formatTimestamp(message.created_at)}</Typography.Text>
@@ -1024,18 +1060,24 @@ const compactionStatusLabelMap = {
 
 const lifecycleTagMap = {
     pending: { color: "default", label: "等待开始" },
+    connecting: { color: "processing", label: "正在连接" },
     thinking: { color: "processing", label: "思考中" },
+    reconnecting: { color: "warning", label: "正在重连" },
     streaming: { color: "blue", label: "正在输出" },
     done: { color: "green", label: "已完成" },
     error: { color: "red", label: "生成失败" },
+    failed: { color: "red", label: "连接失败" },
 } as const;
 
 const lifecycleStatusTextMap = {
     pending: "正在建立回答位",
+    connecting: "正在连接模型",
     thinking: "思考中",
+    reconnecting: "正在重连",
     streaming: "正在输出",
     done: "已完成",
     error: "生成失败",
+    failed: "连接失败",
 } as const;
 
 function getAttachedPrivateSampleIds(attachedFiles: SessionAttachment[]) {
@@ -1336,20 +1378,60 @@ function mergeStreamMetadata(message: ChatMessageView, event: AskStreamMetadataE
     } as ChatMessageView;
 }
 
-function mapLifecycleStatusToMessageState(status: AskStreamStatusEvent["status"]) {
+function maybeShowReconnectToast(
+    event: AskStreamStatusEvent,
+    reconnectNoticeMode: "message_only" | "toast_and_message",
+) {
+    if (reconnectNoticeMode !== "toast_and_message") {
+        return;
+    }
+    if (event.status === "reconnecting" && event.attempt && event.max_attempts) {
+        antdMessage.info(`连接中断，正在重试（${event.attempt}/${event.max_attempts}）…`);
+        return;
+    }
+    if (event.recovered && event.attempt) {
+        antdMessage.success(`第 ${event.attempt} 次重连成功`);
+    }
+}
+
+function mapLifecycleStatusToMessageState(
+    status: AskStreamStatusEvent["status"],
+    attempt?: number | null,
+    maxAttempts?: number | null,
+    recovered?: boolean | null,
+) {
+    const retrySuffix = attempt && maxAttempts ? `（${attempt}/${maxAttempts}）` : "";
     switch (status) {
         case "pending":
-            return { status: "pending" as const, client_state: "pending" as const };
+            return { status: "pending" as const, client_state: "pending" as const, status_note: "正在准备回答位…" };
+        case "connecting":
+            return { status: "connecting" as const, client_state: "connecting" as const, status_note: "正在连接模型…" };
         case "thinking":
-            return { status: "thinking" as const, client_state: "thinking" as const };
+            return {
+                status: "thinking" as const,
+                client_state: "thinking" as const,
+                status_note: recovered ? `第 ${attempt ?? 1} 次重连成功` : "正在组织上下文与回答…",
+            };
+        case "reconnecting":
+            return {
+                status: "reconnecting" as const,
+                client_state: "reconnecting" as const,
+                status_note: `连接中断，正在重试${retrySuffix}…`,
+            };
         case "streaming":
-            return { status: "streaming" as const, client_state: "streaming" as const };
+            return {
+                status: "streaming" as const,
+                client_state: "streaming" as const,
+                status_note: recovered ? `第 ${attempt ?? 1} 次重连成功` : "已建立连接，正在输出…",
+            };
         case "done":
-            return { status: "done" as const, client_state: "done" as const };
+            return { status: "done" as const, client_state: "done" as const, status_note: null };
         case "error":
-            return { status: "error" as const, client_state: "error" as const };
+            return { status: "provider_error" as const, client_state: "error" as const, status_note: "当前生成已中断。" };
+        case "failed":
+            return { status: "provider_error" as const, client_state: "failed" as const, status_note: "本次未能连接到模型，请稍后重试或检查模型设置" };
         default:
-            return { status: null, client_state: "pending" as const };
+            return { status: null, client_state: "pending" as const, status_note: null };
     }
 }
 

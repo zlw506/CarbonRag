@@ -11,6 +11,7 @@ from app.api.v1.endpoints.private_samples import router as private_samples_route
 from app.api.v1.endpoints.reports import router as reports_router
 from app.api.v1.endpoints.me import router as me_router
 from app.api.v1.endpoints.sessions import router as sessions_router
+from app.api.v1.endpoints.settings import router as settings_router
 from app.api.v1.endpoints.system import router as system_router
 
 router = APIRouter()
@@ -25,4 +26,5 @@ router.include_router(me_router, tags=["me"])
 router.include_router(private_samples_router, tags=["private-samples"])
 router.include_router(reports_router, tags=["reports"])
 router.include_router(sessions_router, tags=["sessions"])
+router.include_router(settings_router, tags=["settings"])
 router.include_router(system_router, tags=["system"])

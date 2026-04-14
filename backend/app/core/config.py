@@ -10,7 +10,7 @@ LOCAL_PROVIDER_CONFIG_PATH = BACKEND_DIR / "local_provider_config.json"
 
 class Settings(BaseSettings):
     app_name: str = "CarbonRag"
-    app_version: str = "v1.1.3"
+    app_version: str = "v1.1.13"
     app_env: str = "development"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     model_name: str = "gpt-5.4"
     model_temperature: float = 0.2
     model_max_tokens: int = 4096
+    model_timeout_seconds: float = 30.0
+    model_max_retries: int = 2
 
     embedding_api_base_url: str = "https://api.example.com/v1"
     embedding_api_key: str = "replace-with-embedding-api-key"
@@ -34,6 +36,7 @@ class Settings(BaseSettings):
     upload_dir: str = "./data/outputs/uploads"
     database_url: str | None = None
     memory_backend: str | None = None
+    settings_encryption_key: str = "carbonrag-dev-settings-key"
     memory_context_budget_estimate: int = 258_000
     memory_compaction_trigger_estimate: int = 206_400
     memory_recent_turn_window: int = 6

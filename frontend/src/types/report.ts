@@ -1,4 +1,5 @@
 import type { CarbonCalculationSummary } from "./carbon";
+import type { LocalProviderOverride } from "./settings";
 
 export type ReportType = "policy_summary" | "mixed_analysis" | "carbon_summary";
 export type ReportCitationSourceType = "public_policy" | "private_sample" | "carbon_factor";
@@ -60,6 +61,9 @@ export interface CreateReportRequest {
     source_message_ids?: string[];
     carbon_result_id?: string;
     output_format?: "markdown";
+    request_group_id?: string;
+    resume_cursor?: number;
+    provider_override?: LocalProviderOverride;
 }
 
 export interface UpdateReportRequest {

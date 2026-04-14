@@ -9,6 +9,7 @@ import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { LoginPage } from "../pages/LoginPage";
 import { MyKnowledgePage } from "../pages/MyKnowledgePage";
 import { ReportPage } from "../pages/ReportPage";
+import { SettingsPage } from "../pages/SettingsPage";
 
 function FullscreenLoading() {
     return (
@@ -106,6 +107,7 @@ export const router = createBrowserRouter([
                     { path: "my-knowledge", element: <MyKnowledgePage /> },
                     { path: "carbon-calc", element: <CarbonCalcPage /> },
                     { path: "report", element: <ReportPage /> },
+                    { path: "settings", element: <SettingsPage /> },
                     {
                         element: <AdminRoute />,
                         children: [{ path: "admin", element: <AdminPlaceholderPage /> }],

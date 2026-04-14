@@ -13,6 +13,7 @@ class ChatProviderConfig:
     temperature: float
     max_tokens: int
     timeout_seconds: float
+    max_retries: int
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,8 @@ def get_ai_runtime_config() -> AIRuntimeConfig:
         model_name=local_override.model_name if local_override else settings.model_name,
         temperature=settings.model_temperature,
         max_tokens=settings.model_max_tokens,
-        timeout_seconds=30.0,
+        timeout_seconds=settings.model_timeout_seconds,
+        max_retries=settings.model_max_retries,
     )
     embedding_provider = EmbeddingProviderConfig(
         base_url=settings.embedding_api_base_url,

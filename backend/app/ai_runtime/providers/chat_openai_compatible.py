@@ -21,6 +21,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
     temperature: float = 0.2
     max_tokens: int = 4096
     timeout_seconds: float = 30.0
+    max_retries: int = 2
     mode: str = "openai_compatible"
 
     def describe(self) -> ProviderDescriptor:
