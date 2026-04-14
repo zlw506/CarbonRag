@@ -62,25 +62,29 @@ export function SessionRail({
                     {loading ? (
                         <div className="chat-workbench__loading"><Spin /></div>
                     ) : sessions.length ? (
-                        <List
-                            className="chat-session-list"
-                            dataSource={sessions}
-                            locale={{ emptyText }}
-                            renderItem={(session) => (
-                                <List.Item
-                                    className={activeSessionId === session.session_id
-                                        ? "chat-session-list__item chat-session-list__item--active"
-                                        : "chat-session-list__item"}
-                                    onClick={() => onSelectSession(session.session_id)}
-                                >
-                                    <div className="chat-session-list__content">
-                                        <Typography.Text strong>{session.title}</Typography.Text>
-                                    </div>
-                                </List.Item>
-                            )}
-                        />
+                        <div className="chat-session-rail__scroll">
+                            <List
+                                className="chat-session-list"
+                                dataSource={sessions}
+                                locale={{ emptyText }}
+                                renderItem={(session) => (
+                                    <List.Item
+                                        className={activeSessionId === session.session_id
+                                            ? "chat-session-list__item chat-session-list__item--active"
+                                            : "chat-session-list__item"}
+                                        onClick={() => onSelectSession(session.session_id)}
+                                    >
+                                        <div className="chat-session-list__content">
+                                            <Typography.Text strong>{session.title}</Typography.Text>
+                                        </div>
+                                    </List.Item>
+                                )}
+                            />
+                        </div>
                     ) : (
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
+                        <div className="chat-session-rail__empty">
+                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
+                        </div>
                     )}
                 </div>
             ) : null}

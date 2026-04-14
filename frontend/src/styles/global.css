@@ -242,7 +242,7 @@ body {
 
 .app-shell__session-region {
     display: flex;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
     margin-top: 12px;
     overflow: hidden;
@@ -323,10 +323,10 @@ body {
 
 .app-shell__sider-footer {
     flex: 0 0 auto;
-    margin-top: 12px;
+    margin-top: auto;
     display: flex;
     justify-content: center;
-    padding-top: 0;
+    padding-top: 12px;
 }
 
 .app-shell__focus-user-trigger {
@@ -544,23 +544,36 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    overflow: hidden;
+}
+
+.chat-session-rail__scroll {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
     padding-right: 2px;
     padding-bottom: 6px;
+    scrollbar-gutter: stable;
     -webkit-overflow-scrolling: touch;
 }
 
-.chat-session-rail__body .ant-spin-nested-loading,
-.chat-session-rail__body .ant-spin-container,
-.chat-session-rail__body .ant-list {
+.chat-session-rail__scroll .ant-list,
+.chat-session-rail__scroll .ant-list-items {
     display: block;
-    min-height: 100%;
-    overflow: visible;
 }
 
-.chat-session-rail__body .ant-empty {
+.chat-session-rail__empty,
+.chat-session-rail__body .chat-workbench__loading {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: center;
+    justify-content: center;
+}
+
+.chat-session-rail__empty .ant-empty {
     margin: auto 0;
 }
 
