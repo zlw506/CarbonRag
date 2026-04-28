@@ -1,0 +1,24 @@
+project: CarbonRag
+version: V1.2.1
+profile: core
+workflow:
+  source_of_truth: openspec/specs
+  proposed_changes: openspec/changes
+  required_flow:
+    - propose
+    - apply
+    - archive
+governance:
+  main_owner: Git-ys1
+  modules:
+    - ai-runtime
+    - conversation-memory
+    - frontend-shell-settings
+    - auth-governance
+    - knowledge-rag
+    - carbon-report-feedback
+    - devops-release
+    - governance
+notes:
+  - OpenSpec was introduced as a V1.2.1 local #1 pilot.
+  - spec-gen output is draft material until manually reviewed.

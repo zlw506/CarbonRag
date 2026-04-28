@@ -1,6 +1,6 @@
 # CarbonRag
 
-Current status: `V1.1.8B UX audit remediation in progress`
+Current status: `V1.2.1 OpenSpec pilot and multi-team governance in progress`
 
 ## Project Positioning
 CarbonRag is an SME-oriented carbon policy and enterprise application workbench. The current product line has already moved beyond a single-user prototype:
@@ -12,6 +12,7 @@ CarbonRag is an SME-oriented carbon policy and enterprise application workbench.
 - feedback persistence
 - local-dev and cloud-stable dual environment strategy
 - main / release / feature branch discipline
+- OpenSpec pilot specs and PR governance for multi-team work
 
 V1.1.0 adds the first manageable private knowledge flow on top of identity and isolation:
 
@@ -54,11 +55,31 @@ V1.1.7 is the current chat UX audit and product-feel polish pass:
 These two environments do not share runtime data. Different session history, reports, calculations, and feedback between local and cloud are expected.
 
 ## Branch / Release Discipline
-- `main`: stable source baseline after accepted releases
-- `feature/*`: active development branches
-- `release/cloud-stable`: deployment line for Netlify and VPS
+- `main`: stable source baseline and current public deployment baseline
+- `feature/*`: historical and single-team development branches
+- `t1/v1.2/<topic>`: #1 team development branches
+- `t2/v1.2/<topic>`: #2 fork-and-PR development branches
+- `release/cloud-stable`: retained compatibility release branch, no longer the default deployment line
 
-`main` is the source baseline that should remain coherent and accepted; `release/cloud-stable` is the branch that actually powers cloud deployment; `feature/*` branches are where new work happens first.
+`main` is the source baseline that should remain coherent, accepted, and deployable. From V1.2.1, public deployment documentation treats `main` as the default release baseline. `release/cloud-stable` is retained for compatibility while deployment settings are migrated or verified.
+
+## V1.2 Governance
+
+- `Git-ys1` is the final `main` administrator and PR reviewer.
+- #1 work uses `t1/v1.2/<topic>` branches in the upstream repository.
+- #2 starts with fork-and-PR using `t2/v1.2/<topic>` branches.
+- Every PR to `main` must include OpenSpec change id, affected modules, risk, verification, and approval fields.
+- CODEOWNERS routes M1-M8 module changes to `@Git-ys1` until additional owners are added.
+- Version notation is frozen: `VA.B.0` means director-level planning, `VA.B.C` means implementation rounds.
+
+## OpenSpec Pilot
+
+V1.2.1 introduces a local #1 OpenSpec pilot:
+
+- `openspec/specs/**` stores manually reviewed current behavior specs.
+- `openspec/changes/**` stores proposed changes.
+- `spec-gen` is used only to reverse-engineer draft baseline material from the existing codebase.
+- Draft spec-gen output is not authoritative until manually reviewed.
 
 ## Authentication and Governance
 - Authentication uses `HttpOnly` cookie-based server-side sessions.
@@ -212,11 +233,11 @@ bash scripts/bootstrap.sh
 `bootstrap` installs dependencies and prepares local templates. It does not keep frontend and backend running.
 
 ## Release Discipline
-- local development: `feature/*`
-- stable cloud release line: `release/cloud-stable`
+- local development: `t1/v1.2/*`, `t2/v1.2/*`, or feature branches when appropriate
+- stable source and current public release baseline: `main`
+- compatibility release line: `release/cloud-stable`
 - do not publish every commit to cloud
-- Netlify production should track `release/cloud-stable`
-- VPS production should deploy `release/cloud-stable`
+- Netlify and VPS deployment settings should be verified against `main`
 
 ## Documents
 - [before_all.md](/F:/Project\CarbonRag\CarbonRag/before_all.md)

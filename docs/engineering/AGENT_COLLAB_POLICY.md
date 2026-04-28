@@ -57,6 +57,13 @@ V1.1.5 起，CarbonRag 的默认开发纪律固定为：
 
 如果未来新增本地 agent 配置文件或仓库级 agent 配置系统，应继续遵守这条默认规则，而不是反过来放宽默认并发。
 
+## V1.2.1 OpenSpec / PR 协作补充
+
+- 多 agent 或多人协作的任务必须先声明影响模块和 OpenSpec change-id。
+- 子 agent 只允许在清晰写集边界内工作，不能绕过 PR 模板、CODEOWNERS 或 `Git-ys1` 最终审查。
+- 只读研究、spec-gen 草稿、OpenSpec 草案必须和正式 specs 区分。
+- 任何进入 `main` 的改动都要能追溯到 PR、验证结果和模块 owner 审查。
+
 ## V1.1.7 轮次补充
 
 V1.1.7 是聊天体验审计轮，纪律进一步收紧：

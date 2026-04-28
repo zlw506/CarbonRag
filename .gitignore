@@ -46,3 +46,13 @@ data/outputs/*
 # Local third-party study assets
 /3rdparty/*
 !/3rdparty/.gitkeep
+
+# Local accidental nested checkout / migration scratch space
+/CarbonRag/
+
+# spec-gen and OpenSpec local-only artifacts
+.spec-gen/
+.openspec-cache/
+openspec/**/*.log
+openspec/**/*.tmp
+openspec/**/.DS_Store
