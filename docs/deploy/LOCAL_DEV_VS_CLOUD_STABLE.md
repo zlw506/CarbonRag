@@ -9,15 +9,16 @@ CarbonRag now runs in two intentionally different modes:
 This split is required to keep daily feature work from polluting the shared demo and test surface.
 
 ## Branch and Runtime Discipline
-- `feature/*`: development branches
-- `main`: stable source baseline after accepted releases
-- `release/cloud-stable`: deployment line for Netlify and VPS
+- `t1/v1.2/*` and `t2/v1.2/*`: team development branches
+- `feature/*`: legacy or single-person development branches
+- `main`: stable source baseline and current public deployment baseline
+- `release/cloud-stable`: compatibility release line retained during transition
 
 The intended flow is:
-1. develop on `feature/*`
-2. merge accepted work into `main`
-3. fast-forward `release/cloud-stable` from `main`
-4. let Netlify and VPS deploy from `release/cloud-stable`
+1. develop on `t1/*`, `t2/*`, or approved feature branches
+2. merge accepted work into `main` through PR review
+3. deploy public cloud from `main`
+4. keep `release/cloud-stable` only as a compatibility branch until fully retired
 
 ## `local-dev`
 - Frontend: `http://127.0.0.1:5173`
@@ -43,6 +44,19 @@ macOS / Linux:
 ```bash
 bash scripts/dev-local.sh
 ```
+
+Fresh clone setup for #2/#3:
+
+```powershell
+git remote add upstream https://github.com/Git-ys1/CarbonRag.git
+git fetch upstream
+git switch -c t2/v1.2/onboarding-smoke upstream/main
+openspec list
+openspec validate --all
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap.ps1
+```
+
+Ignored local assets are expected. `.env`, `frontend/.env.local`, dependencies, SQLite, uploads, and `.spec-gen/` are rebuilt locally and are not required from #1's machine.
 
 ## `cloud-stable`
 - Frontend: Netlify
@@ -94,7 +108,17 @@ Do not use the shared cloud environment for unfinished daily development noise.
 ## Release Discipline
 - active work happens on `feature/*`
 - stable source baseline is `main`
-- stable cloud publishing happens from `release/cloud-stable`
-- Netlify production should track `release/cloud-stable`
-- VPS production should deploy `release/cloud-stable`
+- stable cloud publishing happens from `main`
+- Netlify production should track `main`
+- VPS production should deploy `main`
+- `release/cloud-stable` is retained only for compatibility while deployment settings are verified
 - do not publish every commit
+
+## Collaboration Docs
+
+New seats should read:
+
+- `docs/governance/OPEN_COLLABORATION_GUIDE.md`
+- `docs/governance/SEAT_ONBOARDING_RUNBOOK.md`
+- `docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md`
+- `docs/governance/TRACKED_COLLABORATION_ASSET_INVENTORY.md`

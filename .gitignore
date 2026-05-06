@@ -42,7 +42,27 @@ coverage/
 # Runtime outputs
 data/outputs/*
 !data/outputs/.gitkeep
+uploads/
+runtime/
+*.sqlite
+*.sqlite3
+*.db
 
 # Local third-party study assets
 /3rdparty/*
 !/3rdparty/.gitkeep
+
+# Local accidental nested checkout / migration scratch space
+/CarbonRag/
+
+# spec-gen and OpenSpec local-only artifacts
+.spec-gen/
+.openspec-cache/
+openspec/**/*.log
+openspec/**/*.tmp
+openspec/**/.DS_Store
+
+# Local-only AI/model artifacts
+local_models/
+models.local/
+.codex/sessions/

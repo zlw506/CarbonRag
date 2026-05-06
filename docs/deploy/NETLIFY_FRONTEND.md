@@ -10,8 +10,11 @@ http://8.141.111.33/api/:splat
 ```
 
 ## 推荐发布分支
-- 生产站点默认盯：`release/cloud-stable`
-- `feature/*` 只用于必要的 preview 或手动验证
+- 生产站点默认盯：`main`
+- `t1/*`、`t2/*` 和 `feature/*` 只用于必要的 preview 或手动验证
+- `release/cloud-stable` 暂时保留为兼容线，不再作为默认发布分支
+
+V1.2.5 以后，#2/#3 不需要 Netlify 权限也能本地测试前端。Netlify 只承载稳定公网验证，本地开发使用 `frontend/.env.local` 指向 `127.0.0.1:8000/api`。
 
 ## 仓库配置
 仓库根目录已提交 `netlify.toml`，当前固定为：
@@ -23,7 +26,7 @@ http://8.141.111.33/api/:splat
 
 ## Netlify 后台填写
 - Repository：当前 Git 仓库
-- Branch to deploy：`release/cloud-stable`
+- Branch to deploy：`main`
 - Base directory：`frontend`
 - Build command：`npm ci && npm run build`
 - Publish directory：`dist`
@@ -75,7 +78,7 @@ POST /api/v1/feedback
 ```
 
 ## 发布纪律建议
-- 生产发布只从 `release/cloud-stable` 触发
+- 生产发布只从 `main` 触发
 - 不要让每个 feature commit 自动上云
 - 如需暂时冻结线上版本，可在 Netlify 后台锁定当前 deploy
 - 如需验证 feature 分支，只做临时 preview，不替代稳定站点

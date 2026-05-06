@@ -1,0 +1,41 @@
+# M1 AI Runtime
+/backend/app/ai_runtime/                  @Git-ys1
+
+# M2 Conversation / Session / Memory
+/backend/app/session/                     @Git-ys1
+/backend/app/memory/                      @Git-ys1
+/frontend/src/pages/AskPage/              @Git-ys1
+
+# M3 Frontend UX / Theme / Settings
+/frontend/src/theme/                      @Git-ys1
+/frontend/src/styles/                     @Git-ys1
+/frontend/src/components/                 @Git-ys1
+/frontend/src/pages/Settings*/            @Git-ys1
+
+# M4 Auth / Admin
+/backend/app/auth/                        @Git-ys1
+/backend/app/admin/                       @Git-ys1
+/frontend/src/pages/Admin*/               @Git-ys1
+
+# M5 Knowledge / RAG
+/backend/app/knowledge/                   @Git-ys1
+/backend/app/retrieval/                   @Git-ys1
+/frontend/src/pages/MyKnowledgePage/      @Git-ys1
+
+# M6 Carbon / Report / Feedback
+/backend/app/carbon/                      @Git-ys1
+/backend/app/report/                      @Git-ys1
+/backend/app/feedback/                    @Git-ys1
+/frontend/src/pages/CarbonCalcPage/       @Git-ys1
+/frontend/src/pages/ReportPage/           @Git-ys1
+
+# M7 DevOps / Release
+/.github/                                 @Git-ys1
+/scripts/                                 @Git-ys1
+/netlify.toml                             @Git-ys1
+/docs/deploy/                             @Git-ys1
+
+# M8 Spec / Governance
+/openspec/                                @Git-ys1
+/docs/governance/                         @Git-ys1
+/docs/architecture/MODULE_BOUNDARY_MAP.md @Git-ys1

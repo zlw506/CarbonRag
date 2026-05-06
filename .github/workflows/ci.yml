@@ -6,10 +6,13 @@ on:
       - main
       - dev
       - feature/**
+      - t1/**
+      - t2/**
+      - hotfix/**
+      - review/**
   pull_request:
     branches:
       - main
-      - dev
 
 jobs:
   frontend:
