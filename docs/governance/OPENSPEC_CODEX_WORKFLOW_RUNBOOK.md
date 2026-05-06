@@ -12,12 +12,20 @@ CarbonRag 已经是 brownfield 项目，已经有 `openspec/config.yaml` 和 `op
 - 当前工作区首次打通使用 `openspec update .`、`openspec list`、`openspec validate --all`。
 - 如果 `openspec update .` 提示删除 `openspec/AGENTS.md`，默认回答 `n`，直到 #1 确认内容已迁移。
 
-## 唯一开工口令
+## 长期开发三步
 
-以后不要先手工拼一堆 Git 命令。把下面这段发给 Codex，让 Codex 按仓库规则检查并执行：
+OpenSpec 的长期开发流程固定为：
 
 ```text
-执行本轮 OpenSpec 开工检查。
+propose -> apply -> archive
+```
+
+### 第一步：propose
+
+目标：让 Codex 分析当前代码库和规格，生成 `proposal.md`、delta spec、`design.md`、`tasks.md`。这一步不写业务代码。
+
+```text
+执行本轮 OpenSpec propose。
 你可以处理 Git 和 OpenSpec，但必须遵守 AGENTS.md、openspec/AGENTS.md、openspec/specs/**、docs/governance/**。
 先检查当前工作区、当前分支、远端状态、OpenSpec 状态和未忽略文件。
 不要重复 openspec init。
@@ -26,10 +34,50 @@ CarbonRag 已经是 brownfield 项目，已经有 `openspec/config.yaml` 和 `op
 涉及 commit、push、merge、rebase、删除、reset 的操作，必须说明原因和目标后再执行。
 本轮 change-id: <change-id>。
 本轮目标: <一句话目标>。
-先 propose，不要直接 apply。
+只做 propose：生成或检查 proposal.md、design.md、tasks.md、specs/<domain>/spec.md。
+生成后停止，等待 #1 审查，不要 apply。
 ```
 
-这段口令的意思不是让 AI 乱跑 Git，而是让 AI 按当前仓库规则接管重复性检查、建 change、读 specs、生成提案和后续验证。
+### 第二步：apply
+
+目标：#1 审查通过后，让 Codex 按 `tasks.md` 实现代码。
+
+```text
+执行本轮 OpenSpec apply。
+change-id: <change-id>。
+先读取 openspec/changes/<change-id>/** 和相关 openspec/specs/**。
+严格按 tasks.md 实现。
+不要擅自扩大范围。
+涉及 commit、push、merge、rebase、删除、reset 的操作，必须说明原因和目标后再执行。
+实现后运行本轮要求的测试，并汇总结果。
+```
+
+### 第三步：archive
+
+目标：验证通过后，把 delta spec 合并进 `openspec/specs/**`，并保留归档记录。
+
+```text
+执行本轮 OpenSpec archive。
+change-id: <change-id>。
+先确认 tasks.md 全部完成、测试通过、文档已同步。
+然后归档 change，把增量规格合并进 openspec/specs/**。
+归档后运行 openspec validate --all。
+```
+
+## `openspec show governance` 是什么？
+
+`openspec show governance` 只是查看协作规则，不是查看“当前要做什么”。当前要做什么，要看：
+
+```powershell
+openspec list
+openspec show <change-id>
+```
+
+如果需要中文解释，看：
+
+```text
+docs/governance/GOVERNANCE_SPEC_CN.md
+```
 
 ## 每轮流程
 
