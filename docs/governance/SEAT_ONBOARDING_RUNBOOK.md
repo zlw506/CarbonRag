@@ -121,3 +121,26 @@ Git-ys1/CarbonRag:main
 ```
 
 PR 必须填写 `.github/PULL_REQUEST_TEMPLATE.md`。
+
+## 新席位如何开始一轮 OpenSpec change
+
+正常情况下，新席位也不需要自己背 OpenSpec 命令。先从任务目标生成一个 kebab-case 的 change id，然后运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openspec-start-change.ps1 -Id <change-id> -Goal "<一句话目标>" -Domain <domain>
+```
+
+脚本会：
+
+1. 校验 OpenSpec 当前状态。
+2. 创建或复用 `openspec/changes/<change-id>/`。
+3. 显示 change 状态。
+4. 打印一段可直接交给 Codex 的 propose 阶段提示词。
+
+如果不用脚本，也可以直接把任务书交给 Codex，并写明：
+
+```text
+请按 CarbonRag OpenSpec 工作流开工，先 propose，不要直接 apply。
+```
+
+#2/#3 的实现类任务必须走 fork-and-PR；即使 Codex 可以操作 Git，也必须遵守 PR 审查纪律。

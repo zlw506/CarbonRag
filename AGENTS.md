@@ -20,6 +20,8 @@ Use this mapping first:
 ## Change Discipline
 
 - Do not start a new feature without an OpenSpec change id unless the task is explicitly docs-only or an emergency hotfix.
+- When the user provides a non-trivial task book without a change id, Codex must derive a kebab-case change id, create or inspect `openspec/changes/<change-id>/`, and run the propose stage before implementation.
+- The human does not need to manually run OpenSpec for every round. Codex owns the OpenSpec housekeeping in normal development: inspect specs, create change scaffolding, draft proposal/design/tasks/delta specs, validate, then wait for review before apply unless the user explicitly authorizes fast-track execution.
 - PRs must state the OpenSpec change id, affected specs, affected modules, risks, verification, and approval state.
 - `Git-ys1` is the final `main` reviewer and CODEOWNERS fallback owner.
 - This repository is already initialized for OpenSpec. Do not run `openspec init` in this repo unless #1 explicitly requests a full re-initialization.

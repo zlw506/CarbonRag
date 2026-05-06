@@ -40,6 +40,31 @@ openspec validate <change-id> --strict
 openspec archive <change-id> --yes
 ```
 
+## #1 日常最简流程
+
+#1 不需要每轮手动记命令。正常开发时，把任务书交给 Codex，并明确一句：
+
+```text
+请按 CarbonRag OpenSpec 工作流开工。
+```
+
+Codex 应自动执行：
+
+1. 从任务书派生或确认 `change-id`。
+2. 读取 `AGENTS.md`、`openspec/AGENTS.md`、`openspec/specs/**`、`docs/governance/**`。
+3. 运行 `openspec list`、`openspec validate --all`。
+4. 用 `openspec new change <change-id>` 创建 change，或继续已有 change。
+5. 生成或检查 proposal/design/tasks/delta spec。
+6. 停在 propose 阶段等待 #1 审查，不直接改业务代码。
+
+如果 #1 想在终端里手动预创建 change，使用仓库脚本：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openspec-start-change.ps1 -Id <change-id> -Goal "<一句话目标>" -Domain <domain>
+```
+
+这个脚本不是后台服务，只是一次性创建 change 并打印可复制给 Codex 的标准提示词。
+
 ### 第一步：propose 阶段
 
 目标：让 Codex 分析当前代码库和规格，生成 `proposal.md`、delta spec、`design.md`、`tasks.md`。这一步不写业务代码。
