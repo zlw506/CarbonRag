@@ -2,7 +2,7 @@
 
 Current status: `V1.2.5 open collaboration guide and OpenSpec workflow freeze in progress`
 
-中文入口：先看 [快速上手.md](/F:/Project/CarbonRag/快速上手.md)。里面按“我要做什么”索引了本地测试、OpenSpec、PR 审查、部署和协作规则。
+中文入口：先看 [快速上手.md](/F:/Project/CarbonRag/快速上手.md)。重大协作决策先看 [开发公告.md](/F:/Project/CarbonRag/开发公告.md)。
 
 ## Project Positioning
 CarbonRag is an SME-oriented carbon policy and enterprise application workbench. The current product line has already moved beyond a single-user prototype:
