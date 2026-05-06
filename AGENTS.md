@@ -22,6 +22,9 @@ Use this mapping first:
 - Do not start a new feature without an OpenSpec change id unless the task is explicitly docs-only or an emergency hotfix.
 - PRs must state the OpenSpec change id, affected specs, affected modules, risks, verification, and approval state.
 - `Git-ys1` is the final `main` reviewer and CODEOWNERS fallback owner.
+- This repository is already initialized for OpenSpec. Do not run `openspec init` in this repo unless #1 explicitly requests a full re-initialization.
+- `openspec update .` may be used to refresh instructions. If it asks to remove `openspec/AGENTS.md` or instruction files, default to preserving them until #1 confirms migration.
+- Codex may operate Git for setup, branching, commits, pushes, and merges only within the active task goal and repository workflow. State-changing Git operations must have a clear reason and must not be destructive unless explicitly requested.
 
 ## Local Artifacts
 
