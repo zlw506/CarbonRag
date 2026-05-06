@@ -39,6 +39,14 @@ git remote add upstream https://github.com/Git-ys1/CarbonRag.git
 git fetch upstream
 ```
 
+确认 remote：
+
+```powershell
+git remote -v
+```
+
+`origin` 必须指向自己的 fork，`upstream` 必须指向 `https://github.com/Git-ys1/CarbonRag.git`。
+
 4. 从 upstream main 开分支：
 
 ```powershell
@@ -122,6 +130,15 @@ Git-ys1/CarbonRag:main
 
 PR 必须填写 `.github/PULL_REQUEST_TEMPLATE.md`。
 
+如果使用 GitHub CLI：
+
+```powershell
+git push -u origin t2/v1.2/<topic>
+gh pr create --repo Git-ys1/CarbonRag --base main --head <your-github-username>:t2/v1.2/<topic>
+```
+
+如果不用 GitHub CLI，就在 GitHub 网页从自己的 fork 发起 PR，base 固定选 `Git-ys1/CarbonRag:main`。
+
 ## 新席位如何开始一轮 OpenSpec change
 
 正常情况下，新席位也不需要自己背 OpenSpec 命令。先从任务目标生成一个 kebab-case 的 change id，然后运行：
@@ -144,3 +161,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openspec-start-chang
 ```
 
 #2/#3 的实现类任务必须走 fork-and-PR；即使 Codex 可以操作 Git，也必须遵守 PR 审查纪律。
+
+## #2/#3 的完整一轮最短闭环
+
+```powershell
+git fetch upstream
+git switch -c t2/v1.2/<topic> upstream/main
+openspec validate --all
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/openspec-start-change.ps1 -Id <change-id> -Goal "<一句话目标>" -Domain <domain>
+```
+
+把脚本打印的提示词交给 Codex，先 propose，审查通过后 apply。实现完成后：
+
+```powershell
+openspec validate --all
+cd backend
+python -m pytest
+cd ..\frontend
+npm run typecheck
+npm run build
+cd ..
+git status -sb
+git push -u origin t2/v1.2/<topic>
+```
+
+最后通过 GitHub CLI 或网页提交 PR 到 `Git-ys1/CarbonRag:main`。
