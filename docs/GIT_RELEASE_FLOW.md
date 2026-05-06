@@ -22,6 +22,7 @@
 - 模块 owner 审查通过
 - `Git-ys1` 最终批准
 - 必要时使用 squash merge 保持 `main` 历史清晰
+- #2/#3 PR 必须说明本地测试结果，至少覆盖 OpenSpec validation 和相关后端/前端检查。
 
 ## 不允许的做法
 - 不允许每个 commit 自动上云
@@ -41,3 +42,7 @@
 - 后端服务默认跟 `main`
 - 发布前先执行数据库初始化和健康检查
 - 若当前 VPS 仍跟 `release/cloud-stable`，先记录迁移状态，再统一到 `main`
+
+## V1.2.5 协作基线
+- `main` 必须包含 `AGENTS.md`、`openspec/**`、`.codex/skills/**`、`.github/**`、`docs/governance/**`、`docs/architecture/**`、`scripts/**` 和 env 模板。
+- 被忽略的本地资产不得作为“原版”依赖；部署和测试文档必须说明如何重建。

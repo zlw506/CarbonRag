@@ -11,6 +11,8 @@
 - VPS 稳定部署默认使用：`main`
 - `release/cloud-stable` 暂时保留为兼容线，不再作为默认部署分支。
 
+V1.2.5 以后，#2/#3 的本地测试不依赖 VPS 生产环境。VPS 只用于稳定公网验证；开发者应先按 `docs/governance/SEAT_ONBOARDING_RUNBOOK.md` 在本地跑通 SQLite fallback。
+
 ## 目录要求
 - `/srv/carbonrag/app/backend`
 - `/srv/carbonrag/app/frontend`
@@ -23,6 +25,8 @@
 ```bash
 /etc/carbonrag/carbonrag.env
 ```
+
+这个文件绝对不提交。新席位只拿 `.env.example`，生产值由 VPS 管理员在服务器上配置。
 
 建议内容：
 

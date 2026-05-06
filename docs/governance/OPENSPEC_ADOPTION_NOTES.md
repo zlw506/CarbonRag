@@ -44,3 +44,10 @@
 - 不提交 `.spec-gen/`。
 - 不提交 `3rdparty/spec-gen/`。
 - 不提交本地模型路径、API key、个人 IDE 配置、agent session 记录。
+
+## V1.2.5 工作流补充
+
+- OpenSpec 不作为后台服务运行；每轮在终端按需执行 `openspec list`、`openspec validate --all`、change validate、archive/sync。
+- Codex 是执行或审查 agent，必须先读取 `AGENTS.md`、`openspec/AGENTS.md`、`openspec/specs/**` 和当前 `openspec/changes/<change-id>/**`。
+- 如果 Codex 客户端无法自动调用 OpenSpec skills，就按 `docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md` 手动创建 proposal/design/tasks/delta spec。
+- `.spec-gen/` 与 `3rdparty/spec-gen/` 仍是本地试点资产，不影响 #2/#3 从 `main` 使用已提交的 `openspec/specs/**`。

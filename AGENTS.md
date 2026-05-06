@@ -4,6 +4,8 @@
 
 Before implementing any non-trivial feature, read the relevant specs under `openspec/specs/**`.
 
+Also read `docs/governance/OPEN_COLLABORATION_GUIDE.md` and the active `openspec/changes/<change-id>/**` when the task affects collaboration, review, release, or module boundaries.
+
 Use this mapping first:
 
 - M1 AI Runtime / Provider / Model Config: `openspec/specs/ai-runtime/spec.md`
@@ -31,6 +33,8 @@ Never commit:
 - API keys or credentials
 - local agent session records
 - runtime outputs under `data/outputs/`
+
+Local-only ignored files are not missing source. Recreate them from templates, scripts, dependency installs, or local runtime commands.
 
 ## Worktree Safety
 

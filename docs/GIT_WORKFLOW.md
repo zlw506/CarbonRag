@@ -37,6 +37,12 @@
 - 新功能默认先有 change-id，再施工
 - spec-gen 产物只能作为 draft，人工校验后才能进入 specs
 
+## 新席位测试纪律
+- #2/#3 从 `upstream/main` 开始，不从 #1 的本机目录复制。
+- 忽略文件由模板、脚本或依赖安装重建。
+- 本地测试先跑 `openspec validate --all`，再跑 bootstrap、后端 pytest、前端 typecheck/build。
+- PR 中必须说明无法运行的验证项及原因。
+
 ## 提交格式
 - `checkpoint: before v0.x.x`
 - `v0.x.x: <内容摘要>`

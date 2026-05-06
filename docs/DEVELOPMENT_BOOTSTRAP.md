@@ -1,5 +1,5 @@
 # Development Bootstrap
-版本：v0.1.9F
+版本：V1.2.5
 
 ## 目标
 本文件用于定义 CarbonRag 的本地初始化和检查流程。当前仓库已经固定为双环境模式：
@@ -13,6 +13,23 @@
 - npm：跟随 Node.js
 - Python：固定 `3.11`
 - Git：需要可正常推送 `feature/*` 与 `release/cloud-stable`
+- OpenSpec CLI：建议全局安装 `@fission-ai/openspec`
+
+## 新席位从云端开始
+
+#2/#3 不需要任何 #1 本机的被忽略文件。标准入场方式是：
+
+```powershell
+git clone https://github.com/<your-github-username>/CarbonRag.git
+cd CarbonRag
+git remote add upstream https://github.com/Git-ys1/CarbonRag.git
+git fetch upstream
+git switch -c t2/v1.2/onboarding-smoke upstream/main
+openspec list
+openspec validate --all
+```
+
+被忽略的 `.env`、`frontend/.env.local`、依赖目录、SQLite、uploads 和 `.spec-gen/` 都是本地状态，可由模板、脚本或本地命令重建。
 
 ## 初始化脚本
 
@@ -38,6 +55,18 @@ bash scripts/bootstrap.sh
 - `bootstrap` 不再生成 `frontend/.env`
 - 本地前端环境文件改为 `frontend/.env.local`
 - 真正拉起本地前后端请使用 `scripts/dev-local.ps1` 或 `scripts/dev-local.sh`
+
+如果 bootstrap 在新机器上失败，先记录：
+
+```powershell
+node --version
+npm --version
+python --version
+git --version
+openspec --version
+```
+
+然后按错误定位缺失依赖，不要把本地生成目录提交到仓库。
 
 ## 标准本地启动
 
@@ -110,3 +139,14 @@ cd backend
 - 本地历史记录与云端历史记录不共享
 - ask / calc / feedback 已可本地联调
 - 共享云端环境不承担日常 feature 半成品验证
+
+## OpenSpec 最小检查
+
+每轮开工前执行：
+
+```powershell
+openspec list
+openspec validate --all
+```
+
+新功能必须先有 `openspec/changes/<change-id>/`。如果 Codex 无法自动调用 OpenSpec skill，按 `docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md` 手动创建 proposal/design/tasks/delta spec。

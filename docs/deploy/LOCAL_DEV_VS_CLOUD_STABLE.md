@@ -45,6 +45,19 @@ macOS / Linux:
 bash scripts/dev-local.sh
 ```
 
+Fresh clone setup for #2/#3:
+
+```powershell
+git remote add upstream https://github.com/Git-ys1/CarbonRag.git
+git fetch upstream
+git switch -c t2/v1.2/onboarding-smoke upstream/main
+openspec list
+openspec validate --all
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap.ps1
+```
+
+Ignored local assets are expected. `.env`, `frontend/.env.local`, dependencies, SQLite, uploads, and `.spec-gen/` are rebuilt locally and are not required from #1's machine.
+
 ## `cloud-stable`
 - Frontend: Netlify
 - Backend: VPS
@@ -100,3 +113,12 @@ Do not use the shared cloud environment for unfinished daily development noise.
 - VPS production should deploy `main`
 - `release/cloud-stable` is retained only for compatibility while deployment settings are verified
 - do not publish every commit
+
+## Collaboration Docs
+
+New seats should read:
+
+- `docs/governance/OPEN_COLLABORATION_GUIDE.md`
+- `docs/governance/SEAT_ONBOARDING_RUNBOOK.md`
+- `docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md`
+- `docs/governance/TRACKED_COLLABORATION_ASSET_INVENTORY.md`

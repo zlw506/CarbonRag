@@ -1,6 +1,8 @@
 # CarbonRag
 
-Current status: `V1.2.1 OpenSpec pilot and multi-team governance in progress`
+Current status: `V1.2.5 open collaboration guide and OpenSpec workflow freeze in progress`
+
+中文入口：先看 [快速上手.md](/F:/Project/CarbonRag/快速上手.md)。里面按“我要做什么”索引了本地测试、OpenSpec、PR 审查、部署和协作规则。
 
 ## Project Positioning
 CarbonRag is an SME-oriented carbon policy and enterprise application workbench. The current product line has already moved beyond a single-user prototype:
@@ -71,6 +73,7 @@ These two environments do not share runtime data. Different session history, rep
 - Every PR to `main` must include OpenSpec change id, affected modules, risk, verification, and approval fields.
 - CODEOWNERS routes M1-M8 module changes to `@Git-ys1` until additional owners are added.
 - Version notation is frozen: `VA.B.0` means director-level planning, `VA.B.C` means implementation rounds.
+- V1.2.5 publishes the open collaboration runbooks that #2/#3 must use before starting implementation.
 
 ## OpenSpec Pilot
 
@@ -80,6 +83,48 @@ V1.2.1 introduces a local #1 OpenSpec pilot:
 - `openspec/changes/**` stores proposed changes.
 - `spec-gen` is used only to reverse-engineer draft baseline material from the existing codebase.
 - Draft spec-gen output is not authoritative until manually reviewed.
+
+V1.2.5 freezes the practical workflow:
+
+- OpenSpec is not a daemon. Run it from the terminal when proposing, validating, applying, or archiving changes.
+- Codex is the implementation/review agent. It must read `AGENTS.md`, `openspec/AGENTS.md`, `openspec/specs/**`, and the active `openspec/changes/<change-id>/**` before non-trivial work.
+- If OpenSpec automation is unavailable in a Codex client, follow `docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md` and create the change files manually.
+
+## New Seat Quick Start
+
+#2/#3 should start from `main`, not from a local snapshot:
+
+```powershell
+git clone https://github.com/<your-github-username>/CarbonRag.git
+cd CarbonRag
+git remote add upstream https://github.com/Git-ys1/CarbonRag.git
+git fetch upstream
+git switch -c t2/v1.2/onboarding-smoke upstream/main
+openspec list
+openspec validate --all
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap.ps1
+```
+
+Then start local development:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1
+```
+
+Local URLs:
+
+- Frontend: `http://127.0.0.1:5173`
+- Backend: `http://127.0.0.1:8000`
+- Health check: `http://127.0.0.1:8000/healthz`
+
+Ignored files are expected and rebuildable:
+
+- `.env` comes from `.env.example`
+- `frontend/.env.local` comes from `frontend/.env.example`
+- `node_modules/` comes from `npm ci`
+- Python env comes from bootstrap or `backend/requirements.txt`
+- SQLite/runtime/uploads are local test data
+- `.spec-gen/` is local analysis cache and does not affect `openspec/specs/**`
 
 ## Authentication and Governance
 - Authentication uses `HttpOnly` cookie-based server-side sessions.
@@ -245,6 +290,11 @@ bash scripts/bootstrap.sh
 - [docs/DEVELOPMENT_BOOTSTRAP.md](/F:/Project/CarbonRag/docs/DEVELOPMENT_BOOTSTRAP.md)
 - [docs/GIT_WORKFLOW.md](/F:/Project/CarbonRag/docs/GIT_WORKFLOW.md)
 - [docs/GIT_RELEASE_FLOW.md](/F:/Project/CarbonRag/docs/GIT_RELEASE_FLOW.md)
+- [docs/governance/OPEN_COLLABORATION_GUIDE.md](/F:/Project/CarbonRag/docs/governance/OPEN_COLLABORATION_GUIDE.md)
+- [docs/governance/SEAT_ONBOARDING_RUNBOOK.md](/F:/Project/CarbonRag/docs/governance/SEAT_ONBOARDING_RUNBOOK.md)
+- [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](/F:/Project/CarbonRag/docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)
+- [docs/governance/PR_REVIEW_RUNBOOK.md](/F:/Project/CarbonRag/docs/governance/PR_REVIEW_RUNBOOK.md)
+- [docs/governance/TRACKED_COLLABORATION_ASSET_INVENTORY.md](/F:/Project/CarbonRag/docs/governance/TRACKED_COLLABORATION_ASSET_INVENTORY.md)
 - [docs/architecture/PRIVATE_KNOWLEDGE_TASK_FLOW.md](/F:/Project/CarbonRag/docs/architecture/PRIVATE_KNOWLEDGE_TASK_FLOW.md)
 - [docs/research/claw-code/07_CHAT_UX_AND_MEMORY_NOTES.md](/F:/Project/CarbonRag/docs/research/claw-code/07_CHAT_UX_AND_MEMORY_NOTES.md)
 - [docs/deploy/LOCAL_DEV_VS_CLOUD_STABLE.md](/F:/Project/CarbonRag/docs/deploy/LOCAL_DEV_VS_CLOUD_STABLE.md)

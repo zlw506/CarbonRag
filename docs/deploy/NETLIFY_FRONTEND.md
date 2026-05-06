@@ -14,6 +14,8 @@ http://8.141.111.33/api/:splat
 - `t1/*`、`t2/*` 和 `feature/*` 只用于必要的 preview 或手动验证
 - `release/cloud-stable` 暂时保留为兼容线，不再作为默认发布分支
 
+V1.2.5 以后，#2/#3 不需要 Netlify 权限也能本地测试前端。Netlify 只承载稳定公网验证，本地开发使用 `frontend/.env.local` 指向 `127.0.0.1:8000/api`。
+
 ## 仓库配置
 仓库根目录已提交 `netlify.toml`，当前固定为：
 - Base directory：`frontend`
