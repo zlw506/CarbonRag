@@ -20,12 +20,47 @@ OpenSpec 的长期开发流程固定为：
 propose -> apply -> archive
 ```
 
-### 第一步：propose
+这三个词是阶段名，不是 PowerShell 顶层命令。当前本机 OpenSpec CLI 没有 `openspec propose`，也没有 `openspec apply`。
+
+不要在 PowerShell 里运行：
+
+```powershell
+openspec propose
+openspec-propose
+/opsx:propose
+```
+
+当前本机真实可执行的 OpenSpec 命令是：
+
+```powershell
+openspec new change <change-id>
+openspec status --change <change-id>
+openspec instructions <artifact-id> --change <change-id>
+openspec validate <change-id> --strict
+openspec archive <change-id> --yes
+```
+
+### 第一步：propose 阶段
 
 目标：让 Codex 分析当前代码库和规格，生成 `proposal.md`、delta spec、`design.md`、`tasks.md`。这一步不写业务代码。
 
+PowerShell 里先创建 change：
+
+```powershell
+openspec new change <change-id>
+openspec status --change <change-id>
+```
+
+再按 `status` 输出的 artifact id 获取写作说明：
+
+```powershell
+openspec instructions <artifact-id> --change <change-id>
+```
+
+然后把下面这段发给 Codex，不是发给 PowerShell：
+
 ```text
-执行本轮 OpenSpec propose。
+执行本轮 OpenSpec propose 阶段。
 你可以处理 Git 和 OpenSpec，但必须遵守 AGENTS.md、openspec/AGENTS.md、openspec/specs/**、docs/governance/**。
 先检查当前工作区、当前分支、远端状态、OpenSpec 状态和未忽略文件。
 不要重复 openspec init。
@@ -38,12 +73,21 @@ propose -> apply -> archive
 生成后停止，等待 #1 审查，不要 apply。
 ```
 
-### 第二步：apply
+写完 propose 产物后校验：
+
+```powershell
+openspec validate <change-id> --strict
+openspec validate --all
+```
+
+### 第二步：apply 阶段
 
 目标：#1 审查通过后，让 Codex 按 `tasks.md` 实现代码。
 
+当前 OpenSpec CLI 不提供 `openspec apply` 顶层命令。`apply` 的实际含义是：Codex 读取 `openspec/changes/<change-id>/**` 和相关主规格，然后按 `tasks.md` 改代码。
+
 ```text
-执行本轮 OpenSpec apply。
+执行本轮 OpenSpec apply 阶段。
 change-id: <change-id>。
 先读取 openspec/changes/<change-id>/** 和相关 openspec/specs/**。
 严格按 tasks.md 实现。
@@ -52,12 +96,19 @@ change-id: <change-id>。
 实现后运行本轮要求的测试，并汇总结果。
 ```
 
-### 第三步：archive
+### 第三步：archive 阶段
 
 目标：验证通过后，把 delta spec 合并进 `openspec/specs/**`，并保留归档记录。
 
+这一步有真实 CLI 命令：
+
+```powershell
+openspec archive <change-id> --yes
+openspec validate --all
+```
+
 ```text
-执行本轮 OpenSpec archive。
+执行本轮 OpenSpec archive 阶段。
 change-id: <change-id>。
 先确认 tasks.md 全部完成、测试通过、文档已同步。
 然后归档 change，把增量规格合并进 openspec/specs/**。
@@ -112,7 +163,15 @@ openspec validate --all
 
 ### 3. 创建 change
 
-优先使用 OpenSpec CLI 或 Codex skill。如果不可用，手动创建：
+优先使用真实 OpenSpec CLI：
+
+```powershell
+openspec new change <change-id>
+openspec status --change <change-id>
+openspec instructions <artifact-id> --change <change-id>
+```
+
+如果 CLI 或 Codex skill 不可用，再手动创建：
 
 ```text
 openspec/changes/<change-id>/proposal.md
@@ -145,7 +204,7 @@ openspec validate --all
 
 并把失败原因写入 PR。
 
-### 6. 让 Codex propose
+### 6. 让 Codex 执行 propose 阶段
 
 给 Codex 的固定输入模板：
 
@@ -158,7 +217,7 @@ openspec validate --all
 如果 OpenSpec skill 不可自动调用，请按文档手动读取和执行。
 ```
 
-### 7. 审查通过后 apply
+### 7. 审查通过后执行 apply 阶段
 
 只有 proposal/design/tasks/delta spec 审查通过后，才让 Codex apply。apply 阶段仍然要按 tasks 执行，并在每个高风险 Git 操作前说明目的。
 
@@ -178,7 +237,12 @@ openspec validate --all
 
 ## 什么时候 archive
 
-当一个 change 已经实现、测试通过、PR 合并，才执行 archive/sync。未实现或只处于 proposal 的 change 留在 `openspec/changes/**`。
+当一个 change 已经实现、测试通过、PR 合并，才执行 archive。未实现或只处于 proposal 的 change 留在 `openspec/changes/**`。
+
+```powershell
+openspec archive <change-id> --yes
+openspec validate --all
+```
 
 ## spec-gen 的位置
 

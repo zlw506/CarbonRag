@@ -108,3 +108,15 @@ openspec validate --all
 ```text
 propose -> apply -> archive
 ```
+
+注意：`propose / apply / archive` 是阶段名，不是都能在 PowerShell 里直接敲的命令。当前本机真实 CLI 是：
+
+```powershell
+openspec new change <change-id>
+openspec status --change <change-id>
+openspec instructions <artifact-id> --change <change-id>
+openspec validate <change-id> --strict
+openspec archive <change-id> --yes
+```
+
+其中 `apply` 阶段由 Codex 按 `openspec/changes/<change-id>/tasks.md` 实现代码，不对应 `openspec apply` 命令。
