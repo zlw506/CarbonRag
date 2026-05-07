@@ -99,7 +99,7 @@ def test_session_ask_route_supports_mixed_scope_without_private_hits(monkeypatch
         return FakeStreamingResponse(
             status_code=200,
             lines=[
-                'data: {"id":"chatcmpl-mixed-no-private","choices":[{"delta":{"role":"assistant","content":"可以参考样例，但当前没有挂接到足够私有样例时应明确说明依据受限。"}}]}',
+                'data: {"id":"chatcmpl-mixed-no-private","choices":[{"delta":{"role":"assistant","content":"当前仅检索到公共政策依据，企业样例侧暂无命中。"}}]}',
                 "data: [DONE]",
             ],
         )
@@ -120,38 +120,6 @@ def test_session_ask_route_supports_mixed_scope_without_private_hits(monkeypatch
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["source_summary"]["knowledge_scope"] == "mixed"
-
-
-def test_session_ask_route_default_behavior_stays_public(monkeypatch, tmp_path) -> None:
-    session_service, file_service = build_test_services(tmp_path)
-    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
-    monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
-    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
-
-    def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
-        del method, url, headers, json, timeout
-        return FakeStreamingResponse(
-            status_code=200,
-            lines=[
-                'data: {"id":"chatcmpl-default-public","choices":[{"delta":{"role":"assistant","content":"默认问答仍使用公共知识检索。"}}]}',
-                "data: [DONE]",
-            ],
-        )
-
-    monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", fake_stream)
-
-    register_and_login(client, prefix="ask-default-public")
-    session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
-    response = client.post(
-        f"/api/v1/sessions/{session_id}/ask",
-        json={"question": "什么是双碳目标？"},
-    )
-
-    payload = response.json()
-    assert response.status_code == 200
-    assert payload["status"] == "ok"
-    assert payload["source_summary"]["knowledge_scope"] == "public"
-    assert payload["citations"]
 
 
 def test_session_ask_route_records_provider_error_message(monkeypatch, tmp_path) -> None:

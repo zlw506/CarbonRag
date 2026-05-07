@@ -1,306 +1,237 @@
 # CarbonRag
 
-Current status: `V1.2.5 open collaboration guide and OpenSpec workflow freeze in progress`
+当前状态：`V1.4.0 碳核算主线启动 / V1.3.x RAG 主线由 #2 负责推进`
 
-中文入口：先看 [快速上手.md](/F:/Project/CarbonRag/快速上手.md)。重大协作决策先看 [开发公告.md](/F:/Project/CarbonRag/开发公告.md)。
+CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标不是做一个泛用聊天壳，而是把“政策问答、私有知识、碳核算、报告生成、反馈闭环、多人治理”整合成一套可试用、可部署、可协作演进的垂直系统。
 
-## Project Positioning
-CarbonRag is an SME-oriented carbon policy and enterprise application workbench. The current product line has already moved beyond a single-user prototype:
+## 现在先看什么？
 
-- session conversation workbench
-- grounded ask with `public / private_sample / mixed`
-- carbon calculation
-- report generation
-- feedback persistence
-- local-dev and cloud-stable dual environment strategy
-- main / release / feature branch discipline
-- OpenSpec pilot specs and PR governance for multi-team work
+- 新人和 #2/#3 入场：先看 [快速上手.md](快速上手.md)
+- 全体协作规则：看 [开发公告.md](开发公告.md)
+- OpenSpec + Codex 怎么开工：看 [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)
+- PR 怎么审：看 [docs/governance/PR_REVIEW_RUNBOOK.md](docs/governance/PR_REVIEW_RUNBOOK.md)
+- 本地怎么跑：看 [docs/DEVELOPMENT_BOOTSTRAP.md](docs/DEVELOPMENT_BOOTSTRAP.md)
+- 云端怎么部署：看 [docs/deploy/VPS_BACKEND_DEPLOY.md](docs/deploy/VPS_BACKEND_DEPLOY.md) 和 [docs/deploy/NETLIFY_FRONTEND.md](docs/deploy/NETLIFY_FRONTEND.md)
 
-V1.1.0 adds the first manageable private knowledge flow on top of identity and isolation:
+## 当前开发公告
 
-- personal knowledge library
-- shared knowledge library
-- knowledge ingest / rebuild / retry task flow
-- admin console for users, feedback, knowledge items, and runtime status
+### V1.3.x：RAG / LightRAG 主线由 #2 正统负责
 
-V1.1.3 adds the first memory foundation on top of session workbench and grounded knowledge:
+#2 团队当前专攻 `LightRAG-inspired RAG architecture` 与后续 V1.3.x 实现。#1 不在 V1.3.x 中抢线开发，只负责：
 
-- session compaction with summary preservation
-- context usage estimate and summary status
-- backend-only `memory_notes` as a guarded long-memory prewire
-- clear boundary between session summary and knowledge library content
+- 审查 #2 的 OpenSpec 提案、PR、测试和实现边界。
+- 确认许可证、模块边界、fallback、安全默认值。
+- 在 #2 阶段性成果到达 PR 后做最终 review / approve / request changes。
 
-V1.1.7 is the current chat UX audit and product-feel polish pass:
+当前原则：V1.3.x 的 RAG 代码成果等 #2 完成最小可验证功能后再进入 `main`，不把半成品提前发布到主线。
 
-- focus-mode-first chat shell
-- slimmer persistent chrome around the conversation area
-- sticky bottom composer with compact chips and secondary controls
-- clearer `pending / thinking / streaming / done` assistant message states
-- lighter evidence access and compact context diagnostics
+### V1.4.x：碳核算主线由 #1 负责
 
-## Runtime Modes
+#1 团队从 V1.4.0 起专攻碳核算能力。目标是把现有 `calc-carbon` 从最小三项活动数据计算，推进到更接近企业试用需要的碳核算模块。
 
-### `local-dev`
-- Frontend: `http://127.0.0.1:5173`
-- Backend: `http://127.0.0.1:8000`
-- Frontend API base: `http://127.0.0.1:8000/api`
-- Runtime database: SQLite fallback
-- Purpose: active development, debugging, destructive verification
+V1.4.x 初步方向：
 
-### `cloud-stable`
-- Frontend: Netlify
-- Backend: VPS
-- Frontend API base: `/api`
-- Runtime database: PostgreSQL
-- Purpose: stable validation and external demo
+- 扩展活动数据结构与核算项目表达。
+- 强化排放因子管理、来源、版本与引用。
+- 增强计算结果持久化、可追溯性和报告衔接。
+- 保持与 session、report、feedback、auth 数据隔离一致。
+- 不打乱 #2 的 V1.3.x RAG 主线。
 
-These two environments do not share runtime data. Different session history, reports, calculations, and feedback between local and cloud are expected.
+详见 [docs/PLAN/V1.4.0.md](docs/PLAN/V1.4.0.md)。
 
-## Branch / Release Discipline
-- `main`: stable source baseline and current public deployment baseline
-- `feature/*`: historical and single-team development branches
-- `t1/v1.2/<topic>`: #1 team development branches
-- `t2/v1.2/<topic>`: #2 fork-and-PR development branches
-- `release/cloud-stable`: retained compatibility release branch, no longer the default deployment line
+## 已具备的产品能力
 
-`main` is the source baseline that should remain coherent, accepted, and deployable. From V1.2.1, public deployment documentation treats `main` as the default release baseline. `release/cloud-stable` is retained for compatibility while deployment settings are migrated or verified.
+### 会话与问答
 
-## V1.2 Governance
+- 支持 session conversation workbench。
+- 支持 `public / private_sample / mixed` 三种 ask scope。
+- 支持 grounded citations。
+- 支持用户隔离，只能访问自己的会话、报告、反馈、计算结果与上传资产。
+- 支持 session summary / context compaction / memory state 的基础能力。
 
-- `Git-ys1` is the final `main` administrator and PR reviewer.
-- #1 work uses `t1/v1.2/<topic>` branches in the upstream repository.
-- #2 starts with fork-and-PR using `t2/v1.2/<topic>` branches.
-- Every PR to `main` must include OpenSpec change id, affected modules, risk, verification, and approval fields.
-- CODEOWNERS routes M1-M8 module changes to `@Git-ys1` until additional owners are added.
-- Version notation is frozen: `VA.B.0` means director-level planning, `VA.B.C` means implementation rounds.
-- V1.2.5 publishes the open collaboration runbooks that #2/#3 must use before starting implementation.
+### 知识库
 
-## OpenSpec Pilot
+- 支持个人知识库与管理员共享知识库。
+- 上传文件进入知识任务流。
+- 支持 parse / ingest / index 状态。
+- 支持失败重试、管理员扫描、重建与任务查看。
+- private / mixed 检索以当前 session 已挂接知识条目为边界。
 
-V1.2.1 introduces a local #1 OpenSpec pilot:
+### 碳核算
 
-- `openspec/specs/**` stores manually reviewed current behavior specs.
-- `openspec/changes/**` stores proposed changes.
-- `spec-gen` is used only to reverse-engineer draft baseline material from the existing codebase.
-- Draft spec-gen output is not authoritative until manually reviewed.
+当前 `calc-carbon` 已支持：
 
-V1.2.5 freezes the practical workflow:
+- 旧三字段输入：`electricity_kwh`、`natural_gas_m3`、`diesel_l`。
+- 新 V1.4.4 输入：`activity_items[]`。
+- Scope 1 stationary/mobile combustion 基础核算。
+- Scope 2 purchased electricity location-based 核算。
+- 分项排放量、总排放量、因子来源 citation。
+- factor snapshot、unit conversion trace、formula trace、source summary、warnings。
+- 结果持久化并可按 session 关联。
 
-- OpenSpec is not a daemon. Run it from the terminal when proposing, validating, applying, or archiving changes.
-- Codex is the implementation/review agent. It must read `AGENTS.md`, `openspec/AGENTS.md`, `openspec/specs/**`, and the active `openspec/changes/<change-id>/**` before non-trivial work.
-- If OpenSpec automation is unavailable in a Codex client, follow `docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md` and create the change files manually.
+当前官方电力因子种子使用生态环境部、国家统计局 2023 年电力二氧化碳排放因子；燃料因子仍为 demo，不用于正式审计。
 
-## New Seat Quick Start
+### 报告生成
 
-#2/#3 should start from `main`, not from a local snapshot:
+- 支持 `policy_summary`
+- 支持 `mixed_analysis`
+- 支持 `carbon_summary`
+- 报告绑定 session。
+- 报告可引用 ask citations 与 calc results。
+- 报告可保存、重开、编辑。
+
+### 反馈闭环
+
+- Ask 与 calc/report 结果可提交反馈。
+- 反馈写入运行时数据库。
+- 管理员可查看反馈概览，但不直接读取普通用户正文内容。
+
+### 身份与治理
+
+- 使用 `HttpOnly Cookie` 服务端会话。
+- 支持注册、登录、登出、改密。
+- 角色：`user / admin`。
+- 初始管理员：`admin / 123456`，首次登录强制改密。
+- 如果 `admin` 账号丢失、被禁用或不可用，在注册页输入 `admin / 123456` 可恢复初始管理员并强制改密。
+
+## 运行模式
+
+### local-dev
+
+本地开发环境，允许试错和破坏性验证。
+
+- 前端：`http://127.0.0.1:5173`
+- 后端：`http://127.0.0.1:8000`
+- 前端 API：`http://127.0.0.1:8000/api`
+- 数据库：SQLite fallback
+
+启动：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1
+```
+
+### cloud-stable / main 发布基线
+
+云端稳定验证环境。
+
+- 前端：Netlify
+- 后端：VPS
+- 前端 API：`/api`
+- 数据库：PostgreSQL
+- 当前文档默认口径：`main` 是稳定源码与公网默认发布基线。
+
+本地和云端不共享运行时数据。会话历史、报告、计算结果、反馈在两边不同是正常现象。
+
+## 分支与协作纪律
+
+- `main`：稳定源码基线和当前公网默认发布基线。
+- `t1/v1.4/<topic>`：#1 V1.4.x 碳核算开发分支。
+- `t2/v1.3/<topic>`：#2 V1.3.x RAG 开发分支。
+- `t2/v1.2/<topic>`：#2 入场与治理验证历史分支。
+- `release/cloud-stable`：保留兼容发布线，不再作为默认文档口径。
+
+规则：
+
+- `Git-ys1` 是 `main` 最终管理员和 PR 最终审查人。
+- #2/#3 及后续席位必须 fork-and-PR。
+- #1 可做自审与合并，但必须留下 OpenSpec / 验证 / PR 或提交记录。
+- PR 必须声明 OpenSpec change-id、影响模块、风险、验证结果和审批状态。
+- 不允许把半成品 feature 分支直接污染 `main`。
+
+## OpenSpec 工作方式
+
+CarbonRag 是 brownfield 项目，OpenSpec 已完成初始化，不要重复运行 `openspec init`。
+
+日常开工前：
+
+```powershell
+openspec list
+openspec validate --all
+```
+
+新功能默认流程：
+
+1. `propose`：先创建 `openspec/changes/<change-id>/`，写 proposal / design / tasks / delta spec。
+2. `apply`：审查通过后再让 Codex 按 tasks 实现。
+3. `archive`：验证通过后归档变更，把增量规范合入主规格。
+
+注意：`propose / apply / archive` 是工作阶段，不是 PowerShell 里的顶层命令。具体命令与手动文件结构见 [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)。
+
+## 新席位本地启动
+
+#2/#3 从自己的 fork 开始：
 
 ```powershell
 git clone https://github.com/<your-github-username>/CarbonRag.git
 cd CarbonRag
 git remote add upstream https://github.com/Git-ys1/CarbonRag.git
 git fetch upstream
-git switch -c t2/v1.2/onboarding-smoke upstream/main
+git switch -c t2/v1.3/onboarding-smoke upstream/main
 openspec list
 openspec validate --all
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap.ps1
-```
-
-Then start local development:
-
-```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1
 ```
 
-Local URLs:
+忽略文件不是“缺原版”，而是应由模板或依赖安装重建：
 
-- Frontend: `http://127.0.0.1:5173`
-- Backend: `http://127.0.0.1:8000`
-- Health check: `http://127.0.0.1:8000/healthz`
+- `.env` 来自 `.env.example`
+- `frontend/.env.local` 来自 `frontend/.env.example`
+- `node_modules/` 来自 `npm ci`
+- Python 环境来自 `scripts/bootstrap.ps1` 或 `backend/requirements.txt`
+- SQLite / runtime / uploads 是本地实验数据
+- `.spec-gen/` 是本地分析缓存
 
-Ignored files are expected and rebuildable:
+## 主要目录
 
-- `.env` comes from `.env.example`
-- `frontend/.env.local` comes from `frontend/.env.example`
-- `node_modules/` comes from `npm ci`
-- Python env comes from bootstrap or `backend/requirements.txt`
-- SQLite/runtime/uploads are local test data
-- `.spec-gen/` is local analysis cache and does not affect `openspec/specs/**`
+- `backend/`：FastAPI 后端。
+- `frontend/`：React/Vite 前端。
+- `data/`：公共政策样本、private sample、因子数据。
+- `openspec/`：规格库与变更提案。
+- `docs/governance/`：协作、PR、OpenSpec、席位规则。
+- `docs/architecture/`：架构流与模块边界。
+- `docs/PLAN/`：版本施工计划。
+- `scripts/`：bootstrap、local-dev、部署辅助脚本。
 
-## Authentication and Governance
-- Authentication uses `HttpOnly` cookie-based server-side sessions.
-- Local account registration is open for normal users.
-- Seed admin account: `admin / 123456`
-- The seed admin must change password on first login.
-- Emergency seed-admin recovery is enabled: if the `admin` account is lost, disabled, or otherwise unavailable, submitting `admin / 123456` on the register page will restore the initial admin account and force password change on next login.
-- Roles are limited to `user` and `admin`.
+## 核心文档索引
 
-Users can:
-- ask questions
-- run carbon calculations
-- generate reports
-- upload files
-- manage their own knowledge items
-- view only their own history
+- [快速上手.md](快速上手.md)
+- [开发公告.md](开发公告.md)
+- [docs/API_BOUNDARY_DRAFT.md](docs/API_BOUNDARY_DRAFT.md)
+- [docs/DEVELOPMENT_BOOTSTRAP.md](docs/DEVELOPMENT_BOOTSTRAP.md)
+- [docs/GIT_WORKFLOW.md](docs/GIT_WORKFLOW.md)
+- [docs/GIT_RELEASE_FLOW.md](docs/GIT_RELEASE_FLOW.md)
+- [docs/governance/OPEN_COLLABORATION_GUIDE.md](docs/governance/OPEN_COLLABORATION_GUIDE.md)
+- [docs/governance/SEAT_ONBOARDING_RUNBOOK.md](docs/governance/SEAT_ONBOARDING_RUNBOOK.md)
+- [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)
+- [docs/governance/PR_REVIEW_RUNBOOK.md](docs/governance/PR_REVIEW_RUNBOOK.md)
+- [docs/architecture/MODULE_BOUNDARY_MAP.md](docs/architecture/MODULE_BOUNDARY_MAP.md)
+- [docs/PLAN/V1.4.0.md](docs/PLAN/V1.4.0.md)
 
-Admins can additionally:
-- view system status
-- manage users
-- manage shared private knowledge entry visibility and attachability
-- view feedback overview
-- monitor knowledge items and tasks
-- trigger scan / rebuild / retry for private knowledge updates
+## 当前公开 API 概览
 
-Admins cannot read ordinary users' session or report body content through normal business APIs.
+### 公开接口
 
-## Current Public API Surface
-
-### Public
 - `GET /healthz`
 
-### Authenticated user APIs
-- `GET /api/v1/system/info`
-- `POST /api/v1/auth/register`
-- `POST /api/v1/auth/login`
-- `POST /api/v1/auth/logout`
-- `GET /api/v1/auth/me`
-- `POST /api/v1/auth/change-password`
-- `GET /api/v1/memory-notes`
-- `POST /api/v1/memory-notes`
-- `PATCH /api/v1/memory-notes/{memory_note_id}`
-- `DELETE /api/v1/memory-notes/{memory_note_id}`
-- `POST /api/v1/sessions`
-- `GET /api/v1/sessions`
-- `GET /api/v1/sessions/{id}`
-- `PATCH /api/v1/sessions/{id}`
-- `POST /api/v1/sessions/{id}/ask`
-- `POST /api/v1/files`
-- `GET /api/v1/knowledge-items`
-- `GET /api/v1/knowledge-items/{knowledge_item_id}`
-- `GET /api/v1/knowledge-tasks`
-- `POST /api/v1/knowledge-tasks/{task_id}/retry`
-- `PUT /api/v1/sessions/{id}/knowledge-items`
-- `GET /api/v1/me/uploads`
-- `GET /api/v1/me/reports`
-- `GET /api/v1/me/feedback`
-- `GET /api/v1/private-samples`
-- `PUT /api/v1/sessions/{id}/attached-files/private-samples`
-- `POST /api/v1/calc-carbon`
-- `POST /api/v1/feedback`
-- `POST /api/v1/reports`
-- `POST /api/v1/generate-report` (deprecated alias)
-- `GET /api/v1/reports/{report_id}`
-- `PATCH /api/v1/reports/{report_id}`
-- `GET /api/v1/sessions/{id}/reports`
-- `GET /api/v1/sessions/{id}/carbon-calculations`
+### 已登录用户接口
 
-### Admin-only APIs
-- `GET /api/v1/admin/system/status`
-- `GET /api/v1/admin/users`
-- `PATCH /api/v1/admin/users/{user_id}`
-- `POST /api/v1/admin/users/{user_id}/reset-password`
-- `GET /api/v1/admin/feedback/overview`
-- `GET /api/v1/admin/private-samples`
-- `PATCH /api/v1/admin/private-samples/{doc_id}`
-- `GET /api/v1/admin/knowledge-refresh-tasks`
-- `POST /api/v1/admin/knowledge-refresh-tasks`
-- `GET /api/v1/admin/knowledge-items`
-- `PATCH /api/v1/admin/knowledge-items/{knowledge_item_id}`
-- `GET /api/v1/admin/knowledge-tasks`
-- `POST /api/v1/admin/knowledge-tasks/scan`
-- `POST /api/v1/admin/knowledge-tasks/rebuild`
-- `POST /api/v1/admin/knowledge-tasks/{task_id}/retry`
+- auth：注册、登录、登出、me、改密。
+- sessions：创建、列表、详情、改标题、ask。
+- files / knowledge：上传、知识条目、任务、session 挂接。
+- calc-carbon：碳核算。
+- feedback：反馈。
+- reports：报告生成、读取、编辑、session 报告列表。
+- memory-notes：后端预留的用户级长期记忆接口。
 
-## Current Capability Boundaries
+### 管理员接口
 
-### Ask
-- supports `public`, `private_sample`, and `mixed`
-- uses grounded citations
-- private retrieval now reads indexed `knowledge_items` / `knowledge_chunks`
-- only returns the current authenticated user's sessions and bindings
+- system status
+- users
+- feedback overview
+- private samples
+- knowledge items / tasks
+- knowledge scan / rebuild / retry
 
-### Session Memory
-- ask uses session compaction when context grows beyond the estimated budget
-- the session keeps a summary plus a recent-message window
-- `GET /api/v1/sessions/{id}` now returns `memory_state`, including context estimate, summary presence, compacted-message count, and compaction status
-- session summary is not a knowledge library entry
-- `memory_notes` exist only as backend-managed user-level prewire, not as a front-end memory UI
-
-### Private Knowledge
-- uploaded files enter the knowledge task flow after upload
-- shared `data/private_sample/` entries are imported as shared knowledge items
-- private / mixed ask only searches knowledge items already attached to the current session
-- unsupported or non-extractable files fall into `parse_failed` and can be retried
-
-### Calc Carbon
-- supports:
-  - `electricity_kwh`
-  - `natural_gas_m3`
-  - `diesel_l`
-- persists results to the current authenticated user's runtime data
-
-### Report
-- supports:
-  - `policy_summary`
-  - `mixed_analysis`
-  - `carbon_summary`
-- every report is bound to a `session_id`
-- reports can reuse ask citations and optional calc results
-- generated reports can be re-opened and edited in place
-
-## Local Start
-
-### Standard local start
-Windows:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1
-```
-
-macOS / Linux:
-
-```bash
-bash scripts/dev-local.sh
-```
-
-### Bootstrap only
-Windows:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap.ps1
-```
-
-macOS / Linux:
-
-```bash
-bash scripts/bootstrap.sh
-```
-
-`bootstrap` installs dependencies and prepares local templates. It does not keep frontend and backend running.
-
-## Release Discipline
-- local development: `t1/v1.2/*`, `t2/v1.2/*`, or feature branches when appropriate
-- stable source and current public release baseline: `main`
-- compatibility release line: `release/cloud-stable`
-- do not publish every commit to cloud
-- Netlify and VPS deployment settings should be verified against `main`
-
-## Documents
-- [before_all.md](/F:/Project/CarbonRag/before_all.md)
-- [docs/API_BOUNDARY_DRAFT.md](/F:/Project/CarbonRag/docs/API_BOUNDARY_DRAFT.md)
-- [docs/DEVELOPMENT_BOOTSTRAP.md](/F:/Project/CarbonRag/docs/DEVELOPMENT_BOOTSTRAP.md)
-- [docs/GIT_WORKFLOW.md](/F:/Project/CarbonRag/docs/GIT_WORKFLOW.md)
-- [docs/GIT_RELEASE_FLOW.md](/F:/Project/CarbonRag/docs/GIT_RELEASE_FLOW.md)
-- [docs/governance/OPEN_COLLABORATION_GUIDE.md](/F:/Project/CarbonRag/docs/governance/OPEN_COLLABORATION_GUIDE.md)
-- [docs/governance/SEAT_ONBOARDING_RUNBOOK.md](/F:/Project/CarbonRag/docs/governance/SEAT_ONBOARDING_RUNBOOK.md)
-- [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](/F:/Project/CarbonRag/docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)
-- [docs/governance/PR_REVIEW_RUNBOOK.md](/F:/Project/CarbonRag/docs/governance/PR_REVIEW_RUNBOOK.md)
-- [docs/governance/TRACKED_COLLABORATION_ASSET_INVENTORY.md](/F:/Project/CarbonRag/docs/governance/TRACKED_COLLABORATION_ASSET_INVENTORY.md)
-- [docs/architecture/PRIVATE_KNOWLEDGE_TASK_FLOW.md](/F:/Project/CarbonRag/docs/architecture/PRIVATE_KNOWLEDGE_TASK_FLOW.md)
-- [docs/research/claw-code/07_CHAT_UX_AND_MEMORY_NOTES.md](/F:/Project/CarbonRag/docs/research/claw-code/07_CHAT_UX_AND_MEMORY_NOTES.md)
-- [docs/deploy/LOCAL_DEV_VS_CLOUD_STABLE.md](/F:/Project/CarbonRag/docs/deploy/LOCAL_DEV_VS_CLOUD_STABLE.md)
-- [docs/deploy/VPS_BACKEND_DEPLOY.md](/F:/Project/CarbonRag/docs/deploy/VPS_BACKEND_DEPLOY.md)
-- [docs/deploy/NETLIFY_FRONTEND.md](/F:/Project/CarbonRag/docs/deploy/NETLIFY_FRONTEND.md)
-- [docs/PLAN/V1.0.0.md](/F:/Project/CarbonRag/docs/PLAN/V1.0.0.md)
-- [docs/PLAN/V1.1.0.md](/F:/Project/CarbonRag/docs/PLAN/V1.1.0.md)
-- [docs/PLAN/V1.1.3.md](/F:/Project/CarbonRag/docs/PLAN/V1.1.3.md)
-- [docs/PLAN/V1.1.4.md](/F:/Project/CarbonRag/docs/PLAN/V1.1.4.md)
+完整边界见 [docs/API_BOUNDARY_DRAFT.md](docs/API_BOUNDARY_DRAFT.md)。

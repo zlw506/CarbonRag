@@ -164,10 +164,10 @@ def test_session_ask_stream_contract_emits_sse_sequence(monkeypatch, tmp_path) -
             status_code=200,
             lines=[
                 'event: reasoning',
-                'data: {"id":"chatcmpl-session-contract","choices":[{"delta":{"reasoning_content":"先检索依据。"}}]}',
+                'data: {"id":"chatcmpl-stream-contract","choices":[{"delta":{"reasoning_content":"先检查会话上下文。"}}]}',
                 "",
                 'event: message',
-                'data: {"id":"chatcmpl-session-contract","choices":[{"delta":{"content":"双碳目标是碳达峰和碳中和。"}}]}',
+                'data: {"id":"chatcmpl-stream-contract","choices":[{"delta":{"content":"双碳目标包括碳达峰和碳中和。"}}]}',
                 "",
                 "data: [DONE]",
             ],

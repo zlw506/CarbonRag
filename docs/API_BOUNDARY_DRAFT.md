@@ -340,7 +340,7 @@ Request:
 ## Calc Carbon
 
 ### `POST /api/v1/calc-carbon`
-Request:
+Legacy request:
 
 ```json
 {
@@ -349,6 +349,31 @@ Request:
   "electricity_kwh": 12000,
   "natural_gas_m3": 800,
   "diesel_l": 120
+}
+```
+
+V1.4.4 factor-driven request:
+
+```json
+{
+  "session_id": "optional",
+  "organization_id": "org_demo",
+  "facility_id": "facility_demo",
+  "period_start": "2026-01-01",
+  "period_end": "2026-03-31",
+  "inventory_standard": "org_basic_v1",
+  "activity_items": [
+    {
+      "scope": "scope2",
+      "activity_category": "purchased_electricity",
+      "activity_name": "electricity",
+      "activity_value": 12000,
+      "activity_unit": "kWh",
+      "region": "CN",
+      "year": 2023,
+      "factor_preference": "official_latest"
+    }
+  ]
 }
 ```
 
@@ -362,8 +387,13 @@ Response:
   "breakdown": [
     {
       "item": "electricity",
+      "scope": "scope2",
+      "activity_category": "purchased_electricity",
+      "activity_name": "electricity",
       "activity_value": 12000,
       "activity_unit": "kWh",
+      "normalized_activity_value": 12000,
+      "normalized_activity_unit": "kWh",
       "factor_value": 0.57,
       "factor_unit": "kgCO2e/kWh",
       "emission_kgco2e": 6840.0,
@@ -377,9 +407,20 @@ Response:
       "source": "string",
       "source_url": "string"
     }
-  ]
+  ],
+  "factor_snapshot": [],
+  "unit_conversion_trace": [],
+  "formula_trace": [],
+  "source_summary": [],
+  "warnings": []
 }
 ```
+
+Notes:
+- legacy three-field payloads remain supported and are internally converted to `activity_items[]`
+- V1.4.4 calculates Scope 1 stationary/mobile combustion and Scope 2 purchased electricity location-based
+- market-based green power fields are reserved and do not zero certified green power yet
+- official electricity factors and demo combustion factors are separated by `source_type`
 
 ## Feedback
 

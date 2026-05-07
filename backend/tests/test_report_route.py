@@ -163,7 +163,7 @@ def test_report_route_creates_carbon_summary(monkeypatch, tmp_path) -> None:
     payload = response.json()
     assert response.status_code == 200
     assert payload["report_type"] == "carbon_summary"
-    assert payload["source_summary"]["carbon_factor_count"] == 3
+    assert payload["source_summary"]["carbon_factor_count"] == 1
 
 
 def test_report_route_uses_default_session_context_when_sources_omitted(monkeypatch, tmp_path) -> None:

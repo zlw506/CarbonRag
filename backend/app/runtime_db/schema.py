@@ -19,6 +19,12 @@ CORE_TABLES = (
     "execution_checkpoints",
     "feedback_entries",
     "carbon_calculations",
+    "carbon_inventories",
+    "carbon_activity_items",
+    "carbon_calculation_lines",
+    "carbon_factor_snapshots",
+    "carbon_evidence_references",
+    "carbon_inventory_summaries",
     "reports",
     "report_sources",
     "private_sample_catalog_overrides",
@@ -34,6 +40,7 @@ OWNER_TABLES = (
     "knowledge_items",
     "feedback_entries",
     "carbon_calculations",
+    "carbon_inventories",
     "reports",
 )
 
@@ -301,6 +308,7 @@ CREATE TABLE IF NOT EXISTS feedback_entries (
 CREATE TABLE IF NOT EXISTS carbon_calculations (
     calculation_seq INTEGER PRIMARY KEY AUTOINCREMENT,
     trace_id TEXT NOT NULL UNIQUE,
+    inventory_id TEXT,
     owner_user_id TEXT,
     session_id TEXT,
     period_label TEXT,
@@ -310,8 +318,126 @@ CREATE TABLE IF NOT EXISTS carbon_calculations (
     total_emission_kgco2e REAL NOT NULL,
     breakdown_json TEXT NOT NULL,
     citations_json TEXT NOT NULL,
+    factor_snapshot_json TEXT NOT NULL DEFAULT '[]',
+    unit_conversion_trace_json TEXT NOT NULL DEFAULT '[]',
+    formula_trace_json TEXT NOT NULL DEFAULT '[]',
+    source_summary_json TEXT NOT NULL DEFAULT '[]',
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    activity_items_raw_json TEXT NOT NULL DEFAULT '[]',
+    scope_summary_json TEXT NOT NULL DEFAULT '{}',
+    activity_count INTEGER NOT NULL DEFAULT 0,
+    official_factor_count INTEGER NOT NULL DEFAULT 0,
+    fallback_factor_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS carbon_inventories (
+    inventory_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    inventory_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
+    session_id TEXT,
+    organization_id TEXT,
+    facility_id TEXT,
+    period_start TEXT,
+    period_end TEXT,
+    inventory_standard TEXT NOT NULL,
+    calculation_method TEXT NOT NULL,
+    trace_id TEXT NOT NULL UNIQUE,
+    activity_items_raw_json TEXT NOT NULL,
+    raw_payload_json TEXT NOT NULL,
+    total_kgco2e REAL NOT NULL,
+    scope_summary_json TEXT NOT NULL,
+    activity_count INTEGER NOT NULL DEFAULT 0,
+    official_factor_count INTEGER NOT NULL DEFAULT 0,
+    fallback_factor_count INTEGER NOT NULL DEFAULT 0,
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS carbon_activity_items (
+    activity_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    activity_item_id TEXT NOT NULL UNIQUE,
+    inventory_id TEXT NOT NULL,
+    order_index INTEGER NOT NULL,
+    scope TEXT NOT NULL,
+    activity_category TEXT NOT NULL,
+    activity_name TEXT NOT NULL,
+    activity_value REAL NOT NULL,
+    activity_unit TEXT NOT NULL,
+    region TEXT,
+    province TEXT,
+    year INTEGER,
+    data_quality TEXT NOT NULL,
+    evidence_reference TEXT,
+    source_document_id TEXT,
+    entry_method TEXT NOT NULL,
+    requested_factor_id TEXT,
+    raw_payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (inventory_id) REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS carbon_calculation_lines (
+    line_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    line_id TEXT NOT NULL UNIQUE,
+    inventory_id TEXT NOT NULL,
+    activity_item_id TEXT,
+    scope TEXT,
+    activity_category TEXT,
+    activity_name TEXT,
+    emission_kgco2e REAL NOT NULL,
+    factor_id TEXT NOT NULL,
+    line_payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (inventory_id) REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE,
+    FOREIGN KEY (activity_item_id) REFERENCES carbon_activity_items(activity_item_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS carbon_factor_snapshots (
+    snapshot_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    factor_snapshot_id TEXT NOT NULL UNIQUE,
+    inventory_id TEXT NOT NULL,
+    factor_id TEXT NOT NULL,
+    factor_version TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    source_url TEXT,
+    factor_value REAL NOT NULL,
+    factor_unit TEXT NOT NULL,
+    activity_unit TEXT NOT NULL,
+    result_unit TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (inventory_id) REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS carbon_evidence_references (
+    evidence_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    inventory_id TEXT NOT NULL,
+    activity_item_id TEXT NOT NULL,
+    data_quality TEXT NOT NULL,
+    evidence_reference TEXT,
+    source_document_id TEXT,
+    entry_method TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (inventory_id) REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE,
+    FOREIGN KEY (activity_item_id) REFERENCES carbon_activity_items(activity_item_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS carbon_inventory_summaries (
+    summary_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    inventory_id TEXT NOT NULL UNIQUE,
+    scope_summary_json TEXT NOT NULL,
+    activity_count INTEGER NOT NULL DEFAULT 0,
+    official_factor_count INTEGER NOT NULL DEFAULT 0,
+    fallback_factor_count INTEGER NOT NULL DEFAULT 0,
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (inventory_id) REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS reports (
@@ -406,6 +532,16 @@ CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace
     ON feedback_entries(owner_user_id, trace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at
     ON carbon_calculations(owner_user_id, session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_carbon_inventories_owner_session_created_at
+    ON carbon_inventories(owner_user_id, session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_carbon_activity_items_inventory_order
+    ON carbon_activity_items(inventory_id, order_index ASC);
+CREATE INDEX IF NOT EXISTS idx_carbon_lines_inventory
+    ON carbon_calculation_lines(inventory_id, line_seq ASC);
+CREATE INDEX IF NOT EXISTS idx_carbon_factor_snapshots_inventory
+    ON carbon_factor_snapshots(inventory_id, snapshot_seq ASC);
+CREATE INDEX IF NOT EXISTS idx_carbon_evidence_inventory
+    ON carbon_evidence_references(inventory_id, evidence_seq ASC);
 CREATE INDEX IF NOT EXISTS idx_reports_owner_session_updated_at
     ON reports(owner_user_id, session_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_report_sources_report_order
@@ -678,6 +814,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS carbon_calculations (
         calculation_seq BIGSERIAL PRIMARY KEY,
         trace_id TEXT NOT NULL UNIQUE,
+        inventory_id TEXT,
         owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
         session_id TEXT,
         period_label TEXT,
@@ -687,6 +824,122 @@ POSTGRES_SCHEMA_STATEMENTS = (
         total_emission_kgco2e DOUBLE PRECISION NOT NULL,
         breakdown_json TEXT NOT NULL,
         citations_json TEXT NOT NULL,
+        factor_snapshot_json TEXT NOT NULL DEFAULT '[]',
+        unit_conversion_trace_json TEXT NOT NULL DEFAULT '[]',
+        formula_trace_json TEXT NOT NULL DEFAULT '[]',
+        source_summary_json TEXT NOT NULL DEFAULT '[]',
+        warnings_json TEXT NOT NULL DEFAULT '[]',
+        activity_items_raw_json TEXT NOT NULL DEFAULT '[]',
+        scope_summary_json TEXT NOT NULL DEFAULT '{}',
+        activity_count INTEGER NOT NULL DEFAULT 0,
+        official_factor_count INTEGER NOT NULL DEFAULT 0,
+        fallback_factor_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carbon_inventories (
+        inventory_seq BIGSERIAL PRIMARY KEY,
+        inventory_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        session_id TEXT,
+        organization_id TEXT,
+        facility_id TEXT,
+        period_start TEXT,
+        period_end TEXT,
+        inventory_standard TEXT NOT NULL,
+        calculation_method TEXT NOT NULL,
+        trace_id TEXT NOT NULL UNIQUE,
+        activity_items_raw_json TEXT NOT NULL,
+        raw_payload_json TEXT NOT NULL,
+        total_kgco2e DOUBLE PRECISION NOT NULL,
+        scope_summary_json TEXT NOT NULL,
+        activity_count INTEGER NOT NULL DEFAULT 0,
+        official_factor_count INTEGER NOT NULL DEFAULT 0,
+        fallback_factor_count INTEGER NOT NULL DEFAULT 0,
+        warnings_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carbon_activity_items (
+        activity_seq BIGSERIAL PRIMARY KEY,
+        activity_item_id TEXT NOT NULL UNIQUE,
+        inventory_id TEXT NOT NULL REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE,
+        order_index INTEGER NOT NULL,
+        scope TEXT NOT NULL,
+        activity_category TEXT NOT NULL,
+        activity_name TEXT NOT NULL,
+        activity_value DOUBLE PRECISION NOT NULL,
+        activity_unit TEXT NOT NULL,
+        region TEXT,
+        province TEXT,
+        year INTEGER,
+        data_quality TEXT NOT NULL,
+        evidence_reference TEXT,
+        source_document_id TEXT,
+        entry_method TEXT NOT NULL,
+        requested_factor_id TEXT,
+        raw_payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carbon_calculation_lines (
+        line_seq BIGSERIAL PRIMARY KEY,
+        line_id TEXT NOT NULL UNIQUE,
+        inventory_id TEXT NOT NULL REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE,
+        activity_item_id TEXT REFERENCES carbon_activity_items(activity_item_id) ON DELETE SET NULL,
+        scope TEXT,
+        activity_category TEXT,
+        activity_name TEXT,
+        emission_kgco2e DOUBLE PRECISION NOT NULL,
+        factor_id TEXT NOT NULL,
+        line_payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carbon_factor_snapshots (
+        snapshot_seq BIGSERIAL PRIMARY KEY,
+        factor_snapshot_id TEXT NOT NULL UNIQUE,
+        inventory_id TEXT NOT NULL REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE,
+        factor_id TEXT NOT NULL,
+        factor_version TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        source_name TEXT NOT NULL,
+        source_url TEXT,
+        factor_value DOUBLE PRECISION NOT NULL,
+        factor_unit TEXT NOT NULL,
+        activity_unit TEXT NOT NULL,
+        result_unit TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carbon_evidence_references (
+        evidence_seq BIGSERIAL PRIMARY KEY,
+        evidence_id TEXT NOT NULL UNIQUE,
+        inventory_id TEXT NOT NULL REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE,
+        activity_item_id TEXT NOT NULL REFERENCES carbon_activity_items(activity_item_id) ON DELETE CASCADE,
+        data_quality TEXT NOT NULL,
+        evidence_reference TEXT,
+        source_document_id TEXT,
+        entry_method TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carbon_inventory_summaries (
+        summary_seq BIGSERIAL PRIMARY KEY,
+        inventory_id TEXT NOT NULL UNIQUE REFERENCES carbon_inventories(inventory_id) ON DELETE CASCADE,
+        scope_summary_json TEXT NOT NULL,
+        activity_count INTEGER NOT NULL DEFAULT 0,
+        official_factor_count INTEGER NOT NULL DEFAULT 0,
+        fallback_factor_count INTEGER NOT NULL DEFAULT 0,
+        warnings_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL
     )
     """,
@@ -763,6 +1016,17 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS updated_at TEXT",
     "ALTER TABLE feedback_entries ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS inventory_id TEXT",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS factor_snapshot_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS unit_conversion_trace_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS formula_trace_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS source_summary_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS warnings_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS activity_items_raw_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS scope_summary_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS activity_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS official_factor_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS fallback_factor_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash ON auth_sessions(token_hash)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id, expires_at DESC)",
@@ -784,6 +1048,11 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_execution_checkpoints_workflow_created ON execution_checkpoints(workflow_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace ON feedback_entries(owner_user_id, trace_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at ON carbon_calculations(owner_user_id, session_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_inventories_owner_session_created_at ON carbon_inventories(owner_user_id, session_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_activity_items_inventory_order ON carbon_activity_items(inventory_id, order_index ASC)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_lines_inventory ON carbon_calculation_lines(inventory_id, line_seq ASC)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_factor_snapshots_inventory ON carbon_factor_snapshots(inventory_id, snapshot_seq ASC)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_evidence_inventory ON carbon_evidence_references(inventory_id, evidence_seq ASC)",
     "CREATE INDEX IF NOT EXISTS idx_reports_owner_session_updated_at ON reports(owner_user_id, session_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_report_sources_report_order ON report_sources(report_id, order_index ASC)",
     "CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled ON private_sample_catalog_overrides(is_enabled, session_attachable)",
@@ -819,6 +1088,17 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "knowledge_chunks", "updated_at", "TEXT")
     _ensure_sqlite_column(connection, "feedback_entries", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "carbon_calculations", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "carbon_calculations", "inventory_id", "TEXT")
+    _ensure_sqlite_column(connection, "carbon_calculations", "factor_snapshot_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "unit_conversion_trace_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "formula_trace_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "source_summary_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "warnings_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "activity_items_raw_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "scope_summary_json", "TEXT NOT NULL DEFAULT '{}'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "activity_count", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_sqlite_column(connection, "carbon_calculations", "official_factor_count", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_sqlite_column(connection, "carbon_calculations", "fallback_factor_count", "INTEGER NOT NULL DEFAULT 0")
     _ensure_sqlite_column(connection, "reports", "owner_user_id", "TEXT")
     connection.executescript(SQLITE_INDEX_SCRIPT)
 

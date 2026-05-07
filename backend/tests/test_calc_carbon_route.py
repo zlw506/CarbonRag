@@ -95,6 +95,50 @@ def test_calc_carbon_route_returns_breakdown_and_citations(monkeypatch, tmp_path
     assert len(payload["citations"]) == 3
 
 
+def test_calc_carbon_route_accepts_activity_items_v2(monkeypatch, tmp_path) -> None:
+    store = SQLiteSessionStore(tmp_path / "carbonrag.sqlite3")
+    session_service = SessionService(store=store)
+    carbon_service = CarbonService(
+        factor_loader=CarbonFactorLoader("data/factors/carbon_v2_seed.json"),
+        session_service=session_service,
+        store=store,
+    )
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+
+    register_and_login(client, prefix="calc-v2")
+    session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
+    response = client.post(
+        "/api/v1/calc-carbon",
+        json={
+            "session_id": session_id,
+            "organization_id": "org_demo",
+            "facility_id": "facility_demo",
+            "period_start": "2026-01-01",
+            "period_end": "2026-03-31",
+            "activity_items": [
+                {
+                    "scope": "scope2",
+                    "activity_category": "purchased_electricity",
+                    "activity_name": "electricity",
+                    "activity_value": 1000,
+                    "activity_unit": "kWh",
+                    "region": "CN",
+                    "year": 2023,
+                }
+            ],
+        },
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["total_emission_kgco2e"] == 530.6
+    assert payload["factor_snapshot"][0]["factor_value"] == 0.5306
+    assert payload["unit_conversion_trace"][0]["normalized_unit"] == "kWh"
+    assert payload["formula_trace"][0]["emission_kgco2e"] == 530.6
+
+
 def test_calc_carbon_route_rejects_unknown_session(monkeypatch, tmp_path) -> None:
     _, carbon_service = build_test_service(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.calc_carbon.get_carbon_service", lambda: carbon_service)

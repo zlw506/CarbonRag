@@ -50,10 +50,18 @@ def test_bootstrap_runtime_database_creates_sqlite_schema(tmp_path) -> None:
             row[1]
             for row in connection.execute("PRAGMA table_info(messages)").fetchall()
         }
+        calculation_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(carbon_calculations)").fetchall()
+        }
     finally:
         connection.close()
     assert set(CORE_TABLES).issubset(tables)
     assert "thinking_content" in message_columns
+    assert "carbon_inventories" in tables
+    assert "carbon_activity_items" in tables
+    assert "inventory_id" in calculation_columns
+    assert "scope_summary_json" in calculation_columns
 
 
 def test_bootstrap_runtime_database_executes_postgres_schema(monkeypatch) -> None:
@@ -70,6 +78,8 @@ def test_bootstrap_runtime_database_executes_postgres_schema(monkeypatch) -> Non
     assert any("CREATE TABLE IF NOT EXISTS sessions" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS feedback_entries" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS carbon_calculations" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS carbon_inventories" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS carbon_activity_items" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS reports" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS report_sources" in statement for statement in executed)
     assert any("ALTER TABLE messages ADD COLUMN IF NOT EXISTS thinking_content TEXT" in statement for statement in executed)

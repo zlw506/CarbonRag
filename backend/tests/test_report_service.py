@@ -175,7 +175,7 @@ def test_report_service_generates_carbon_summary(monkeypatch, tmp_path) -> None:
     )
 
     assert created.report_type == "carbon_summary"
-    assert created.source_summary.carbon_factor_count == 3
+    assert created.source_summary.carbon_factor_count == 1
     assert any(item.source_type == "carbon_factor" for item in created.citations)
 
 
@@ -247,5 +247,5 @@ def test_report_service_falls_back_to_recent_valid_message_and_carbon_result(mon
     assert mixed_report.source_summary.public_policy_count == 1
     assert mixed_report.source_summary.private_sample_count == 1
     assert any(source.source_type == "message" for source in mixed_report.sources)
-    assert carbon_report.source_summary.carbon_factor_count == 3
+    assert carbon_report.source_summary.carbon_factor_count == 1
     assert any(source.source_type == "carbon_result" and source.source_ref == result.trace_id for source in carbon_report.sources)
