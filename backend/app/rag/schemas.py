@@ -91,6 +91,7 @@ class RagRetrievalMetadata(BaseModel):
     vector_backend: str | None = None
     vector_backend_health: str | None = None
     vector_adapter_name: str | None = None
+    vector_hit_count: int | None = Field(default=None, ge=0)
     graph_status: Literal["unavailable", "skipped"]
     rerank_status: Literal["disabled", "skipped", "applied", "error"]
     fallback_reason: str | None = None

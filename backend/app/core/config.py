@@ -31,6 +31,7 @@ class Settings(BaseSettings):
 
     rag_engine_enabled: bool = False
     rag_vector_enabled: bool = False
+    rag_vector_backend: str = "current"
     rag_rerank_enabled: bool = False
     rag_default_mode: str = "mix"
     rag_parser_provider: str = "default"

@@ -399,6 +399,9 @@ export function RagLabPage() {
                             <Descriptions.Item label="vector_backend_health">
                                 <VectorHealthTag value={metadata.vector_backend_health ?? "unknown"} />
                             </Descriptions.Item>
+                            <Descriptions.Item label="vector_hit_count">
+                                {metadata.vector_hit_count ?? "unknown"}
+                            </Descriptions.Item>
                             <Descriptions.Item label="path">
                                 <Space size={4} wrap>
                                     {retrievalPath.map((item) => (

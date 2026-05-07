@@ -67,6 +67,7 @@ export interface RagRetrievalMetadata {
     vector_backend?: string | null;
     vector_backend_health?: string | null;
     vector_adapter_name?: string | null;
+    vector_hit_count?: number | null;
     graph_status?: RagGraphStatus | null;
     rerank_status?: RagRerankStatus | null;
     fallback_reason?: string | null;
