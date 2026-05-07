@@ -1,0 +1,107 @@
+[
+  {
+    "id": "public_policy_001",
+    "query": "2030年前碳达峰行动方案有哪些重点领域？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_001"],
+    "expected_keywords": ["能源", "工业", "交通", "循环经济"]
+  },
+  {
+    "id": "public_policy_002",
+    "query": "为什么要建立统一规范的碳排放统计核算体系？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_002"],
+    "expected_keywords": ["统计", "核算", "双碳", "基础设施"]
+  },
+  {
+    "id": "public_policy_003",
+    "query": "双碳标准计量体系对企业碳核算有什么作用？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_003"],
+    "expected_keywords": ["标准", "计量", "产品碳足迹", "规范"]
+  },
+  {
+    "id": "public_policy_004",
+    "query": "2024到2025年标准计量体系建设行动方案强调什么？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_004"],
+    "expected_keywords": ["2024", "2025", "标准计量", "行动方案"]
+  },
+  {
+    "id": "public_policy_005",
+    "query": "北京市碳达峰实施方案有哪些地方执行重点？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_005"],
+    "expected_keywords": ["北京", "地方", "建筑", "绿色交通"]
+  },
+  {
+    "id": "public_policy_006",
+    "query": "企业低碳转型应该如何理解双碳目标和行动路径？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_001"],
+    "expected_keywords": ["双碳", "行动路径", "低碳转型", "政策体系"]
+  },
+  {
+    "id": "public_policy_007",
+    "query": "碳排放统计核算体系和企业碳管理有什么关系？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_002"],
+    "expected_keywords": ["碳排放", "统计核算", "企业", "管理"]
+  },
+  {
+    "id": "public_policy_008",
+    "query": "产品碳足迹需要哪些标准计量基础？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_003"],
+    "expected_keywords": ["产品碳足迹", "标准", "计量", "统一规范"]
+  },
+  {
+    "id": "public_policy_009",
+    "query": "地方如何把国家双碳目标细化落地？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_005"],
+    "expected_keywords": ["地方", "国家双碳目标", "细化", "落地"]
+  },
+  {
+    "id": "public_policy_010",
+    "query": "碳达峰支撑保障包括哪些制度工具？",
+    "knowledge_scope": "public",
+    "expected_doc_ids": ["policy_001"],
+    "expected_keywords": ["统计核算", "标准计量", "财政金融", "市场化机制"]
+  },
+  {
+    "id": "private_sample_001",
+    "query": "华北示例制造厂样例的管理目标是什么？",
+    "knowledge_scope": "private_sample",
+    "expected_doc_ids": ["enterprise_doc_001"],
+    "expected_keywords": ["项目背景", "样例管理目标", "private retrieval"]
+  },
+  {
+    "id": "private_sample_002",
+    "query": "压缩空气与蒸汽系统样例涉及哪些能源管理内容？",
+    "knowledge_scope": "private_sample",
+    "expected_doc_ids": ["enterprise_doc_002"],
+    "expected_keywords": ["压缩空气", "蒸汽", "月度能耗", "能源"]
+  },
+  {
+    "id": "private_sample_003",
+    "query": "物流与运输组织样例提醒后续碳核算要区分什么？",
+    "knowledge_scope": "private_sample",
+    "expected_doc_ids": ["enterprise_doc_003"],
+    "expected_keywords": ["物流", "运输", "车型", "燃料类型"]
+  },
+  {
+    "id": "private_sample_004",
+    "query": "月度能耗台账样例可以支持哪些能耗追踪？",
+    "knowledge_scope": "private_sample",
+    "expected_doc_ids": ["energy_bill_sample_001"],
+    "expected_keywords": ["月度", "能耗", "电力", "天然气"]
+  },
+  {
+    "id": "private_sample_005",
+    "query": "运输里程与载重样例适合回答哪些物流排放问题？",
+    "knowledge_scope": "private_sample",
+    "expected_doc_ids": ["logistics_sample_001"],
+    "expected_keywords": ["运输", "里程", "载重", "物流"]
+  }
+]

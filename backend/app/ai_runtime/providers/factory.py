@@ -4,7 +4,7 @@ from app.ai_runtime.config import get_ai_runtime_config
 from app.ai_runtime.providers.base import BaseChatProvider, BaseEmbeddingProvider, BaseRerankProvider
 from app.ai_runtime.providers.chat_openai_compatible import OpenAICompatibleChatProvider
 from app.ai_runtime.providers.embedding_openai_compatible import OpenAICompatibleEmbeddingProvider
-from app.ai_runtime.providers.rerank_disabled import DisabledRerankProvider
+from app.ai_runtime.providers.rerank_local import NoopRerankProvider
 
 
 @lru_cache(maxsize=1)
@@ -33,7 +33,7 @@ def get_embedding_provider() -> BaseEmbeddingProvider:
 
 @lru_cache(maxsize=1)
 def get_rerank_provider() -> BaseRerankProvider:
-    return DisabledRerankProvider()
+    return NoopRerankProvider()
 
 
 def reset_provider_factory_cache() -> None:
