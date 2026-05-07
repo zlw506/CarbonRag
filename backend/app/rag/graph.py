@@ -5,7 +5,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from app.rag.contracts import ChunkRecord, hash_content
+from app.rag.contracts import ChunkRecord, GovernanceVisibility, hash_content
 
 
 class GraphEntity(BaseModel):
@@ -15,6 +15,12 @@ class GraphEntity(BaseModel):
     source_chunk_ids: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    tenant_id: str | None = None
+    owner_user_id: str | None = None
+    visibility: GovernanceVisibility = "private"
+    created_by: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class GraphRelation(BaseModel):
@@ -26,6 +32,12 @@ class GraphRelation(BaseModel):
     source_chunk_ids: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    tenant_id: str | None = None
+    owner_user_id: str | None = None
+    visibility: GovernanceVisibility = "private"
+    created_by: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
     @property
     def weight(self) -> float:
@@ -324,6 +336,12 @@ class RuleBasedGraphIndexBuilder:
                             "source_type": chunk.source_type,
                             "extractor": "rule_based",
                         },
+                        tenant_id=chunk.tenant_id,
+                        owner_user_id=chunk.owner_user_id,
+                        visibility=chunk.visibility,
+                        created_by=chunk.created_by,
+                        created_at=chunk.created_at.isoformat(),
+                        updated_at=chunk.updated_at.isoformat(),
                     )
                     continue
                 if chunk.chunk_id not in existing.source_chunk_ids:
@@ -358,6 +376,12 @@ class RuleBasedGraphIndexBuilder:
                                 "document_id": chunk.document_id,
                                 "extractor": "co_occurrence",
                             },
+                            tenant_id=chunk.tenant_id,
+                            owner_user_id=chunk.owner_user_id,
+                            visibility=chunk.visibility,
+                            created_by=chunk.created_by,
+                            created_at=chunk.created_at.isoformat(),
+                            updated_at=chunk.updated_at.isoformat(),
                         )
                         continue
                     if chunk.chunk_id not in existing.source_chunk_ids:

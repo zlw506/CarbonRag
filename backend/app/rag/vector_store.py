@@ -558,7 +558,7 @@ class PgVectorStoreAdapter:
             "title": chunk.title,
             "source": chunk.source,
             "source_url": chunk.source_uri or chunk.source_url,
-            "visibility": _optional_str(chunk.metadata.get("visibility") or chunk.metadata.get("library_scope")),
+            "visibility": _optional_str(chunk.visibility or chunk.metadata.get("visibility") or chunk.metadata.get("library_scope")),
             "text": chunk.text,
             "metadata": metadata,
             "embedding": _vector_literal(embedding.vector),

@@ -110,6 +110,10 @@ def retrieval_trace_from_components(
         "retrieval_path": metadata.retrieval_path,
         "latency_ms": metadata.latency_ms if metadata.latency_ms is not None else prior_trace.latency_ms,
         "total_hits": len(chunks),
+        "workflow_id": prior_trace.workflow_id if prior_trace else provider_metadata.get("workflow_id"),
+        "parser_name": prior_trace.parser_name if prior_trace else provider_metadata.get("parser_name"),
+        "vector_backend": prior_trace.vector_backend if prior_trace else metadata.vector_backend,
+        "error_code": prior_trace.error_code if prior_trace else provider_metadata.get("error_code"),
         "metadata": trace_metadata,
     }
     if prior_trace:

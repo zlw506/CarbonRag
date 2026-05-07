@@ -14,6 +14,7 @@ DocumentSourceType = str
 DocumentBlockType = Literal["title", "paragraph", "table", "list", "unknown"]
 DocumentBlockKind = Literal["text", "heading", "table", "image", "formula", "page"]
 RetrievalStrategyName = Literal["dense_only", "bm25_dense_hybrid", "citation_first", "graph_augmented"]
+GovernanceVisibility = Literal["public", "tenant", "private", "demo"]
 
 
 class DocumentBlock(BaseModel):
@@ -67,6 +68,12 @@ class ParsedDocument(BaseModel):
     source_path: str | None = None
     parser_name: str = "lightweight"
     quality_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    tenant_id: str | None = None
+    owner_user_id: str | None = None
+    visibility: GovernanceVisibility = "private"
+    created_by: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def model_post_init(self, __context: Any) -> None:
         if self.source_uri is None and self.source_path is not None:
@@ -91,6 +98,12 @@ class ChunkRecord(BaseModel):
     source_url: str | None = None
     token_count: int = Field(default=0, ge=0)
     content_hash: str = ""
+    tenant_id: str | None = None
+    owner_user_id: str | None = None
+    visibility: GovernanceVisibility = "private"
+    created_by: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @model_validator(mode="before")
     @classmethod
@@ -131,6 +144,10 @@ class ChunkRecord(BaseModel):
             source_url=chunk.source_url,
             token_count=_rough_token_count(chunk.snippet),
             content_hash=hash_content(chunk.snippet),
+            tenant_id=_optional_str(chunk.metadata.get("tenant_id")) if hasattr(chunk, "metadata") else None,
+            owner_user_id=_optional_str(chunk.metadata.get("owner_user_id")) if hasattr(chunk, "metadata") else None,
+            visibility=_normalize_visibility(chunk.library_scope),
+            created_by=_optional_str(chunk.metadata.get("created_by")) if hasattr(chunk, "metadata") else None,
             metadata={
                 "score": chunk.score,
                 "issued_at": chunk.issued_at,
@@ -153,6 +170,11 @@ class EmbeddingRecord(BaseModel):
     provider_name: str | None = None
     vector_hash: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    tenant_id: str | None = None
+    owner_user_id: str | None = None
+    visibility: GovernanceVisibility = "private"
+    created_by: str | None = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @model_validator(mode="before")
     @classmethod
@@ -239,6 +261,10 @@ class RetrievalTrace(BaseModel):
     retrieval_path: list[str] = Field(default_factory=list)
     latency_ms: float = Field(default=0.0, ge=0.0)
     total_hits: int = Field(default=0, ge=0)
+    workflow_id: str | None = None
+    parser_name: str | None = None
+    vector_backend: str | None = None
+    error_code: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -270,3 +296,17 @@ def _normalize_block_type(value: Any) -> DocumentBlockType:
         "unknown": "unknown",
     }
     return mapping.get(str(value), "unknown")  # type: ignore[return-value]
+
+
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _normalize_visibility(value: Any) -> GovernanceVisibility:
+    if value in {"public", "tenant", "private", "demo"}:
+        return value
+    if value == "shared":
+        return "demo"
+    if value == "personal":
+        return "private"
+    return "private"

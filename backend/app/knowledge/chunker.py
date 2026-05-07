@@ -19,6 +19,10 @@ def chunk_knowledge_text(*, item: KnowledgeItem, text: str, created_at) -> list[
             KnowledgeChunk(
                 knowledge_item_id=item.knowledge_item_id,
                 chunk_id=f"{item.knowledge_item_id}_chunk_{index:02d}",
+                tenant_id=item.tenant_id,
+                owner_user_id=item.owner_user_id,
+                visibility=item.visibility,
+                created_by=item.created_by,
                 title=item.title,
                 source_type=_resolve_chunk_source_type(item),
                 library_scope=item.library_scope,
@@ -29,6 +33,7 @@ def chunk_knowledge_text(*, item: KnowledgeItem, text: str, created_at) -> list[
                 snippet=snippet,
                 order_index=index,
                 created_at=created_at,
+                updated_at=created_at,
             )
         )
     return chunks

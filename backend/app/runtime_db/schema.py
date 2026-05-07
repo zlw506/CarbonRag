@@ -14,6 +14,9 @@ CORE_TABLES = (
     "knowledge_items",
     "knowledge_chunks",
     "knowledge_tasks",
+    "workflow_runs",
+    "workflow_nodes",
+    "execution_checkpoints",
     "feedback_entries",
     "carbon_calculations",
     "reports",
@@ -165,6 +168,9 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
     source_type TEXT NOT NULL,
     source_ref TEXT,
     file_id TEXT,
+    tenant_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private',
+    created_by TEXT,
     source TEXT,
     source_url TEXT,
     sample_type TEXT,
@@ -191,6 +197,10 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     chunk_seq INTEGER PRIMARY KEY AUTOINCREMENT,
     knowledge_item_id TEXT NOT NULL,
     chunk_id TEXT NOT NULL,
+    tenant_id TEXT,
+    owner_user_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private',
+    created_by TEXT,
     title TEXT NOT NULL,
     source_type TEXT NOT NULL,
     library_scope TEXT NOT NULL,
@@ -204,8 +214,56 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     snippet TEXT NOT NULL,
     order_index INTEGER NOT NULL,
     created_at TEXT NOT NULL,
+    updated_at TEXT,
     UNIQUE (knowledge_item_id, chunk_id),
     FOREIGN KEY (knowledge_item_id) REFERENCES knowledge_items(knowledge_item_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    workflow_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_id TEXT NOT NULL UNIQUE,
+    workflow_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    current_node TEXT,
+    knowledge_item_id TEXT,
+    tenant_id TEXT,
+    owner_user_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private',
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    error_message TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (knowledge_item_id) REFERENCES knowledge_items(knowledge_item_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS workflow_nodes (
+    node_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    node_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    input_ref TEXT,
+    output_ref TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    error_message TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    depends_on_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE (workflow_id, node_id),
+    FOREIGN KEY (workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS execution_checkpoints (
+    checkpoint_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    checkpoint_id TEXT NOT NULL UNIQUE,
+    workflow_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    status TEXT,
+    state_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS knowledge_tasks (
@@ -338,6 +396,12 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_status_created_at
     ON knowledge_tasks(status, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_item_created_at
     ON knowledge_tasks(knowledge_item_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_item_updated_at
+    ON workflow_runs(knowledge_item_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_nodes_workflow_status
+    ON workflow_nodes(workflow_id, status);
+CREATE INDEX IF NOT EXISTS idx_execution_checkpoints_workflow_created
+    ON execution_checkpoints(workflow_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace
     ON feedback_entries(owner_user_id, trace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at
@@ -484,6 +548,9 @@ POSTGRES_SCHEMA_STATEMENTS = (
         source_type TEXT NOT NULL,
         source_ref TEXT,
         file_id TEXT REFERENCES files(file_id) ON DELETE SET NULL,
+        tenant_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private',
+        created_by TEXT,
         source TEXT,
         source_url TEXT,
         sample_type TEXT,
@@ -509,6 +576,10 @@ POSTGRES_SCHEMA_STATEMENTS = (
         chunk_seq BIGSERIAL PRIMARY KEY,
         knowledge_item_id TEXT NOT NULL REFERENCES knowledge_items(knowledge_item_id) ON DELETE CASCADE,
         chunk_id TEXT NOT NULL,
+        tenant_id TEXT,
+        owner_user_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private',
+        created_by TEXT,
         title TEXT NOT NULL,
         source_type TEXT NOT NULL,
         library_scope TEXT NOT NULL,
@@ -522,7 +593,55 @@ POSTGRES_SCHEMA_STATEMENTS = (
         snippet TEXT NOT NULL,
         order_index INTEGER NOT NULL,
         created_at TEXT NOT NULL,
+        updated_at TEXT,
         UNIQUE (knowledge_item_id, chunk_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+        workflow_seq BIGSERIAL PRIMARY KEY,
+        workflow_id TEXT NOT NULL UNIQUE,
+        workflow_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        current_node TEXT,
+        knowledge_item_id TEXT REFERENCES knowledge_items(knowledge_item_id) ON DELETE SET NULL,
+        tenant_id TEXT,
+        owner_user_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private',
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        error_message TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS workflow_nodes (
+        node_seq BIGSERIAL PRIMARY KEY,
+        workflow_id TEXT NOT NULL REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE,
+        node_id TEXT NOT NULL,
+        node_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        input_ref TEXT,
+        output_ref TEXT,
+        started_at TEXT,
+        finished_at TEXT,
+        error_message TEXT,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        depends_on_json TEXT NOT NULL DEFAULT '[]',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE (workflow_id, node_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS execution_checkpoints (
+        checkpoint_seq BIGSERIAL PRIMARY KEY,
+        checkpoint_id TEXT NOT NULL UNIQUE,
+        workflow_id TEXT NOT NULL REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE,
+        node_id TEXT NOT NULL,
+        status TEXT,
+        state_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
     )
     """,
     """
@@ -630,10 +749,18 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS compaction_status TEXT NOT NULL DEFAULT 'idle'",
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_compaction_error TEXT",
     "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS tenant_id TEXT",
+    "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'",
+    "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS created_by TEXT",
     "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS source TEXT",
     "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS source_url TEXT",
     "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS sample_type TEXT",
     "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS business_topic TEXT",
+    "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS tenant_id TEXT",
+    "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'",
+    "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS created_by TEXT",
+    "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS updated_at TEXT",
     "ALTER TABLE feedback_entries ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
@@ -652,6 +779,9 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_item_order ON knowledge_chunks(knowledge_item_id, order_index ASC)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_status_created_at ON knowledge_tasks(status, created_at ASC)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_item_created_at ON knowledge_tasks(knowledge_item_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_workflow_runs_item_updated_at ON workflow_runs(knowledge_item_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_workflow_nodes_workflow_status ON workflow_nodes(workflow_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_execution_checkpoints_workflow_created ON execution_checkpoints(workflow_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace ON feedback_entries(owner_user_id, trace_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at ON carbon_calculations(owner_user_id, session_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_reports_owner_session_updated_at ON reports(owner_user_id, session_id, updated_at DESC)",
@@ -675,10 +805,18 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "messages", "thinking_content", "TEXT")
     _ensure_sqlite_column(connection, "files", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_items", "tenant_id", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_items", "visibility", "TEXT NOT NULL DEFAULT 'private'")
+    _ensure_sqlite_column(connection, "knowledge_items", "created_by", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "source", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "source_url", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "sample_type", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "business_topic", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_chunks", "tenant_id", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_chunks", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_chunks", "visibility", "TEXT NOT NULL DEFAULT 'private'")
+    _ensure_sqlite_column(connection, "knowledge_chunks", "created_by", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_chunks", "updated_at", "TEXT")
     _ensure_sqlite_column(connection, "feedback_entries", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "carbon_calculations", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "reports", "owner_user_id", "TEXT")

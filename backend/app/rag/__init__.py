@@ -54,6 +54,13 @@ from app.rag.vector_store import (
     VectorStoreSearchResult,
     VectorStoreUpsertResult,
 )
+from app.rag.workflow import (
+    ExecutionCheckpoint,
+    WorkflowNode,
+    WorkflowRecorder,
+    WorkflowRun,
+    build_rag_ingest_workflow,
+)
 
 __all__ = [
     "ChunkRecord",
@@ -62,6 +69,7 @@ __all__ = [
     "DocumentBlock",
     "EmbeddingRecord",
     "GraphCandidate",
+    "ExecutionCheckpoint",
     "GraphCommunitySummary",
     "GraphEntity",
     "GraphIndexBuildResult",
@@ -75,7 +83,11 @@ __all__ = [
     "RagQueryParams",
     "RagRetrievalResult",
     "RetrievalTrace",
+    "WorkflowNode",
+    "WorkflowRecorder",
+    "WorkflowRun",
     "build_rag_query_params",
+    "build_rag_ingest_workflow",
     "chunk_record_from_evidence_chunk",
     "chunk_record_from_retrieved_chunk",
     "citation_ref_from_reference",

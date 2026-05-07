@@ -217,6 +217,10 @@ class RagEngineService:
             retrieval_path=retrieval_path,
             latency_ms=latency_ms,
             total_hits=len(chunks),
+            workflow_id=None,
+            parser_name=None,
+            vector_backend=vector_store_health.backend,
+            error_code=fallback_reason if fallback_used and fallback_reason else None,
             metadata={
                 "planned_layers": strategy_plan.planned_layers,
                 "provider_metadata_keys": sorted(provider_metadata.keys()),

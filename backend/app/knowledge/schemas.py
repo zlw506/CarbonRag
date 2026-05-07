@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 KnowledgeItemScope = Literal["personal", "shared"]
 KnowledgeItemSourceType = Literal["uploaded_file", "private_sample_repo"]
+KnowledgeVisibility = Literal["public", "tenant", "private", "demo"]
 KnowledgeParseStatus = Literal["pending", "running", "parsed", "parse_failed"]
 KnowledgeIngestStatus = Literal["pending", "running", "ingested", "ingest_failed"]
 KnowledgeIndexStatus = Literal["pending", "running", "indexed", "index_failed", "stale"]
@@ -27,7 +28,10 @@ KnowledgeTaskStatus = Literal["queued", "running", "succeeded", "failed"]
 
 class KnowledgeItem(BaseModel):
     knowledge_item_id: str
+    tenant_id: str | None = None
     owner_user_id: str | None = None
+    visibility: KnowledgeVisibility = "private"
+    created_by: str | None = None
     library_scope: KnowledgeItemScope
     source_type: KnowledgeItemSourceType
     source_ref: str
@@ -58,7 +62,10 @@ class KnowledgeItem(BaseModel):
 class KnowledgeItemSummary(BaseModel):
     knowledge_item_id: str
     doc_id: str | None = None
+    tenant_id: str | None = None
     owner_user_id: str | None = None
+    visibility: KnowledgeVisibility | None = None
+    created_by: str | None = None
     library_scope: KnowledgeItemScope
     source_type: KnowledgeItemSourceType
     source_ref: str
@@ -125,6 +132,10 @@ class KnowledgeItemListFilters(BaseModel):
 class KnowledgeChunk(BaseModel):
     chunk_id: str
     knowledge_item_id: str
+    tenant_id: str | None = None
+    owner_user_id: str | None = None
+    visibility: KnowledgeVisibility = "private"
+    created_by: str | None = None
     title: str
     source_type: str
     library_scope: str
@@ -138,12 +149,17 @@ class KnowledgeChunk(BaseModel):
     snippet: str
     order_index: int
     created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class KnowledgeChunkInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     chunk_id: str
+    tenant_id: str | None = None
+    owner_user_id: str | None = None
+    visibility: KnowledgeVisibility = "private"
+    created_by: str | None = None
     title: str
     source_type: str
     library_scope: str
@@ -156,6 +172,8 @@ class KnowledgeChunkInput(BaseModel):
     business_topic: str | None = None
     snippet: str
     order_index: int
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class ParsedDocument(BaseModel):
