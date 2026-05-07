@@ -8,6 +8,7 @@ import { CarbonCalcPage } from "../pages/CarbonCalcPage";
 import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { LoginPage } from "../pages/LoginPage";
 import { MyKnowledgePage } from "../pages/MyKnowledgePage";
+import { RagLabPage } from "../pages/RagLabPage";
 import { ReportPage } from "../pages/ReportPage";
 import { SettingsPage } from "../pages/SettingsPage";
 
@@ -105,6 +106,7 @@ export const router = createBrowserRouter([
                 children: [
                     { index: true, element: <AskPage /> },
                     { path: "my-knowledge", element: <MyKnowledgePage /> },
+                    { path: "rag-lab", element: <RagLabPage /> },
                     { path: "carbon-calc", element: <CarbonCalcPage /> },
                     { path: "report", element: <ReportPage /> },
                     { path: "settings", element: <SettingsPage /> },

@@ -9,6 +9,7 @@ export interface NavigationItem {
 const ALL_NAV_ITEMS: NavigationItem[] = [
     { path: "/", label: "问答工作台", roles: ["user", "admin"] },
     { path: "/my-knowledge", label: "我的知识库", roles: ["user", "admin"] },
+    { path: "/rag-lab", label: "RAG 实验台", roles: ["user", "admin"] },
     { path: "/carbon-calc", label: "碳核算", roles: ["user", "admin"] },
     { path: "/report", label: "报告生成", roles: ["user", "admin"] },
 ];

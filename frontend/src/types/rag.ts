@@ -1,0 +1,102 @@
+export type RagQueryMode = "naive" | "mix";
+export type RagKnowledgeScope = "public" | "private_sample" | "mixed";
+export type RagRetrievalLayer = "vector" | "bm25_fallback" | "graph";
+export type RagSourceType = "public_policy" | "private_sample" | "private_upload";
+export type RagVectorStatus = "disabled" | "unavailable" | "queried" | "error";
+export type RagGraphStatus = "unavailable" | "skipped";
+export type RagRerankStatus = "disabled" | "skipped" | "applied" | "error";
+export type RagRetrievalStrategy = "dense_only" | "bm25_dense_hybrid" | "citation_first" | "graph_augmented";
+
+export interface RagRetrieveRequest {
+    question: string;
+    mode: RagQueryMode;
+    knowledge_scope: RagKnowledgeScope;
+    top_k: number;
+    chunk_top_k?: number | null;
+    max_total_tokens?: number;
+    enable_rerank: boolean;
+    include_references: boolean;
+    allowed_knowledge_item_ids: string[];
+    region?: string | null;
+    doc_type?: string | null;
+}
+
+export interface RagEvidenceChunk {
+    reference_id: string;
+    doc_id: string;
+    knowledge_item_id: string | null;
+    title: string;
+    source_type: RagSourceType;
+    source: string;
+    source_url: string | null;
+    issued_at: string | null;
+    region: string | null;
+    doc_type: string | null;
+    sample_type: string | null;
+    business_topic: string | null;
+    library_scope: "personal" | "shared" | null;
+    chunk_id: string;
+    snippet: string;
+    score: number;
+    retrieval_layer: RagRetrievalLayer;
+}
+
+export interface RagEvidenceReference {
+    reference_id: string;
+    chunk_id: string;
+    doc_id: string;
+    title: string;
+    source_type: RagSourceType;
+    source: string;
+    source_url: string | null;
+}
+
+export interface RagRetrievalMetadata {
+    mode?: RagQueryMode | null;
+    knowledge_scope?: RagKnowledgeScope | null;
+    top_k?: number | null;
+    chunk_top_k?: number | null;
+    retrieval_only?: boolean | null;
+    retriever_mode?: RagRetrievalLayer | null;
+    requested_top_k?: number | null;
+    returned_count?: number | null;
+    fallback_used?: boolean | null;
+    strategy?: RagRetrievalStrategy | null;
+    retrieval_path?: string[] | null;
+    vector_status?: RagVectorStatus | null;
+    vector_backend?: string | null;
+    vector_backend_health?: string | null;
+    vector_adapter_name?: string | null;
+    graph_status?: RagGraphStatus | null;
+    rerank_status?: RagRerankStatus | null;
+    fallback_reason?: string | null;
+    latency_ms?: number | null;
+    public_chunk_count?: number | null;
+    private_chunk_count?: number | null;
+    trace?: {
+        trace_id: string;
+        query?: string | null;
+        retriever_mode?: string | null;
+        requested_top_k?: number | null;
+        returned_count?: number | null;
+        fallback_used?: boolean | null;
+        chunk_ids?: string[];
+        citations?: unknown[];
+        strategy: RagRetrievalStrategy;
+        retrieval_path: string[];
+        latency_ms: number;
+        total_hits: number;
+        fallback_reason: string | null;
+        created_at: string;
+        metadata: Record<string, unknown>;
+    } | null;
+    provider_metadata?: Record<string, unknown> | null;
+}
+
+export interface RagRetrievalResult {
+    query: string;
+    total_hits: number;
+    chunks: RagEvidenceChunk[];
+    references: RagEvidenceReference[];
+    metadata: RagRetrievalMetadata;
+}

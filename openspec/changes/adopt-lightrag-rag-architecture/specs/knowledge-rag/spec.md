@@ -46,3 +46,42 @@ CarbonRag SHALL preserve MIT license notices and source attribution if apply-sta
 #### Scenario: LightRAG code is vendored or adapted
 - **WHEN** a PR includes substantial code copied or adapted from HKUDS/LightRAG
 - **THEN** the PR includes the required license notice and documents the adapted source scope
+
+### Requirement: Enterprise RAG contracts are stable before providers
+CarbonRag SHALL define reusable contracts for parsed documents, document blocks, chunk records, embedding records, citation references, and retrieval traces before adding heavy external parser, vector, graph, or workflow dependencies.
+
+#### Scenario: Existing chunks enter the unified contract
+- **WHEN** existing public or private BM25 chunks are returned through the RAG engine
+- **THEN** CarbonRag can map them to a stable chunk record and citation reference shape without changing ask/session behavior
+
+#### Scenario: Retrieval traces are returned for debugging
+- **WHEN** retrieval-only data is requested
+- **THEN** CarbonRag records trace metadata such as strategy, active retrieval path, latency, and fallback reason
+
+### Requirement: Parser providers are additive
+CarbonRag SHALL define a parser provider boundary that can wrap existing lightweight parsing and later support Docling and MinerU without changing knowledge task ownership rules.
+
+#### Scenario: Lightweight parser handles supported file
+- **WHEN** a supported local text-like document is parsed through the provider boundary
+- **THEN** CarbonRag returns parsed text, document blocks, parser metadata, and a quality score
+
+### Requirement: Vector store adapters are disabled-safe
+CarbonRag SHALL define a vector store adapter boundary for upsert, search, delete, and healthcheck operations while keeping disabled vector storage safe by default.
+
+#### Scenario: Vector store is not configured
+- **WHEN** vector indexing or vector search is requested without an enabled vector backend
+- **THEN** CarbonRag reports disabled health and preserves BM25 fallback behavior
+
+### Requirement: Hybrid retrieval strategies are explicit
+CarbonRag SHALL name retrieval strategies separately from retrieval implementations so later dense, sparse, graph, and citation-first retrieval can be composed safely.
+
+#### Scenario: Strategy is planned before execution
+- **WHEN** the RAG engine prepares retrieval-only output
+- **THEN** CarbonRag records the intended strategy and active retrieval path in metadata
+
+### Requirement: Graph and workflow skeletons are dependency-light
+CarbonRag SHALL define graph index and workflow checkpoint skeletons without requiring Neo4j, LangGraph, or external workflow services in V1.3.x.
+
+#### Scenario: Graph indexing is unavailable
+- **WHEN** graph candidates are requested before a graph backend exists
+- **THEN** CarbonRag returns an unavailable graph status and does not fail retrieval

@@ -2,12 +2,12 @@ from typing import Any, Mapping
 
 from app.ai_runtime.schemas.tool import ToolResult
 from app.ai_runtime.tools.base import BaseTool, ToolDefinition
-from app.retrieval.public_retriever import PublicPolicyRetriever, get_public_policy_retriever
+from app.rag import RagEngineService, build_rag_query_params, get_rag_engine_service
 
 
 class PolicyRetrieveTool(BaseTool):
-    def __init__(self, retriever: PublicPolicyRetriever | None = None) -> None:
-        self.retriever = retriever or get_public_policy_retriever()
+    def __init__(self, rag_engine: RagEngineService | None = None) -> None:
+        self.rag_engine = rag_engine or get_rag_engine_service()
 
     @property
     def definition(self) -> ToolDefinition:
@@ -31,13 +31,15 @@ class PolicyRetrieveTool(BaseTool):
         region = arguments.get("region") or payload.get("region")
         doc_type = arguments.get("doc_type") or payload.get("doc_type")
 
-        retrieval_result = self.retriever.search(
+        rag_result = self.rag_engine.retrieve(build_rag_query_params(
             question=question,
+            knowledge_scope="public",
             top_k=top_k,
-            knowledge_scope=knowledge_scope,
+            mode=payload.get("rag_mode") or arguments.get("rag_mode"),
             region=region,
             doc_type=doc_type,
-        )
+        ))
+        hits = rag_result.hits
 
         return ToolResult(
             name=self.definition.name,
@@ -46,11 +48,13 @@ class PolicyRetrieveTool(BaseTool):
                 "query": question,
                 "knowledge_scope": knowledge_scope,
                 "top_k": top_k,
-                "hits": [hit.model_dump() for hit in retrieval_result.hits],
+                "hits": hits,
+                "retrieval_data": rag_result.model_dump(),
             },
             metadata={
                 "trace_id": trace_id,
-                "hit_count": retrieval_result.total_hits,
+                "hit_count": len(hits),
                 "context_keys": sorted(context),
+                "rag_metadata": rag_result.metadata.model_dump(),
             },
         )

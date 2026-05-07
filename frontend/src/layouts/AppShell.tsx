@@ -3,6 +3,7 @@ import {
     ExperimentOutlined,
     FolderOpenOutlined,
     FileTextOutlined,
+    ClusterOutlined,
     LogoutOutlined,
     SearchOutlined,
     SettingOutlined,
@@ -24,6 +25,7 @@ const { Header, Content, Sider } = Layout;
 const iconMap = {
     "/": <SearchOutlined />,
     "/my-knowledge": <FolderOpenOutlined />,
+    "/rag-lab": <ClusterOutlined />,
     "/carbon-calc": <ExperimentOutlined />,
     "/report": <FileTextOutlined />,
     "/admin": <DesktopOutlined />,

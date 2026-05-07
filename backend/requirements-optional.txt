@@ -1,0 +1,2 @@
+# Optional parser providers. These are not required for local development or CI.
+docling
