@@ -6,6 +6,7 @@ from app.auth.schemas import AuthenticatedUser
 from app.knowledge import get_knowledge_service
 from app.rag.schemas import (
     RagExperimentalRetrievalStrategy,
+    RagGraphMode,
     RagKnowledgeScope,
     RagQueryMode,
     RagQueryParams,
@@ -33,6 +34,7 @@ class RagRetrieveRequest(BaseModel):
     region: str | None = None
     doc_type: str | None = None
     retrieval_strategy: RagExperimentalRetrievalStrategy | None = None
+    graph_mode: RagGraphMode = "off"
 
     @field_validator("question")
     @classmethod
@@ -107,6 +109,7 @@ def retrieve_rag_evidence(
         region=payload.region,
         doc_type=payload.doc_type,
         retrieval_strategy=payload.retrieval_strategy,
+        graph_mode=payload.graph_mode,
     )
     try:
         return get_rag_engine_service().retrieve(params)

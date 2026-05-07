@@ -14,6 +14,7 @@ from app.rag.schemas import RagQueryParams
 from app.rag.service import RagEngineService
 from app.rag.vector import VectorSearchResult
 from app.rag.vector_store import FakeVectorStoreAdapter
+from app.rag.graph import DisabledGraphIndexBuilder
 from app.retrieval.schemas import RetrievedChunk, RetrievalResult
 
 
@@ -294,6 +295,7 @@ def test_rag_engine_experimental_hybrid_returns_source_metadata() -> None:
             knowledge_scope="mixed",
             top_k=2,
             retrieval_strategy="bm25_vector_hybrid",
+            graph_mode="graph_hybrid",
         )
     )
 
@@ -307,6 +309,9 @@ def test_rag_engine_experimental_hybrid_returns_source_metadata() -> None:
     assert result.chunks[0].from_vector is True
     assert result.chunks[0].merged_score is not None
     assert result.metadata.graph_candidates
+    assert result.metadata.graph_mode == "graph_hybrid"
+    assert result.metadata.graph_used is True
+    assert result.metadata.graph_candidate_count >= 1
     assert result.metadata.provider_metadata["graph"]["candidate_count"] >= 1
 
 
@@ -333,3 +338,29 @@ def test_rag_engine_experimental_vector_unavailable_falls_back_to_bm25() -> None
     assert result.metadata.fallback_used is True
     assert result.metadata.fallback_reason == "fake_vector_store_unavailable"
     assert result.metadata.vector_status == "unavailable"
+
+
+def test_rag_engine_graph_unavailable_falls_back_to_existing_retrieval() -> None:
+    bm25_chunk = build_chunk(chunk_id="policy_001_chunk_01", score=2.0)
+    service = build_service(
+        settings=Settings(rag_engine_enabled=True, rag_vector_enabled=True),
+        vector_store_adapter=FakeVectorStoreAdapter(chunks=[]),
+        fallback_hits=[bm25_chunk],
+    )
+    service.graph_index_builder = DisabledGraphIndexBuilder()
+
+    result = service.retrieve(
+        RagQueryParams(
+            question="双碳政策依据有哪些？",
+            mode="mix",
+            knowledge_scope="mixed",
+            top_k=1,
+            retrieval_strategy="bm25_vector_hybrid",
+            graph_mode="graph_hybrid",
+        )
+    )
+
+    assert result.chunks[0].chunk_id == "policy_001_chunk_01"
+    assert result.metadata.graph_mode == "graph_hybrid"
+    assert result.metadata.graph_used is False
+    assert result.metadata.graph_fallback_reason == "graph_index_unavailable"

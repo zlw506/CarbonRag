@@ -71,6 +71,7 @@ class FakeRagEngine:
                 vector_backend_health="ok",
                 vector_adapter_name="CurrentVectorStoreAdapter",
                 retrieval_strategy=params.retrieval_strategy,
+                graph_mode=params.graph_mode,
                 graph_status="unavailable",
                 rerank_status="disabled",
                 fallback_reason="rag_engine_disabled",
@@ -165,15 +166,18 @@ def test_rag_retrieve_route_accepts_experimental_strategy(monkeypatch) -> None:
             "knowledge_scope": "public",
             "top_k": 3,
             "retrieval_strategy": "bm25_vector_hybrid",
+            "graph_mode": "graph_local",
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert fake_engine.last_params.retrieval_strategy == "bm25_vector_hybrid"
+    assert fake_engine.last_params.graph_mode == "graph_local"
     assert payload["chunks"][0]["source_retrievers"] == ["bm25"]
     assert payload["chunks"][0]["from_bm25"] is True
     assert payload["metadata"]["retrieval_strategy"] == "bm25_vector_hybrid"
+    assert payload["metadata"]["graph_mode"] == "graph_local"
 
 
 def test_rag_retrieve_route_requires_authenticated_user() -> None:

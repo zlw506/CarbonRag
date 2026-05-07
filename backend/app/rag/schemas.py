@@ -11,6 +11,7 @@ RagQueryMode = Literal["naive", "mix"]
 RagKnowledgeScope = Literal["public", "private_sample", "mixed"]
 RagRetrievalLayer = Literal["vector", "bm25_fallback", "graph"]
 RagExperimentalRetrievalStrategy = Literal["bm25_only", "vector_only", "bm25_vector_hybrid"]
+RagGraphMode = Literal["off", "graph_local", "graph_global", "graph_hybrid"]
 
 
 class RagQueryParams(BaseModel):
@@ -27,6 +28,7 @@ class RagQueryParams(BaseModel):
     region: str | None = None
     doc_type: str | None = None
     retrieval_strategy: RagExperimentalRetrievalStrategy | None = None
+    graph_mode: RagGraphMode = "off"
 
     @field_validator("question")
     @classmethod
@@ -109,6 +111,12 @@ class RagRetrievalMetadata(BaseModel):
     vector_adapter_name: str | None = None
     vector_hit_count: int | None = Field(default=None, ge=0)
     graph_status: Literal["unavailable", "skipped"]
+    graph_mode: RagGraphMode = "off"
+    graph_entity_count: int | None = Field(default=None, ge=0)
+    graph_relation_count: int | None = Field(default=None, ge=0)
+    graph_candidate_count: int | None = Field(default=None, ge=0)
+    graph_used: bool | None = None
+    graph_fallback_reason: str | None = None
     rerank_status: Literal["disabled", "skipped", "applied", "error"]
     fallback_reason: str | None = None
     latency_ms: float | None = None

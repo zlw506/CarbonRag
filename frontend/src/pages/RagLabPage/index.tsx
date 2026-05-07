@@ -35,6 +35,7 @@ import type {
     RagExperimentalRetrievalStrategy,
     RagGraphCandidate,
     RagGraphEntity,
+    RagGraphMode,
     RagGraphRelation,
     RagGraphStatus,
     RagKnowledgeScope,
@@ -49,6 +50,7 @@ interface RagLabFormState {
     question: string;
     mode: RagQueryMode;
     retrieval_strategy: RagExperimentalRetrievalStrategy;
+    graph_mode: RagGraphMode;
     knowledge_scope: RagKnowledgeScope;
     top_k: number;
     chunk_top_k: number;
@@ -69,6 +71,7 @@ const initialFormState: RagLabFormState = {
     question: "2030年前碳达峰行动方案有哪些重点？",
     mode: "mix",
     retrieval_strategy: "bm25_only",
+    graph_mode: "off",
     knowledge_scope: "mixed",
     top_k: 5,
     chunk_top_k: 8,
@@ -127,6 +130,7 @@ export function RagLabPage() {
                 question,
                 mode: formState.mode,
                 retrieval_strategy: formState.retrieval_strategy,
+                graph_mode: formState.graph_mode,
                 knowledge_scope: formState.knowledge_scope,
                 top_k: formState.top_k,
                 chunk_top_k: formState.chunk_top_k,
@@ -190,6 +194,9 @@ export function RagLabPage() {
                                 <Descriptions.Item label="retrieval_strategy">
                                     {requestPreview.retrieval_strategy}
                                 </Descriptions.Item>
+                                <Descriptions.Item label="graph_mode">
+                                    {requestPreview.graph_mode}
+                                </Descriptions.Item>
                                 <Descriptions.Item label="use_public">
                                     <BooleanTag value={requestPreview.use_public} />
                                 </Descriptions.Item>
@@ -235,6 +242,27 @@ export function RagLabPage() {
                                 onChange={(value) =>
                                     patchForm({ retrieval_strategy: value as RagExperimentalRetrievalStrategy })
                                 }
+                            />
+                        </div>
+
+                        <Alert
+                            type="info"
+                            showIcon
+                            message="图谱检索为实验能力，不影响默认 /ask。"
+                        />
+
+                        <div className="rag-lab__field">
+                            <Typography.Text strong>实验图谱模式</Typography.Text>
+                            <Segmented
+                                block
+                                value={formState.graph_mode}
+                                options={[
+                                    { label: "Off", value: "off" },
+                                    { label: "Local", value: "graph_local" },
+                                    { label: "Global", value: "graph_global" },
+                                    { label: "Hybrid", value: "graph_hybrid" },
+                                ]}
+                                onChange={(value) => patchForm({ graph_mode: value as RagGraphMode })}
                             />
                         </div>
 
@@ -418,6 +446,19 @@ export function RagLabPage() {
                             <Descriptions.Item label="strategy">{metadata.strategy ?? "unknown"}</Descriptions.Item>
                             <Descriptions.Item label="retrieval_strategy">
                                 <Tag>{metadata.retrieval_strategy ?? formState.retrieval_strategy}</Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="graph_mode">
+                                <Tag>{metadata.graph_mode ?? formState.graph_mode}</Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="graph_used">
+                                <BooleanTag value={Boolean(metadata.graph_used)} />
+                            </Descriptions.Item>
+                            <Descriptions.Item label="graph_fallback_reason">
+                                {metadata.graph_fallback_reason ? (
+                                    <Tag color="gold">{metadata.graph_fallback_reason}</Tag>
+                                ) : (
+                                    <Tag color="green">none</Tag>
+                                )}
                             </Descriptions.Item>
                             <Descriptions.Item label="vector_backend">
                                 <Tag>{metadata.vector_backend ?? "none"}</Tag>
@@ -658,6 +699,9 @@ function GraphMetadataPanel({
                                 <Space size={8} wrap>
                                     <Typography.Text strong>{candidate.title}</Typography.Text>
                                     <Tag>score {formatScore(candidate.score)}</Tag>
+                                    {candidate.entity_name ? <Tag color="blue">{candidate.entity_name}</Tag> : null}
+                                    {candidate.relation_type ? <Tag color="purple">{candidate.relation_type}</Tag> : null}
+                                    {candidate.reason ? <Tag color="gold">{candidate.reason}</Tag> : null}
                                     {candidate.source_chunk_ids.map((chunkId) => (
                                         <Tag key={chunkId}>{chunkId}</Tag>
                                     ))}
@@ -786,6 +830,7 @@ function buildRequestPreview(formState: RagLabFormState) {
         top_k: formState.top_k,
         mode: formState.mode,
         retrieval_strategy: formState.retrieval_strategy,
+        graph_mode: formState.graph_mode,
         use_public: formState.knowledge_scope === "public" || formState.knowledge_scope === "mixed",
         use_private: formState.knowledge_scope === "private_sample" || formState.knowledge_scope === "mixed",
     };

@@ -8,6 +8,7 @@ from app.core.config import Settings, get_settings
 from app.rag.adapters import chunk_record_from_evidence_chunk, citation_refs_from_references
 from app.rag.contracts import RetrievalTrace
 from app.rag.graph import GraphIndexBuilder, RuleBasedGraphIndexBuilder
+from app.rag.graph import select_graph_candidates
 from app.rag.schemas import (
     RagEvidenceChunk,
     RagEvidenceReference,
@@ -228,9 +229,9 @@ class RagEngineService:
         )
         public_chunk_count, private_chunk_count = self._count_chunk_scopes(chunks)
         graph_metadata = (
-            self._build_graph_metadata(chunks=chunks)
-            if params.retrieval_strategy is not None
-            else self._empty_graph_metadata(status="skipped")
+            self._build_graph_metadata(chunks=chunks, question=params.question, graph_mode=params.graph_mode)
+            if params.graph_mode != "off"
+            else self._empty_graph_metadata(status="skipped", graph_mode=params.graph_mode)
         )
         provider_metadata["graph"] = graph_metadata["metadata"]
 
@@ -253,6 +254,12 @@ class RagEngineService:
             vector_adapter_name=self._vector_adapter_name(vector_store_health),
             vector_hit_count=vector_hit_count,
             graph_status=graph_status,
+            graph_mode=params.graph_mode,
+            graph_entity_count=graph_metadata["metadata"].get("entity_count"),
+            graph_relation_count=graph_metadata["metadata"].get("relation_count"),
+            graph_candidate_count=graph_metadata["metadata"].get("candidate_count"),
+            graph_used=graph_metadata["metadata"].get("graph_used"),
+            graph_fallback_reason=graph_metadata["metadata"].get("graph_fallback_reason"),
             rerank_status=rerank_status,
             fallback_reason=fallback_reason,
             latency_ms=trace.latency_ms,
@@ -511,23 +518,49 @@ class RagEngineService:
                 metadata={"adapter_name": type(self.vector_store_adapter).__name__, "error_type": type(exc).__name__},
             )
 
-    def _build_graph_metadata(self, *, chunks: list[RagEvidenceChunk]) -> dict[str, Any]:
+    def _build_graph_metadata(
+        self,
+        *,
+        chunks: list[RagEvidenceChunk],
+        question: str,
+        graph_mode: str,
+    ) -> dict[str, Any]:
         if not chunks:
-            return self._empty_graph_metadata(status="ok")
+            return self._empty_graph_metadata(
+                status="ok",
+                graph_mode=graph_mode,
+                graph_fallback_reason="graph_no_retrieved_chunks",
+            )
         try:
+            if not self.graph_index_builder.is_available():
+                return self._empty_graph_metadata(
+                    status="disabled",
+                    graph_mode=graph_mode,
+                    graph_fallback_reason="graph_index_unavailable",
+                )
             chunk_records = [chunk_record_from_evidence_chunk(chunk) for chunk in chunks]
             build_result = self.graph_index_builder.build(chunks=chunk_records)
+            selected_candidates, graph_fallback_reason = select_graph_candidates(
+                mode=graph_mode,
+                question=question,
+                build_result=build_result,
+                top_k=len(chunks) or 5,
+            )
             return {
                 "entities": build_result.entities,
                 "relations": build_result.relations,
-                "candidates": build_result.candidates,
+                "candidates": selected_candidates,
                 "metadata": {
                     **build_result.metadata,
                     "status": build_result.status,
+                    "graph_mode": graph_mode,
                     "entity_count": build_result.entity_count,
                     "relation_count": build_result.relation_count,
                     "community_count": build_result.community_count,
-                    "candidate_count": build_result.candidate_count,
+                    "candidate_count": len(selected_candidates),
+                    "raw_candidate_count": build_result.candidate_count,
+                    "graph_used": bool(selected_candidates),
+                    "graph_fallback_reason": graph_fallback_reason,
                 },
             }
         except Exception as exc:  # noqa: BLE001
@@ -537,22 +570,33 @@ class RagEngineService:
                 "candidates": [],
                 "metadata": {
                     "status": "error",
+                    "graph_mode": graph_mode,
                     "error_type": type(exc).__name__,
                     "message": str(exc),
+                    "graph_used": False,
+                    "graph_fallback_reason": "graph_query_error",
                 },
             }
 
     @staticmethod
-    def _empty_graph_metadata(*, status: str) -> dict[str, Any]:
+    def _empty_graph_metadata(
+        *,
+        status: str,
+        graph_mode: str = "off",
+        graph_fallback_reason: str | None = None,
+    ) -> dict[str, Any]:
         return {
             "entities": [],
             "relations": [],
             "candidates": [],
             "metadata": {
                 "status": status,
+                "graph_mode": graph_mode,
                 "entity_count": 0,
                 "relation_count": 0,
                 "candidate_count": 0,
+                "graph_used": False,
+                "graph_fallback_reason": graph_fallback_reason,
             },
         }
 
@@ -612,6 +656,7 @@ def build_rag_query_params(
         enable_rerank=enable_rerank,
         region=region,
         doc_type=doc_type,
+        graph_mode="off",
     )
 
 

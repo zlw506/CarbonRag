@@ -7,6 +7,7 @@ export type RagGraphStatus = "unavailable" | "skipped";
 export type RagRerankStatus = "disabled" | "skipped" | "applied" | "error";
 export type RagRetrievalStrategy = "dense_only" | "bm25_dense_hybrid" | "citation_first" | "graph_augmented";
 export type RagExperimentalRetrievalStrategy = "bm25_only" | "vector_only" | "bm25_vector_hybrid";
+export type RagGraphMode = "off" | "graph_local" | "graph_global" | "graph_hybrid";
 
 export interface RagRetrieveRequest {
     question: string;
@@ -21,6 +22,7 @@ export interface RagRetrieveRequest {
     region?: string | null;
     doc_type?: string | null;
     retrieval_strategy?: RagExperimentalRetrievalStrategy | null;
+    graph_mode?: RagGraphMode;
 }
 
 export interface RagEvidenceChunk {
@@ -86,6 +88,9 @@ export interface RagGraphCandidate {
     source_chunk_ids: string[];
     entity_ids?: string[];
     relation_ids?: string[];
+    entity_name?: string | null;
+    relation_type?: string | null;
+    reason?: string | null;
     score: number;
     metadata?: Record<string, unknown>;
 }
@@ -109,6 +114,12 @@ export interface RagRetrievalMetadata {
     vector_adapter_name?: string | null;
     vector_hit_count?: number | null;
     graph_status?: RagGraphStatus | null;
+    graph_mode?: RagGraphMode | null;
+    graph_entity_count?: number | null;
+    graph_relation_count?: number | null;
+    graph_candidate_count?: number | null;
+    graph_used?: boolean | null;
+    graph_fallback_reason?: string | null;
     rerank_status?: RagRerankStatus | null;
     fallback_reason?: string | null;
     latency_ms?: number | null;

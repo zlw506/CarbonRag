@@ -1,8 +1,12 @@
 from app.rag.contracts import ChunkRecord
 from app.rag.graph import (
+    FakeGraphStoreAdapter,
     GraphEntity,
     GraphRelation,
+    Neo4jGraphStoreAdapter,
     RuleBasedGraphIndexBuilder,
+    RuntimeGraphStoreAdapter,
+    select_graph_candidates,
 )
 
 
@@ -81,3 +85,69 @@ def test_graph_candidates_can_be_looked_up_by_chunk_id() -> None:
     assert result.candidates
     assert candidates
     assert candidates[0].source_chunk_ids == [chunk.chunk_id]
+
+
+def test_graph_local_returns_entity_candidates() -> None:
+    builder = RuleBasedGraphIndexBuilder()
+    result = builder.build(chunks=[build_chunk()])
+
+    candidates, fallback_reason = select_graph_candidates(
+        mode="graph_local",
+        question="碳达峰行动方案",
+        build_result=result,
+        top_k=3,
+    )
+
+    assert fallback_reason is None
+    assert candidates
+    assert candidates[0].entity_name
+    assert candidates[0].reason == "graph_local:query_entity_overlap"
+
+
+def test_graph_global_returns_relation_candidates() -> None:
+    builder = RuleBasedGraphIndexBuilder()
+    result = builder.build(chunks=[build_chunk()])
+
+    candidates, fallback_reason = select_graph_candidates(
+        mode="graph_global",
+        question="政策和碳核算之间有什么关系？",
+        build_result=result,
+        top_k=3,
+    )
+
+    assert fallback_reason is None
+    assert candidates
+    assert candidates[0].relation_type
+    assert candidates[0].reason == "graph_global:relation_or_community_evidence"
+
+
+def test_graph_hybrid_deduplicates_candidates() -> None:
+    builder = RuleBasedGraphIndexBuilder()
+    result = builder.build(chunks=[build_chunk()])
+
+    candidates, fallback_reason = select_graph_candidates(
+        mode="graph_hybrid",
+        question="碳达峰行动方案和碳核算",
+        build_result=result,
+        top_k=5,
+    )
+
+    assert fallback_reason is None
+    assert len(candidates) == len({candidate.candidate_id for candidate in candidates})
+
+
+def test_graph_store_adapters_are_dependency_light() -> None:
+    builder = RuleBasedGraphIndexBuilder()
+    result = builder.build(chunks=[build_chunk()])
+    runtime = RuntimeGraphStoreAdapter(store=builder.store)
+    fake = FakeGraphStoreAdapter(store=builder.store)
+    neo4j = Neo4jGraphStoreAdapter()
+
+    assert runtime.healthcheck().status == "ok"
+    assert fake.healthcheck().available is True
+    assert runtime.search_entities(query="碳达峰", top_k=2)
+    assert runtime.search_relations(query="政策", top_k=2)
+    assert runtime.upsert_entities(entities=result.entities).upserted_count == len(result.entities)
+    assert runtime.upsert_relations(relations=result.relations).upserted_count == len(result.relations)
+    assert neo4j.healthcheck().available is False
+    assert neo4j.search_entities(query="test", top_k=1) == []
