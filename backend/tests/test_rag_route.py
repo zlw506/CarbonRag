@@ -32,6 +32,11 @@ class FakeRagEngine:
                     snippet="policy snippet",
                     score=1.0,
                     retrieval_layer="bm25_fallback",
+                    bm25_score=1.0 if params.retrieval_strategy else None,
+                    merged_score=1.0 if params.retrieval_strategy else None,
+                    from_bm25=True if params.retrieval_strategy else None,
+                    from_vector=False if params.retrieval_strategy else None,
+                    source_retrievers=["bm25"] if params.retrieval_strategy else [],
                 )
             )
         return RagRetrievalResult(
@@ -65,6 +70,7 @@ class FakeRagEngine:
                 vector_backend="current",
                 vector_backend_health="ok",
                 vector_adapter_name="CurrentVectorStoreAdapter",
+                retrieval_strategy=params.retrieval_strategy,
                 graph_status="unavailable",
                 rerank_status="disabled",
                 fallback_reason="rag_engine_disabled",
@@ -143,6 +149,31 @@ def test_rag_retrieve_route_returns_zero_hit_metadata(monkeypatch) -> None:
     assert payload["chunks"] == []
     assert payload["references"] == []
     assert payload["metadata"]["returned_count"] == 0
+
+
+def test_rag_retrieve_route_accepts_experimental_strategy(monkeypatch) -> None:
+    fake_engine = FakeRagEngine()
+    monkeypatch.setattr("app.api.v1.endpoints.rag._sync_user_knowledge", lambda owner_user_id: None)
+    monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: fake_engine)
+    register_and_login(client, prefix="ragstrategy")
+
+    response = client.post(
+        "/api/v1/rag/retrieve",
+        json={
+            "question": "双碳政策依据有哪些？",
+            "mode": "mix",
+            "knowledge_scope": "public",
+            "top_k": 3,
+            "retrieval_strategy": "bm25_vector_hybrid",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert fake_engine.last_params.retrieval_strategy == "bm25_vector_hybrid"
+    assert payload["chunks"][0]["source_retrievers"] == ["bm25"]
+    assert payload["chunks"][0]["from_bm25"] is True
+    assert payload["metadata"]["retrieval_strategy"] == "bm25_vector_hybrid"
 
 
 def test_rag_retrieve_route_requires_authenticated_user() -> None:

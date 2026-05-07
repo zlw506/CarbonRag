@@ -1,5 +1,6 @@
 from functools import lru_cache
 from time import perf_counter
+from typing import Any
 
 from app.ai_runtime.providers.base import BaseEmbeddingProvider, BaseRerankProvider, RerankItem
 from app.ai_runtime.providers.factory import get_embedding_provider, get_rerank_provider
@@ -14,6 +15,7 @@ from app.rag.schemas import (
     RagRetrievalMetadata,
     RagRetrievalResult,
 )
+from app.rag.retriever_strategy import BM25Retriever, HybridRetriever, RetrieverStrategyResult, VectorRetriever
 from app.rag.strategy import build_retrieval_path, plan_retrieval_strategy
 from app.rag.vector import BaseVectorRetriever, DisabledVectorRetriever
 from app.rag.vector_store import (
@@ -74,75 +76,91 @@ class RagEngineService:
         vector_hit_count = 0
         vector_store_health = self._vector_store_health()
         provider_metadata["vector_store"] = vector_store_health.model_dump()
+        chunk_source_metadata: dict[str, dict[str, Any]] = {}
 
-        if self.settings.rag_engine_enabled and self.settings.rag_vector_enabled:
-            if self._uses_pgvector_backend():
-                if vector_store_health.available:
+        if params.retrieval_strategy is not None:
+            strategy_result = self._retrieve_with_experimental_strategy(
+                params=params,
+                chunk_top_k=chunk_top_k,
+                vector_store_health=vector_store_health,
+            )
+            selected_hits = strategy_result.chunks
+            strategy_metadata = strategy_result.metadata
+            chunk_source_metadata = strategy_metadata.get("chunk_sources", {})
+            retrieval_layer = str(strategy_metadata.get("retrieval_layer") or "bm25_fallback")
+            vector_status = str(strategy_metadata.get("vector_status") or "disabled")
+            vector_hit_count = int(strategy_metadata.get("vector_hit_count") or 0)
+            fallback_reason = _optional_metadata_str(strategy_metadata.get("fallback_reason"))
+            provider_metadata["retriever_strategy"] = strategy_metadata
+        else:
+            if self.settings.rag_engine_enabled and self.settings.rag_vector_enabled:
+                if self._uses_pgvector_backend():
+                    if vector_store_health.available:
+                        try:
+                            query_embedding = self._resolve_query_embedding(params.question)
+                            vector_store_result = self.vector_store_adapter.search(
+                                question=params.question,
+                                query_embedding=query_embedding,
+                                top_k=chunk_top_k,
+                                filters={
+                                    "source_type": self._source_type_filter(params.knowledge_scope),
+                                    "allowed_knowledge_item_ids": list(params.allowed_knowledge_item_ids),
+                                    "region": params.region,
+                                    "doc_type": params.doc_type,
+                                },
+                                allowed_knowledge_item_ids=set(params.allowed_knowledge_item_ids) or None,
+                            )
+                            vector_hits = vector_store_result.chunks
+                            vector_hit_count = vector_store_result.total_hits
+                            provider_metadata["vector_store_search"] = vector_store_result.metadata
+                            vector_status = "queried" if vector_store_result.metadata.get("status") != "error" else "error"
+                            if vector_hits:
+                                fallback_reason = None
+                            else:
+                                fallback_reason = str(
+                                    vector_store_result.metadata.get("reason")
+                                    or "pgvector_returned_no_hits"
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            vector_status = "error"
+                            fallback_reason = "pgvector_retrieval_error"
+                            provider_metadata["vector_store_error"] = {"type": type(exc).__name__, "message": str(exc)}
+                    else:
+                        vector_status = "unavailable"
+                        fallback_reason = vector_store_health.reason or "pgvector_unavailable"
+                elif self.vector_retriever.is_available():
                     try:
                         query_embedding = self._resolve_query_embedding(params.question)
-                        vector_store_result = self.vector_store_adapter.search(
+                        vector_result = self.vector_retriever.search(
                             question=params.question,
                             query_embedding=query_embedding,
                             top_k=chunk_top_k,
-                            filters={
-                                "source_type": self._source_type_filter(params.knowledge_scope),
-                                "allowed_knowledge_item_ids": list(params.allowed_knowledge_item_ids),
-                                "region": params.region,
-                                "doc_type": params.doc_type,
-                            },
                             allowed_knowledge_item_ids=set(params.allowed_knowledge_item_ids) or None,
                         )
-                        vector_hits = vector_store_result.chunks
-                        vector_hit_count = vector_store_result.total_hits
-                        provider_metadata["vector_store_search"] = vector_store_result.metadata
-                        vector_status = "queried" if vector_store_result.metadata.get("status") != "error" else "error"
-                        if vector_hits:
-                            fallback_reason = None
-                        else:
-                            fallback_reason = str(
-                                vector_store_result.metadata.get("reason")
-                                or "pgvector_returned_no_hits"
-                            )
+                        vector_hits = vector_result.chunks
+                        vector_hit_count = len(vector_hits)
+                        provider_metadata["vector"] = vector_result.metadata
+                        vector_status = "queried"
+                        fallback_reason = None if vector_hits else "vector_returned_no_hits"
                     except Exception as exc:  # noqa: BLE001
                         vector_status = "error"
-                        fallback_reason = "pgvector_retrieval_error"
-                        provider_metadata["vector_store_error"] = {"type": type(exc).__name__, "message": str(exc)}
+                        fallback_reason = "vector_retrieval_error"
+                        provider_metadata["vector_error"] = {"type": type(exc).__name__, "message": str(exc)}
                 else:
                     vector_status = "unavailable"
-                    fallback_reason = vector_store_health.reason or "pgvector_unavailable"
-            elif self.vector_retriever.is_available():
-                try:
-                    query_embedding = self._resolve_query_embedding(params.question)
-                    vector_result = self.vector_retriever.search(
-                        question=params.question,
-                        query_embedding=query_embedding,
-                        top_k=chunk_top_k,
-                        allowed_knowledge_item_ids=set(params.allowed_knowledge_item_ids) or None,
-                    )
-                    vector_hits = vector_result.chunks
-                    vector_hit_count = len(vector_hits)
-                    provider_metadata["vector"] = vector_result.metadata
-                    vector_status = "queried"
-                    fallback_reason = None if vector_hits else "vector_returned_no_hits"
-                except Exception as exc:  # noqa: BLE001
-                    vector_status = "error"
-                    fallback_reason = "vector_retrieval_error"
-                    provider_metadata["vector_error"] = {"type": type(exc).__name__, "message": str(exc)}
-            else:
-                vector_status = "unavailable"
-                fallback_reason = "vector_retriever_unavailable"
+                    fallback_reason = "vector_retriever_unavailable"
 
-        if vector_hits:
-            selected_hits = vector_hits[:chunk_top_k]
-            retrieval_layer = "vector"
-        else:
-            fallback_result = self._fallback_search(params)
-            selected_hits = fallback_result.hits
-            retrieval_layer = "bm25_fallback"
-            provider_metadata["fallback"] = {
-                "total_hits": fallback_result.total_hits,
-                "scope": params.knowledge_scope,
-            }
+            if vector_hits:
+                selected_hits = vector_hits[:chunk_top_k]
+                retrieval_layer = "vector"
+            else:
+                fallback_result = self._fallback_search(params)
+                selected_hits = fallback_result.hits
+                retrieval_layer = "bm25_fallback"
+                provider_metadata["fallback"] = {
+                    "total_hits": fallback_result.total_hits,
+                    "scope": params.knowledge_scope,
+                }
 
         selected_hits, rerank_status = self._maybe_rerank(
             params=params,
@@ -156,6 +174,7 @@ class RagEngineService:
                 hit=hit,
                 index=index,
                 retrieval_layer=retrieval_layer,
+                source_metadata=chunk_source_metadata.get(hit.chunk_id),
             )
             for index, hit in enumerate(selected_hits[: params.top_k], start=1)
         ]
@@ -201,6 +220,7 @@ class RagEngineService:
                 "vector_backend_health": vector_store_health.status,
                 "vector_adapter_name": self._vector_adapter_name(vector_store_health),
                 "vector_hit_count": vector_hit_count,
+                "retrieval_strategy": params.retrieval_strategy,
             },
         )
         public_chunk_count, private_chunk_count = self._count_chunk_scopes(chunks)
@@ -216,6 +236,7 @@ class RagEngineService:
             returned_count=len(chunks),
             fallback_used=fallback_used,
             strategy=strategy_plan.name,
+            retrieval_strategy=params.retrieval_strategy,
             retrieval_path=retrieval_path,
             vector_status=vector_status,
             vector_backend=vector_store_health.backend,
@@ -247,12 +268,99 @@ class RagEngineService:
         return None
 
     def _resolve_query_embedding(self, question: str) -> list[float] | None:
-        if not self.vector_retriever.requires_embedding():
+        if not self.vector_retriever.requires_embedding() and not self._uses_pgvector_backend():
             return None
         embedding_result = self.embedding_provider.embed_stub([question])
         if not embedding_result.vectors:
             return None
         return embedding_result.vectors[0]
+
+    def _retrieve_with_experimental_strategy(
+        self,
+        *,
+        params: RagQueryParams,
+        chunk_top_k: int,
+        vector_store_health: VectorStoreHealth,
+    ) -> RetrieverStrategyResult:
+        allowed_ids = set(params.allowed_knowledge_item_ids) or None
+        filters = {
+            "knowledge_scope": params.knowledge_scope,
+            "source_type": self._source_type_filter(params.knowledge_scope),
+            "region": params.region,
+            "doc_type": params.doc_type,
+        }
+        if allowed_ids is not None:
+            filters["allowed_knowledge_item_ids"] = list(allowed_ids)
+        query_embedding = None
+        embedding_metadata: dict[str, Any] = {}
+        if params.retrieval_strategy in {"vector_only", "bm25_vector_hybrid"}:
+            try:
+                query_embedding = self._resolve_query_embedding(params.question)
+                embedding_metadata["query_embedding_seen"] = query_embedding is not None
+            except Exception as exc:  # noqa: BLE001
+                embedding_metadata = {
+                    "query_embedding_seen": False,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+
+        bm25_retriever = BM25Retriever(adapter=self.current_vector_store_adapter)
+        vector_retriever = VectorRetriever(adapter=self.vector_store_adapter, health=vector_store_health)
+        if params.retrieval_strategy == "bm25_only":
+            result = bm25_retriever.retrieve(
+                query=params.question,
+                top_k=chunk_top_k,
+                filters=filters,
+                allowed_knowledge_item_ids=allowed_ids,
+            )
+        elif params.retrieval_strategy == "vector_only":
+            result = vector_retriever.retrieve(
+                query=params.question,
+                top_k=chunk_top_k,
+                filters=filters,
+                query_embedding=query_embedding,
+                allowed_knowledge_item_ids=allowed_ids,
+            )
+            if not result.chunks:
+                fallback = bm25_retriever.retrieve(
+                    query=params.question,
+                    top_k=chunk_top_k,
+                    filters=filters,
+                    allowed_knowledge_item_ids=allowed_ids,
+                )
+                result = RetrieverStrategyResult(
+                    strategy=result.strategy,
+                    chunks=fallback.chunks,
+                    total_hits=fallback.total_hits,
+                    metadata={
+                        **result.metadata,
+                        "fallback_used": True,
+                        "fallback_reason": result.metadata.get("fallback_reason") or "vector_returned_no_hits",
+                        "fallback_metadata": fallback.metadata,
+                        "chunk_sources": fallback.metadata.get("chunk_sources", {}),
+                        "retrieval_layer": "bm25_fallback",
+                    },
+                )
+        else:
+            result = HybridRetriever(
+                bm25_retriever=bm25_retriever,
+                vector_retriever=vector_retriever,
+            ).retrieve(
+                query=params.question,
+                top_k=chunk_top_k,
+                filters=filters,
+                query_embedding=query_embedding,
+                allowed_knowledge_item_ids=allowed_ids,
+            )
+
+        result.metadata.update(
+            {
+                "strategy": params.retrieval_strategy,
+                "filters": filters,
+                "embedding": embedding_metadata,
+            }
+        )
+        return result
 
     def _fallback_search(self, params: RagQueryParams) -> RetrievalResult:
         allowed_ids = set(params.allowed_knowledge_item_ids) or None
@@ -342,7 +450,10 @@ class RagEngineService:
         hit: RetrievedChunk,
         index: int,
         retrieval_layer: str,
+        source_metadata: dict[str, Any] | None = None,
     ) -> RagEvidenceChunk:
+        source_metadata = source_metadata or {}
+        resolved_layer = _optional_metadata_str(source_metadata.get("retrieval_layer")) or retrieval_layer
         return RagEvidenceChunk(
             reference_id=f"ref-{index}",
             doc_id=hit.doc_id,
@@ -360,7 +471,13 @@ class RagEngineService:
             chunk_id=hit.chunk_id,
             snippet=hit.snippet,
             score=hit.score,
-            retrieval_layer=retrieval_layer,  # type: ignore[arg-type]
+            retrieval_layer=resolved_layer,  # type: ignore[arg-type]
+            bm25_score=_optional_metadata_float(source_metadata.get("bm25_score")),
+            vector_score=_optional_metadata_float(source_metadata.get("vector_score")),
+            merged_score=_optional_metadata_float(source_metadata.get("merged_score")),
+            from_bm25=_optional_metadata_bool(source_metadata.get("from_bm25")),
+            from_vector=_optional_metadata_bool(source_metadata.get("from_vector")),
+            source_retrievers=_metadata_str_list(source_metadata.get("source_retrievers")),
         )
 
     @staticmethod
@@ -386,6 +503,32 @@ class RagEngineService:
     def _vector_adapter_name(health: VectorStoreHealth) -> str:
         adapter_name = health.metadata.get("adapter_name")
         return adapter_name if isinstance(adapter_name, str) and adapter_name else health.backend
+
+
+def _optional_metadata_str(value: Any) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _optional_metadata_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _optional_metadata_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    return None
+
+
+def _metadata_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
 
 
 def build_rag_query_params(

@@ -32,6 +32,7 @@ import { retrieveRagEvidence } from "../../services/rag";
 import type { KnowledgeItem } from "../../types/knowledge";
 import type {
     RagEvidenceChunk,
+    RagExperimentalRetrievalStrategy,
     RagGraphStatus,
     RagKnowledgeScope,
     RagQueryMode,
@@ -44,6 +45,7 @@ import type {
 interface RagLabFormState {
     question: string;
     mode: RagQueryMode;
+    retrieval_strategy: RagExperimentalRetrievalStrategy;
     knowledge_scope: RagKnowledgeScope;
     top_k: number;
     chunk_top_k: number;
@@ -63,6 +65,7 @@ interface RagLabError {
 const initialFormState: RagLabFormState = {
     question: "2030年前碳达峰行动方案有哪些重点？",
     mode: "mix",
+    retrieval_strategy: "bm25_only",
     knowledge_scope: "mixed",
     top_k: 5,
     chunk_top_k: 8,
@@ -120,6 +123,7 @@ export function RagLabPage() {
             const response = await retrieveRagEvidence({
                 question,
                 mode: formState.mode,
+                retrieval_strategy: formState.retrieval_strategy,
                 knowledge_scope: formState.knowledge_scope,
                 top_k: formState.top_k,
                 chunk_top_k: formState.chunk_top_k,
@@ -180,6 +184,9 @@ export function RagLabPage() {
                                 </Descriptions.Item>
                                 <Descriptions.Item label="top_k">{requestPreview.top_k}</Descriptions.Item>
                                 <Descriptions.Item label="mode">{requestPreview.mode}</Descriptions.Item>
+                                <Descriptions.Item label="retrieval_strategy">
+                                    {requestPreview.retrieval_strategy}
+                                </Descriptions.Item>
                                 <Descriptions.Item label="use_public">
                                     <BooleanTag value={requestPreview.use_public} />
                                 </Descriptions.Item>
@@ -209,6 +216,22 @@ export function RagLabPage() {
                                     { label: "Naive", value: "naive" },
                                 ]}
                                 onChange={(value) => patchForm({ mode: value as RagQueryMode })}
+                            />
+                        </div>
+
+                        <div className="rag-lab__field">
+                            <Typography.Text strong>实验检索策略</Typography.Text>
+                            <Segmented
+                                block
+                                value={formState.retrieval_strategy}
+                                options={[
+                                    { label: "BM25", value: "bm25_only" },
+                                    { label: "Vector", value: "vector_only" },
+                                    { label: "Hybrid", value: "bm25_vector_hybrid" },
+                                ]}
+                                onChange={(value) =>
+                                    patchForm({ retrieval_strategy: value as RagExperimentalRetrievalStrategy })
+                                }
                             />
                         </div>
 
@@ -390,6 +413,9 @@ export function RagLabPage() {
                             <Descriptions.Item label="mode">{metadata.mode ?? "unknown"}</Descriptions.Item>
                             <Descriptions.Item label="scope">{metadata.knowledge_scope ?? "unknown"}</Descriptions.Item>
                             <Descriptions.Item label="strategy">{metadata.strategy ?? "unknown"}</Descriptions.Item>
+                            <Descriptions.Item label="retrieval_strategy">
+                                <Tag>{metadata.retrieval_strategy ?? formState.retrieval_strategy}</Tag>
+                            </Descriptions.Item>
                             <Descriptions.Item label="vector_backend">
                                 <Tag>{metadata.vector_backend ?? "none"}</Tag>
                             </Descriptions.Item>
@@ -560,8 +586,20 @@ function EvidenceChunkCard({ chunk }: { chunk: RagEvidenceChunk }) {
                     <Tag color={sourceTypeColorMap[chunk.source_type]}>{sourceTypeLabelMap[chunk.source_type]}</Tag>
                     <Tag color={layerColorMap[chunk.retrieval_layer]}>{layerLabelMap[chunk.retrieval_layer]}</Tag>
                     <Tag>score {formatScore(chunk.score)}</Tag>
+                    {chunk.source_retrievers?.length ? (
+                        <Tag color="geekblue">{chunk.source_retrievers.join(" + ")}</Tag>
+                    ) : null}
                     <Typography.Text type="secondary">{chunk.chunk_id}</Typography.Text>
                 </Space>
+                {hasRetrieverSourceMetadata(chunk) ? (
+                    <Space size={8} wrap>
+                        <Tag color={chunk.from_bm25 ? "gold" : "default"}>from_bm25 {String(Boolean(chunk.from_bm25))}</Tag>
+                        <Tag color={chunk.from_vector ? "green" : "default"}>from_vector {String(Boolean(chunk.from_vector))}</Tag>
+                        {typeof chunk.bm25_score === "number" ? <Tag>bm25 {formatScore(chunk.bm25_score)}</Tag> : null}
+                        {typeof chunk.vector_score === "number" ? <Tag>vector {formatScore(chunk.vector_score)}</Tag> : null}
+                        {typeof chunk.merged_score === "number" ? <Tag>merged {formatScore(chunk.merged_score)}</Tag> : null}
+                    </Space>
+                ) : null}
                 <Typography.Paragraph
                     className="rag-evidence-card__snippet"
                     ellipsis={{ rows: 4, expandable: "collapsible", symbol: "展开" }}
@@ -652,11 +690,23 @@ function formatScore(value: number) {
     return Number.isFinite(value) ? value.toFixed(4) : "0.0000";
 }
 
+function hasRetrieverSourceMetadata(chunk: RagEvidenceChunk) {
+    return Boolean(
+        chunk.from_bm25 !== null && chunk.from_bm25 !== undefined
+        || chunk.from_vector !== null && chunk.from_vector !== undefined
+        || typeof chunk.bm25_score === "number"
+        || typeof chunk.vector_score === "number"
+        || typeof chunk.merged_score === "number"
+        || chunk.source_retrievers?.length,
+    );
+}
+
 function buildRequestPreview(formState: RagLabFormState) {
     return {
         query: formState.question.trim(),
         top_k: formState.top_k,
         mode: formState.mode,
+        retrieval_strategy: formState.retrieval_strategy,
         use_public: formState.knowledge_scope === "public" || formState.knowledge_scope === "mixed",
         use_private: formState.knowledge_scope === "private_sample" || formState.knowledge_scope === "mixed",
     };

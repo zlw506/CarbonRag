@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth.dependencies import require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
 from app.knowledge import get_knowledge_service
-from app.rag.schemas import RagKnowledgeScope, RagQueryMode, RagQueryParams, RagRetrievalResult
+from app.rag.schemas import (
+    RagExperimentalRetrievalStrategy,
+    RagKnowledgeScope,
+    RagQueryMode,
+    RagQueryParams,
+    RagRetrievalResult,
+)
 from app.rag.service import get_rag_engine_service
 from app.retrieval.mixed_retriever import get_mixed_scope_retriever
 from app.retrieval.private_retriever import get_private_sample_retriever
@@ -26,6 +32,7 @@ class RagRetrieveRequest(BaseModel):
     allowed_knowledge_item_ids: list[str] = Field(default_factory=list)
     region: str | None = None
     doc_type: str | None = None
+    retrieval_strategy: RagExperimentalRetrievalStrategy | None = None
 
     @field_validator("question")
     @classmethod
@@ -99,6 +106,7 @@ def retrieve_rag_evidence(
         allowed_knowledge_item_ids=allowed_knowledge_item_ids,
         region=payload.region,
         doc_type=payload.doc_type,
+        retrieval_strategy=payload.retrieval_strategy,
     )
     try:
         return get_rag_engine_service().retrieve(params)

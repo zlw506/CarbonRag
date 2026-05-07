@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.rag.schemas import RagQueryParams
 from app.rag.service import RagEngineService
 from app.rag.vector import VectorSearchResult
+from app.rag.vector_store import FakeVectorStoreAdapter
 from app.retrieval.schemas import RetrievedChunk, RetrievalResult
 
 
@@ -111,6 +112,7 @@ def build_service(
     embedding_provider=None,
     rerank_provider=None,
     fallback_hits: list[RetrievedChunk] | None = None,
+    vector_store_adapter=None,
 ) -> RagEngineService:
     fallback = StaticRetriever(
         fallback_hits if fallback_hits is not None else [build_chunk(chunk_id="policy_001_chunk_01")]
@@ -123,6 +125,7 @@ def build_service(
         public_retriever=fallback,  # type: ignore[arg-type]
         private_retriever=fallback,  # type: ignore[arg-type]
         mixed_retriever=fallback,  # type: ignore[arg-type]
+        vector_store_adapter=vector_store_adapter,
     )
 
 
@@ -263,3 +266,58 @@ def test_rag_engine_reports_zero_hit_metadata() -> None:
     assert result.metadata.fallback_reason == "rag_engine_disabled"
     assert result.metadata.public_chunk_count == 0
     assert result.metadata.private_chunk_count == 0
+
+
+def test_rag_engine_experimental_hybrid_returns_source_metadata() -> None:
+    bm25_chunk = build_chunk(chunk_id="policy_001_chunk_01", score=2.0)
+    vector_chunk = build_chunk(chunk_id="policy_001_chunk_01", score=0.8)
+    service = build_service(
+        settings=Settings(rag_engine_enabled=True, rag_vector_enabled=True),
+        vector_store_adapter=FakeVectorStoreAdapter(chunks=[vector_chunk]),
+        fallback_hits=[bm25_chunk],
+    )
+
+    result = service.retrieve(
+        RagQueryParams(
+            question="双碳政策依据有哪些？",
+            mode="mix",
+            knowledge_scope="mixed",
+            top_k=2,
+            retrieval_strategy="bm25_vector_hybrid",
+        )
+    )
+
+    assert result.metadata.retrieval_strategy == "bm25_vector_hybrid"
+    assert result.metadata.provider_metadata["retriever_strategy"]["strategy"] == "bm25_vector_hybrid"
+    assert result.metadata.vector_status == "queried"
+    assert result.metadata.vector_hit_count == 1
+    assert result.chunks[0].chunk_id == "policy_001_chunk_01"
+    assert result.chunks[0].source_retrievers == ["bm25", "vector"]
+    assert result.chunks[0].from_bm25 is True
+    assert result.chunks[0].from_vector is True
+    assert result.chunks[0].merged_score is not None
+
+
+def test_rag_engine_experimental_vector_unavailable_falls_back_to_bm25() -> None:
+    bm25_chunk = build_chunk(chunk_id="policy_001_chunk_01", score=2.0)
+    service = build_service(
+        settings=Settings(rag_engine_enabled=True, rag_vector_enabled=True),
+        vector_store_adapter=FakeVectorStoreAdapter(chunks=[], status="degraded", available=False),
+        fallback_hits=[bm25_chunk],
+    )
+
+    result = service.retrieve(
+        RagQueryParams(
+            question="双碳政策依据有哪些？",
+            mode="mix",
+            knowledge_scope="mixed",
+            top_k=1,
+            retrieval_strategy="bm25_vector_hybrid",
+        )
+    )
+
+    assert result.chunks[0].chunk_id == "policy_001_chunk_01"
+    assert result.metadata.retrieval_strategy == "bm25_vector_hybrid"
+    assert result.metadata.fallback_used is True
+    assert result.metadata.fallback_reason == "fake_vector_store_unavailable"
+    assert result.metadata.vector_status == "unavailable"

@@ -9,6 +9,7 @@ from app.retrieval.schemas import SourceType
 RagQueryMode = Literal["naive", "mix"]
 RagKnowledgeScope = Literal["public", "private_sample", "mixed"]
 RagRetrievalLayer = Literal["vector", "bm25_fallback", "graph"]
+RagExperimentalRetrievalStrategy = Literal["bm25_only", "vector_only", "bm25_vector_hybrid"]
 
 
 class RagQueryParams(BaseModel):
@@ -24,6 +25,7 @@ class RagQueryParams(BaseModel):
     allowed_knowledge_item_ids: list[str] = Field(default_factory=list)
     region: str | None = None
     doc_type: str | None = None
+    retrieval_strategy: RagExperimentalRetrievalStrategy | None = None
 
     @field_validator("question")
     @classmethod
@@ -57,11 +59,23 @@ class RagEvidenceChunk(BaseModel):
     snippet: str
     score: float
     retrieval_layer: RagRetrievalLayer
+    bm25_score: float | None = None
+    vector_score: float | None = None
+    merged_score: float | None = None
+    from_bm25: bool | None = None
+    from_vector: bool | None = None
+    source_retrievers: list[str] = Field(default_factory=list)
 
     def to_retrieved_hit(self) -> dict[str, Any]:
         payload = self.model_dump()
         payload.pop("reference_id", None)
         payload.pop("retrieval_layer", None)
+        payload.pop("bm25_score", None)
+        payload.pop("vector_score", None)
+        payload.pop("merged_score", None)
+        payload.pop("from_bm25", None)
+        payload.pop("from_vector", None)
+        payload.pop("source_retrievers", None)
         return payload
 
 
@@ -86,6 +100,7 @@ class RagRetrievalMetadata(BaseModel):
     returned_count: int | None = None
     fallback_used: bool | None = None
     strategy: RetrievalStrategyName = "bm25_dense_hybrid"
+    retrieval_strategy: RagExperimentalRetrievalStrategy | None = None
     retrieval_path: list[str] = Field(default_factory=list)
     vector_status: Literal["disabled", "unavailable", "queried", "error"]
     vector_backend: str | None = None

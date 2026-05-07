@@ -6,6 +6,7 @@ export type RagVectorStatus = "disabled" | "unavailable" | "queried" | "error";
 export type RagGraphStatus = "unavailable" | "skipped";
 export type RagRerankStatus = "disabled" | "skipped" | "applied" | "error";
 export type RagRetrievalStrategy = "dense_only" | "bm25_dense_hybrid" | "citation_first" | "graph_augmented";
+export type RagExperimentalRetrievalStrategy = "bm25_only" | "vector_only" | "bm25_vector_hybrid";
 
 export interface RagRetrieveRequest {
     question: string;
@@ -19,6 +20,7 @@ export interface RagRetrieveRequest {
     allowed_knowledge_item_ids: string[];
     region?: string | null;
     doc_type?: string | null;
+    retrieval_strategy?: RagExperimentalRetrievalStrategy | null;
 }
 
 export interface RagEvidenceChunk {
@@ -39,6 +41,12 @@ export interface RagEvidenceChunk {
     snippet: string;
     score: number;
     retrieval_layer: RagRetrievalLayer;
+    bm25_score?: number | null;
+    vector_score?: number | null;
+    merged_score?: number | null;
+    from_bm25?: boolean | null;
+    from_vector?: boolean | null;
+    source_retrievers?: string[];
 }
 
 export interface RagEvidenceReference {
@@ -62,6 +70,7 @@ export interface RagRetrievalMetadata {
     returned_count?: number | null;
     fallback_used?: boolean | null;
     strategy?: RagRetrievalStrategy | null;
+    retrieval_strategy?: RagExperimentalRetrievalStrategy | null;
     retrieval_path?: string[] | null;
     vector_status?: RagVectorStatus | null;
     vector_backend?: string | null;
