@@ -114,9 +114,10 @@ export function CarbonCalcPage() {
                     extra={<Tag color="blue">{activeSession?.title ?? "未选择会话"}</Tag>}
                 >
                     <Typography.Paragraph type="secondary">
-                        先输入本期的用电、天然气和柴油数据，系统会先给出总排放结论，再展开明细和因子来源。计算结果会关联到当前会话，但不会直接塞进问答消息流。
+                        先输入本期的用电、天然气和柴油数据，系统会转换为 activity_items[]，再由 V1.4.4 因子驱动引擎完成计算、快照和溯源。
                     </Typography.Paragraph>
                     <div className="chat-session-state">
+                        <Tag color="purple">V1.4.4 因子驱动引擎</Tag>
                         <Tag color="blue">当前会话：{activeSession ? "已关联" : "未关联"}</Tag>
                         <Tag color="green">上传附件：{uploadedFileCount}</Tag>
                         <Tag color="magenta">挂接样例：{privateSampleCount}</Tag>
@@ -197,10 +198,13 @@ export function CarbonCalcPage() {
                                         suffix="kgCO2e"
                                     />
                                     <Typography.Paragraph type="secondary" className="calc-result-summary__hint">
-                                        先看总量，再按来源查看分项和因子依据。
+                                        先看总量，再按来源查看分项、因子快照、单位换算和公式 trace。
                                     </Typography.Paragraph>
                                 </div>
                                 <Space size={12} wrap>
+                                    <Tag color="purple">因子快照：{calcResult.factor_snapshot.length}</Tag>
+                                    <Tag color="cyan">换算 trace：{calcResult.unit_conversion_trace.length}</Tag>
+                                    <Tag color="geekblue">公式 trace：{calcResult.formula_trace.length}</Tag>
                                     <Tag color={activeSessionId ? "blue" : "default"}>
                                         {activeSessionId ? `已关联到 ${activeSession?.title ?? activeSessionId}` : "未关联会话"}
                                     </Tag>
@@ -216,6 +220,21 @@ export function CarbonCalcPage() {
                             <Descriptions title="公式说明" bordered column={1} size="small">
                                 <Descriptions.Item label="摘要">{calcResult.formula_summary}</Descriptions.Item>
                             </Descriptions>
+
+                            {calcResult.warnings.length ? (
+                                <Alert
+                                    type="warning"
+                                    showIcon
+                                    message="核算口径提示"
+                                    description={
+                                        <ul className="calc-result-warning-list">
+                                            {calcResult.warnings.map((warning) => (
+                                                <li key={warning}>{warning}</li>
+                                            ))}
+                                        </ul>
+                                    }
+                                />
+                            ) : null}
 
                             <Collapse
                                 ghost
@@ -272,6 +291,119 @@ export function CarbonCalcPage() {
                                             />
                                         ) : (
                                             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有可展示的因子来源。" />
+                                        ),
+                                    },
+                                    {
+                                        key: "factor_snapshot",
+                                        label: `查看因子快照（${calcResult.factor_snapshot.length}）`,
+                                        children: calcResult.factor_snapshot.length ? (
+                                            <List
+                                                dataSource={calcResult.factor_snapshot}
+                                                renderItem={(factor) => (
+                                                    <List.Item key={factor.factor_id}>
+                                                        <div className="chat-citation-card">
+                                                            <Space size={8} wrap>
+                                                                <Typography.Text strong>{factor.factor_id}</Typography.Text>
+                                                                <Tag color={factor.source_type === "official" ? "green" : "orange"}>
+                                                                    {factor.source_type === "official" ? "官方因子" : "演示因子"}
+                                                                </Tag>
+                                                                <Tag>{factor.scope}</Tag>
+                                                                <Tag>{factor.activity_category}</Tag>
+                                                            </Space>
+                                                            <Typography.Paragraph className="chat-citation-card__snippet">
+                                                                {factor.factor_value} {factor.factor_unit}，活动单位 {factor.activity_unit}
+                                                                {factor.region ? `，区域 ${factor.region}` : ""}
+                                                                {factor.year ? `，年份 ${factor.year}` : ""}
+                                                            </Typography.Paragraph>
+                                                            <Typography.Paragraph type="secondary">
+                                                                来源：{factor.source_name}
+                                                                {factor.notes ? `；备注：${factor.notes}` : ""}
+                                                            </Typography.Paragraph>
+                                                        </div>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        ) : (
+                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有因子快照。" />
+                                        ),
+                                    },
+                                    {
+                                        key: "unit_trace",
+                                        label: `查看单位换算 trace（${calcResult.unit_conversion_trace.length}）`,
+                                        children: calcResult.unit_conversion_trace.length ? (
+                                            <List
+                                                dataSource={calcResult.unit_conversion_trace}
+                                                renderItem={(trace) => (
+                                                    <List.Item key={`${trace.activity_name}-${trace.input_unit}-${trace.normalized_unit}`}>
+                                                        <div className="calc-breakdown-row">
+                                                            <div>
+                                                                <Typography.Text strong>{itemLabelMap[trace.activity_name as keyof typeof itemLabelMap] ?? trace.activity_name}</Typography.Text>
+                                                                <Typography.Paragraph type="secondary" className="calc-breakdown-row__meta">
+                                                                    {trace.input_value} {trace.input_unit} → {trace.normalized_value} {trace.normalized_unit}
+                                                                </Typography.Paragraph>
+                                                            </div>
+                                                            <Tag color="cyan">换算系数 {trace.conversion_factor}</Tag>
+                                                        </div>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        ) : (
+                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有单位换算 trace。" />
+                                        ),
+                                    },
+                                    {
+                                        key: "formula_trace",
+                                        label: `查看公式 trace（${calcResult.formula_trace.length}）`,
+                                        children: calcResult.formula_trace.length ? (
+                                            <List
+                                                dataSource={calcResult.formula_trace}
+                                                renderItem={(trace) => (
+                                                    <List.Item key={`${trace.activity_name}-${trace.factor_unit}`}>
+                                                        <div className="calc-breakdown-row">
+                                                            <div>
+                                                                <Typography.Text strong>{itemLabelMap[trace.activity_name as keyof typeof itemLabelMap] ?? trace.activity_name}</Typography.Text>
+                                                                <Typography.Paragraph type="secondary" className="calc-breakdown-row__meta">
+                                                                    {trace.formula}
+                                                                </Typography.Paragraph>
+                                                            </div>
+                                                            <Tag color="green">{trace.emission_kgco2e} kgCO2e</Tag>
+                                                        </div>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        ) : (
+                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有公式 trace。" />
+                                        ),
+                                    },
+                                    {
+                                        key: "source_summary",
+                                        label: `查看来源摘要（${calcResult.source_summary.length}）`,
+                                        children: calcResult.source_summary.length ? (
+                                            <List
+                                                dataSource={calcResult.source_summary}
+                                                renderItem={(source) => (
+                                                    <List.Item key={`${source.source_type}-${source.source_name}`}>
+                                                        <div className="calc-breakdown-row">
+                                                            <div>
+                                                                <Space size={8} wrap>
+                                                                    <Typography.Text strong>{source.source_name}</Typography.Text>
+                                                                    <Tag color={source.source_type === "official" ? "green" : "orange"}>{source.source_type}</Tag>
+                                                                </Space>
+                                                                {source.source_url ? (
+                                                                    <Typography.Paragraph className="calc-breakdown-row__meta">
+                                                                        <Typography.Link href={source.source_url} target="_blank" rel="noreferrer">
+                                                                            <FileTextOutlined /> 查看来源
+                                                                        </Typography.Link>
+                                                                    </Typography.Paragraph>
+                                                                ) : null}
+                                                            </div>
+                                                            <Tag color="blue">{source.factor_count} 个因子</Tag>
+                                                        </div>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        ) : (
+                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有来源摘要。" />
                                         ),
                                     },
                                 ]}
