@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from uuid import uuid4
 
 from app.core.config import get_settings
@@ -191,7 +192,10 @@ class KnowledgeStore:
         existing = self.get_item(model.knowledge_item_id)
         params = (
             model.knowledge_item_id,
+            model.tenant_id,
             model.owner_user_id,
+            model.visibility,
+            model.created_by,
             model.library_scope,
             model.source_type,
             model.source_ref,
@@ -219,12 +223,13 @@ class KnowledgeStore:
             self._execute(
                 """
                 INSERT INTO knowledge_items (
-                    knowledge_item_id, owner_user_id, library_scope, source_type, source_ref, file_id,
-                    source, source_url, sample_type, business_topic, title, mime_type, storage_path,
+                    knowledge_item_id, tenant_id, owner_user_id, visibility, created_by,
+                    library_scope, source_type, source_ref, file_id, source, source_url,
+                    sample_type, business_topic, title, mime_type, storage_path,
                     parse_status, ingest_status, index_status, is_enabled, session_attachable,
                     source_hash, source_mtime, last_error, created_at, updated_at, last_indexed_at
                 )
-                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
                 """,
                 list(params),
             )
@@ -232,7 +237,8 @@ class KnowledgeStore:
             self._execute(
                 """
                 UPDATE knowledge_items
-                SET owner_user_id = {p}, library_scope = {p}, source_type = {p}, source_ref = {p}, file_id = {p},
+                SET tenant_id = {p}, owner_user_id = {p}, visibility = {p}, created_by = {p},
+                    library_scope = {p}, source_type = {p}, source_ref = {p}, file_id = {p},
                     source = {p}, source_url = {p}, sample_type = {p}, business_topic = {p}, title = {p},
                     mime_type = {p}, storage_path = {p}, parse_status = {p}, ingest_status = {p}, index_status = {p},
                     is_enabled = {p}, session_attachable = {p}, source_hash = {p}, source_mtime = {p},
@@ -259,14 +265,20 @@ class KnowledgeStore:
             self._execute(
                 """
                 INSERT INTO knowledge_chunks (
-                    knowledge_item_id, chunk_id, title, source_type, library_scope, source, source_url,
+                    knowledge_item_id, chunk_id, tenant_id, owner_user_id, visibility, created_by,
+                    title, source_type, library_scope, source, source_url,
                     issued_at, region, doc_type, sample_type, business_topic, snippet, order_index, created_at
+                    , updated_at
                 )
-                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
                 """,
                 [
                     model.knowledge_item_id,
                     model.chunk_id,
+                    model.tenant_id,
+                    model.owner_user_id,
+                    model.visibility,
+                    model.created_by,
                     model.title,
                     model.source_type,
                     model.library_scope,
@@ -280,6 +292,7 @@ class KnowledgeStore:
                     model.snippet,
                     model.order_index,
                     (model.created_at or indexed_at or self.utcnow()).isoformat(),
+                    (model.updated_at or model.created_at or indexed_at or self.utcnow()).isoformat(),
                 ],
             )
         self.mark_item_stage(
@@ -529,6 +542,163 @@ class KnowledgeStore:
             finished_at=self.utcnow(),
         )
 
+    def save_workflow_run(self, run: WorkflowRun) -> WorkflowRun:
+        existing = self.get_workflow_run(workflow_id=run.workflow_id)
+        params = [
+            run.workflow_id,
+            run.workflow_type,
+            run.status,
+            run.current_node,
+            run.knowledge_item_id,
+            run.tenant_id,
+            run.owner_user_id,
+            run.visibility,
+            run.created_by,
+            run.created_at.isoformat(),
+            run.updated_at.isoformat(),
+            run.error_message,
+            json.dumps(run.metadata, ensure_ascii=False),
+        ]
+        if existing is None:
+            self._execute(
+                """
+                INSERT INTO workflow_runs (
+                    workflow_id, workflow_type, status, current_node, knowledge_item_id,
+                    tenant_id, owner_user_id, visibility, created_by, created_at, updated_at,
+                    error_message, metadata_json
+                )
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                """,
+                params,
+            )
+        else:
+            self._execute(
+                """
+                UPDATE workflow_runs
+                SET workflow_type = {p}, status = {p}, current_node = {p}, knowledge_item_id = {p},
+                    tenant_id = {p}, owner_user_id = {p}, visibility = {p}, created_by = {p},
+                    created_at = {p}, updated_at = {p}, error_message = {p}, metadata_json = {p}
+                WHERE workflow_id = {p}
+                """,
+                [*params[1:], run.workflow_id],
+            )
+        for node in run.nodes:
+            self.save_workflow_node(node.model_copy(update={"workflow_id": run.workflow_id}))
+        for checkpoint in run.checkpoints:
+            self.save_execution_checkpoint(checkpoint)
+        refreshed = self.get_workflow_run(workflow_id=run.workflow_id)
+        if refreshed is None:
+            raise RuntimeError("workflow run refresh failed")
+        return refreshed
+
+    def save_workflow_node(self, node: WorkflowNode) -> WorkflowNode:
+        if node.workflow_id is None:
+            raise ValueError("workflow node requires workflow_id")
+        existing = self._select(
+            "SELECT * FROM workflow_nodes WHERE workflow_id = {p} AND node_id = {p}",
+            [node.workflow_id, node.node_id],
+        )
+        params = [
+            node.workflow_id,
+            node.node_id,
+            node.node_type,
+            node.status,
+            node.input_ref,
+            node.output_ref,
+            node.started_at.isoformat() if node.started_at else None,
+            node.finished_at.isoformat() if node.finished_at else None,
+            node.error_message,
+            node.retry_count,
+            json.dumps(node.depends_on, ensure_ascii=False),
+            json.dumps(node.metadata, ensure_ascii=False),
+        ]
+        if not existing:
+            self._execute(
+                """
+                INSERT INTO workflow_nodes (
+                    workflow_id, node_id, node_type, status, input_ref, output_ref,
+                    started_at, finished_at, error_message, retry_count, depends_on_json, metadata_json
+                )
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                """,
+                params,
+            )
+        else:
+            self._execute(
+                """
+                UPDATE workflow_nodes
+                SET node_type = {p}, status = {p}, input_ref = {p}, output_ref = {p},
+                    started_at = {p}, finished_at = {p}, error_message = {p}, retry_count = {p},
+                    depends_on_json = {p}, metadata_json = {p}
+                WHERE workflow_id = {p} AND node_id = {p}
+                """,
+                [*params[2:], node.workflow_id, node.node_id],
+            )
+        refreshed = self._select(
+            "SELECT * FROM workflow_nodes WHERE workflow_id = {p} AND node_id = {p}",
+            [node.workflow_id, node.node_id],
+        )
+        return self._row_to_workflow_node(refreshed[0])
+
+    def save_execution_checkpoint(self, checkpoint: ExecutionCheckpoint) -> ExecutionCheckpoint:
+        existing = self._select(
+            "SELECT * FROM execution_checkpoints WHERE checkpoint_id = {p}",
+            [checkpoint.checkpoint_id],
+        )
+        if existing:
+            return self._row_to_execution_checkpoint(existing[0])
+        self._execute(
+            """
+            INSERT INTO execution_checkpoints (checkpoint_id, workflow_id, node_id, status, state_json, created_at)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p})
+            """,
+            [
+                checkpoint.checkpoint_id,
+                checkpoint.workflow_id,
+                checkpoint.node_id,
+                checkpoint.status,
+                json.dumps(checkpoint.state_json, ensure_ascii=False),
+                checkpoint.created_at.isoformat(),
+            ],
+        )
+        refreshed = self._select(
+            "SELECT * FROM execution_checkpoints WHERE checkpoint_id = {p}",
+            [checkpoint.checkpoint_id],
+        )
+        return self._row_to_execution_checkpoint(refreshed[0])
+
+    def get_workflow_run(self, *, workflow_id: str) -> WorkflowRun | None:
+        rows = self._select("SELECT * FROM workflow_runs WHERE workflow_id = {p}", [workflow_id])
+        if not rows:
+            return None
+        run = self._row_to_workflow_run(rows[0])
+        run.nodes = self.list_workflow_nodes(workflow_id=workflow_id)
+        run.checkpoints = self.list_execution_checkpoints(workflow_id=workflow_id)
+        return run
+
+    def get_latest_workflow_run(self, *, knowledge_item_id: str) -> WorkflowRun | None:
+        rows = self._select(
+            "SELECT * FROM workflow_runs WHERE knowledge_item_id = {p} ORDER BY updated_at DESC, workflow_seq DESC LIMIT 1",
+            [knowledge_item_id],
+        )
+        if not rows:
+            return None
+        return self.get_workflow_run(workflow_id=str(rows[0]["workflow_id"]))
+
+    def list_workflow_nodes(self, *, workflow_id: str) -> list[WorkflowNode]:
+        rows = self._select(
+            "SELECT * FROM workflow_nodes WHERE workflow_id = {p} ORDER BY node_seq ASC",
+            [workflow_id],
+        )
+        return [self._row_to_workflow_node(row) for row in rows]
+
+    def list_execution_checkpoints(self, *, workflow_id: str) -> list[ExecutionCheckpoint]:
+        rows = self._select(
+            "SELECT * FROM execution_checkpoints WHERE workflow_id = {p} ORDER BY checkpoint_seq ASC",
+            [workflow_id],
+        )
+        return [self._row_to_execution_checkpoint(row) for row in rows]
+
     def requeue_task(self, *, task_id: str) -> KnowledgeTask | None:
         task = self.get_task(task_id)
         if task is None:
@@ -660,6 +830,31 @@ class KnowledgeStore:
     def _row_to_task(row) -> KnowledgeTask:
         return KnowledgeTask.model_validate(dict(row))
 
+    @staticmethod
+    def _row_to_workflow_run(row) -> WorkflowRun:
+        from app.rag.workflow import WorkflowRun
+
+        payload = dict(row)
+        payload["metadata"] = _parse_json_object(payload.pop("metadata_json", None))
+        return WorkflowRun.model_validate(payload)
+
+    @staticmethod
+    def _row_to_workflow_node(row) -> WorkflowNode:
+        from app.rag.workflow import WorkflowNode
+
+        payload = dict(row)
+        payload["depends_on"] = _parse_json_list(payload.pop("depends_on_json", None))
+        payload["metadata"] = _parse_json_object(payload.pop("metadata_json", None))
+        return WorkflowNode.model_validate(payload)
+
+    @staticmethod
+    def _row_to_execution_checkpoint(row) -> ExecutionCheckpoint:
+        from app.rag.workflow import ExecutionCheckpoint
+
+        payload = dict(row)
+        payload["state_json"] = _parse_json_object(payload.get("state_json"))
+        return ExecutionCheckpoint.model_validate(payload)
+
     def _select(self, query: str, params: list[object]) -> list[dict[str, Any]]:
         compiled = self._compile(query)
         with self._connect() as connection:
@@ -697,8 +892,36 @@ class BaseKnowledgeStore(KnowledgeStore):
     pass
 
 
+if TYPE_CHECKING:
+    from app.rag.workflow import ExecutionCheckpoint, WorkflowNode, WorkflowRun
+
+
 def build_knowledge_store(*, database_url: str | None = None, sqlite_db_path: Path | str | None = None) -> BaseKnowledgeStore:
     return BaseKnowledgeStore(database_url=database_url, sqlite_db_path=sqlite_db_path)
+
+
+def _parse_json_object(value: object) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _parse_json_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, str)]
+    if not isinstance(value, str) or not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return [item for item in parsed if isinstance(item, str)] if isinstance(parsed, list) else []
 
 
 @lru_cache(maxsize=1)

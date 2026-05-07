@@ -36,6 +36,20 @@ class EmbeddingResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class RerankItem:
+    item_id: str
+    text: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RerankResult:
+    ranked_ids: list[str]
+    scores: dict[str, float] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 class BaseChatProvider(ABC):
     @abstractmethod
     def describe(self) -> ProviderDescriptor:
@@ -93,4 +107,20 @@ class BaseEmbeddingProvider(ABC):
 
     @abstractmethod
     def embed_stub(self, texts: Sequence[str]) -> EmbeddingResult:
+        raise NotImplementedError
+
+
+class BaseRerankProvider(ABC):
+    @abstractmethod
+    def describe(self) -> ProviderDescriptor:
+        raise NotImplementedError
+
+    @abstractmethod
+    def rerank_stub(
+        self,
+        *,
+        query: str,
+        items: Sequence[RerankItem],
+        top_k: int,
+    ) -> RerankResult:
         raise NotImplementedError

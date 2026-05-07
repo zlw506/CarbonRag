@@ -2,12 +2,12 @@ from typing import Any, Mapping
 
 from app.ai_runtime.schemas.tool import ToolResult
 from app.ai_runtime.tools.base import BaseTool, ToolDefinition
-from app.retrieval.mixed_retriever import MixedScopeRetriever, get_mixed_scope_retriever
+from app.rag import RagEngineService, build_rag_query_params, get_rag_engine_service
 
 
 class MixedRetrieveTool(BaseTool):
-    def __init__(self, retriever: MixedScopeRetriever | None = None) -> None:
-        self.retriever = retriever or get_mixed_scope_retriever()
+    def __init__(self, rag_engine: RagEngineService | None = None) -> None:
+        self.rag_engine = rag_engine or get_rag_engine_service()
 
     @property
     def definition(self) -> ToolDefinition:
@@ -39,11 +39,13 @@ class MixedRetrieveTool(BaseTool):
             if str(item).strip()
         }
 
-        retrieval_result = self.retriever.search(
+        rag_result = self.rag_engine.retrieve(build_rag_query_params(
             question=question,
+            knowledge_scope="mixed",
             top_k=top_k,
+            mode=payload.get("rag_mode") or arguments.get("rag_mode"),
             allowed_knowledge_item_ids=allowed_knowledge_item_ids,
-        )
+        ))
         return ToolResult(
             name=self.definition.name,
             status="success",
@@ -52,11 +54,13 @@ class MixedRetrieveTool(BaseTool):
                 "knowledge_scope": "mixed",
                 "top_k": top_k,
                 "allowed_knowledge_item_ids": sorted(allowed_knowledge_item_ids),
-                "hits": [hit.model_dump() for hit in retrieval_result.hits],
+                "hits": rag_result.hits,
+                "retrieval_data": rag_result.model_dump(),
             },
             metadata={
                 "trace_id": trace_id,
-                "hit_count": retrieval_result.total_hits,
+                "hit_count": rag_result.total_hits,
                 "context_keys": sorted(context),
+                "rag_metadata": rag_result.metadata.model_dump(),
             },
         )

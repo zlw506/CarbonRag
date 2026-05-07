@@ -64,7 +64,10 @@ class KnowledgeService:
             should_enqueue = existing is None or existing.source_hash != source.source_hash or existing.source_mtime != source.source_mtime
             item = KnowledgeItem(
                 knowledge_item_id=source.metadata.doc_id,
+                tenant_id=None,
                 owner_user_id=None,
+                visibility="demo",
+                created_by=None,
                 library_scope="shared",
                 source_type="private_sample_repo",
                 source_ref=source.metadata.doc_id,
@@ -106,7 +109,10 @@ class KnowledgeService:
         payload = uploaded_file if isinstance(uploaded_file, UploadedFileResponse) else UploadedFileResponse.model_validate(uploaded_file)
         item = KnowledgeItem(
             knowledge_item_id=payload.file_id,
+            tenant_id=owner_user_id,
             owner_user_id=owner_user_id,
+            visibility="private",
+            created_by=owner_user_id,
             library_scope="personal",
             source_type="uploaded_file",
             source_ref=payload.file_id,
@@ -194,7 +200,10 @@ class KnowledgeService:
             should_enqueue = existing is None or existing.source_hash != source_hash or existing.source_mtime != source_mtime
             item = KnowledgeItem(
                 knowledge_item_id=str(file_row["file_id"]),
+                tenant_id=str(file_row["owner_user_id"]) if file_row.get("owner_user_id") is not None else None,
                 owner_user_id=str(file_row["owner_user_id"]) if file_row.get("owner_user_id") is not None else None,
+                visibility="private",
+                created_by=str(file_row["owner_user_id"]) if file_row.get("owner_user_id") is not None else None,
                 library_scope="personal",
                 source_type="uploaded_file",
                 source_ref=str(file_row["file_id"]),
@@ -393,10 +402,84 @@ class KnowledgeService:
             index_status="running",
             last_error=None,
         )
+        from app.rag.workflow import WorkflowRecorder, build_rag_ingest_workflow
+
+        workflow = build_rag_ingest_workflow(
+            knowledge_item_id=item.knowledge_item_id,
+            owner_user_id=item.owner_user_id,
+            tenant_id=item.tenant_id,
+            visibility=item.visibility,
+            created_by=task.requested_by_user_id or item.created_by,
+            metadata={"task_id": task.task_id, "task_type": task.task_type},
+        )
+        recorder = WorkflowRecorder(workflow)
+        recorder.start_run()
+        recorder.start_node(
+            "upload_received",
+            input_ref=item.source_ref,
+            state={"knowledge_item_id": item.knowledge_item_id, "storage_path": item.storage_path},
+        )
+        recorder.complete_node(
+            "upload_received",
+            output_ref=item.storage_path,
+            state={"mime_type": item.mime_type, "source_type": item.source_type},
+        )
+        self.store.save_workflow_run(workflow)
+        current_node = "parse_document"
         try:
+            recorder.start_node("parse_document", input_ref=item.storage_path, state={"mime_type": item.mime_type})
             parsed = parse_document(path=Path(item.storage_path), mime_type=item.mime_type)
+            recorder.complete_node(
+                "parse_document",
+                output_ref=item.storage_path,
+                state={"text_length": len(parsed.text), "parser_name": "knowledge.parsers.parse_document"},
+            )
+            current_node = "build_blocks"
+            recorder.start_node("build_blocks", input_ref=item.storage_path)
+            recorder.complete_node(
+                "build_blocks",
+                output_ref=item.storage_path,
+                state={"block_count": 1 if parsed.text else 0, "block_builder": "lightweight_text_block"},
+            )
+            current_node = "build_chunks"
+            recorder.start_node("build_chunks", input_ref=item.storage_path)
             chunks = chunk_knowledge_text(item=item, text=parsed.text, created_at=self.store.utcnow())
+            recorder.complete_node(
+                "build_chunks",
+                output_ref=item.knowledge_item_id,
+                state={"chunk_count": len(chunks)},
+            )
+            current_node = "build_embeddings"
+            recorder.start_node("build_embeddings", input_ref=item.knowledge_item_id)
+            recorder.skip_node(
+                "build_embeddings",
+                reason="embedding_generation_not_enabled_in_current_ingest_flow",
+                state={"chunk_count": len(chunks)},
+            )
+            current_node = "upsert_vector_index"
+            recorder.start_node("upsert_vector_index", input_ref=item.knowledge_item_id)
             self.store.replace_chunks(knowledge_item_id=item.knowledge_item_id, chunks=chunks, indexed_at=self.store.utcnow())
+            recorder.complete_node(
+                "upsert_vector_index",
+                output_ref=item.knowledge_item_id,
+                state={"chunk_count": len(chunks), "vector_backend": "current_runtime_chunks"},
+            )
+            current_node = "build_graph_candidates"
+            recorder.start_node("build_graph_candidates", input_ref=item.knowledge_item_id)
+            recorder.skip_node(
+                "build_graph_candidates",
+                reason="graph_candidates_not_built_during_default_ingest",
+                state={"optional": True},
+            )
+            current_node = "index_completed"
+            recorder.start_node("index_completed", input_ref=item.knowledge_item_id)
+            recorder.complete_node(
+                "index_completed",
+                output_ref=item.knowledge_item_id,
+                state={"parse_status": "parsed", "ingest_status": "ingested", "index_status": "indexed"},
+            )
+            recorder.complete_run(state={"chunk_count": len(chunks), "completed_task_id": task_id})
+            self.store.save_workflow_run(workflow)
             self.store.finish_task(
                 task_id=task_id,
                 status="succeeded",
@@ -405,6 +488,8 @@ class KnowledgeService:
             )
             self._clear_private_retrieval_caches()
         except KnowledgeParseError as exc:
+            recorder.fail_node(current_node, error_message=str(exc), state={"error_type": type(exc).__name__})
+            self.store.save_workflow_run(workflow)
             self.store.mark_item_stage(
                 knowledge_item_id=item.knowledge_item_id,
                 parse_status="parse_failed",
@@ -414,6 +499,8 @@ class KnowledgeService:
             )
             self.store.finish_task(task_id=task_id, status="failed", summary="解析失败。", error_detail=str(exc))
         except Exception as exc:  # noqa: BLE001
+            recorder.fail_node(current_node, error_message=str(exc), state={"error_type": type(exc).__name__})
+            self.store.save_workflow_run(workflow)
             self.store.mark_item_stage(
                 knowledge_item_id=item.knowledge_item_id,
                 parse_status="parse_failed",

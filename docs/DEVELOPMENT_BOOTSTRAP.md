@@ -94,7 +94,45 @@ bash scripts/dev-local.sh
 - `APP_ENV=development`
 - `DATABASE_URL=` 为空，避免误连云端 PostgreSQL
 - `MEMORY_BACKEND=sqlite`
+- `RAG_ENGINE_ENABLED=false`、`RAG_VECTOR_ENABLED=false`、`RAG_RERANK_ENABLED=false`，默认保留现有 BM25 检索 fallback
 - `PUBLIC_DATA_DIR` / `PRIVATE_SAMPLE_DIR` / `FACTOR_DATA_DIR` 指向仓库内 `data/`
+
+### V1.3 RAG 实验开关
+
+V1.3 的 LightRAG-style RAG 骨架是安全默认关闭的。未配置向量、图谱、embedding 或 rerank 后端时，后端仍应启动并继续使用现有 public/private/mixed BM25 检索。
+
+```env
+RAG_ENGINE_ENABLED=false
+RAG_VECTOR_ENABLED=false
+RAG_RERANK_ENABLED=false
+RAG_DEFAULT_MODE=mix
+```
+
+含义：
+- `RAG_ENGINE_ENABLED`：启用新的内部 RAG engine 边界；关闭时只记录 fallback metadata。
+- `RAG_VECTOR_ENABLED`：允许 RAG engine 尝试向量 chunk 检索；关闭时走 BM25 fallback。
+- `RAG_RERANK_ENABLED`：允许 RAG engine 调用 M1 rerank provider；当前默认 provider 为 disabled。
+- `RAG_DEFAULT_MODE`：内部检索模式，当前只接受 `naive` 和 `mix`，异常值会回退到 `mix`。
+
+### V1.3 RAG Lab 本地验证
+
+本地登录后可打开：
+
+```text
+http://127.0.0.1:5173/rag-lab
+```
+
+对应后端接口：
+
+```text
+POST http://127.0.0.1:8000/api/v1/rag/retrieve
+```
+
+可验证项：
+- 切换 `Mix` / `Naive`，确认返回 metadata 中的 `mode` 和 graph 状态变化。
+- 切换公共 / 知识条目 / 混合范围，确认证据片段来源和 references 变化。
+- 调整返回条数、候选片段、rerank 开关，确认 metadata 中 `top_k`、`chunk_top_k`、`rerank_status` 变化。
+- 在默认关闭 RAG 向量开关时，确认页面显示 `rag_engine_disabled` 或 `rag_vector_disabled` fallback，同时仍返回 BM25 片段。
 
 ### `frontend/.env.local`
 仅用于本地开发，默认应为：
