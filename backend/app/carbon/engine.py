@@ -7,6 +7,7 @@ from app.carbon.schemas import (
     CarbonCitation,
     CarbonFactorSnapshot,
     CarbonFormulaTrace,
+    CarbonScopeSummary,
     CarbonSourceSummaryItem,
     CarbonUnitConversionTrace,
 )
@@ -28,6 +29,10 @@ class CarbonEngineResult:
     unit_conversion_trace: list[CarbonUnitConversionTrace]
     formula_trace: list[CarbonFormulaTrace]
     source_summary: list[CarbonSourceSummaryItem]
+    scope_summary: CarbonScopeSummary
+    activity_count: int
+    official_factor_count: int
+    fallback_factor_count: int
     warnings: list[str] = field(default_factory=list)
 
 
@@ -51,18 +56,19 @@ class CarbonCalculationEngine:
         formula_traces: list[CarbonFormulaTrace] = []
         warnings: list[str] = []
 
+        active_items = [item for item in batch.activity_items if item.activity_value > 0]
+
         if batch.legacy_mode:
             non_zero_legacy = [
                 item.activity_name
-                for item in batch.activity_items
-                if item.activity_value > 0
+                for item in active_items
             ]
             warnings.append(
                 "Legacy calc-carbon fields were converted to activity_items[]. "
                 f"Active legacy items: {', '.join(non_zero_legacy) or 'none'}."
             )
 
-        for activity in batch.activity_items:
+        for activity in active_items:
             if activity.scope == "scope1":
                 selection, normalized_value, conversion_trace = self.scope1.prepare(activity)
                 item_warnings = selection.warnings
@@ -112,6 +118,13 @@ class CarbonCalculationEngine:
 
         total = _round_value(sum(item.emission_kgco2e for item in breakdown))
         factor_snapshot = list(snapshots_by_factor.values())
+        scope_summary = self._build_scope_summary(breakdown)
+        official_factor_count = sum(
+            1
+            for snapshot in factor_snapshot
+            if snapshot.is_official or snapshot.source_type == "official"
+        )
+        fallback_factor_count = len(factor_snapshot) - official_factor_count
         return CarbonEngineResult(
             total_emission_kgco2e=total,
             breakdown=breakdown,
@@ -120,6 +133,10 @@ class CarbonCalculationEngine:
             unit_conversion_trace=conversion_traces,
             formula_trace=formula_traces,
             source_summary=self._build_source_summary(factor_snapshot),
+            scope_summary=scope_summary,
+            activity_count=len(active_items),
+            official_factor_count=official_factor_count,
+            fallback_factor_count=fallback_factor_count,
             warnings=list(dict.fromkeys(warnings)),
         )
 
@@ -140,3 +157,19 @@ class CarbonCalculationEngine:
             )
             for (source_type, source_name, source_url), count in grouped.items()
         ]
+
+    @staticmethod
+    def _build_scope_summary(breakdown: list[CarbonBreakdownItem]) -> CarbonScopeSummary:
+        scope1 = 0.0
+        scope2_location = 0.0
+        for item in breakdown:
+            if item.scope == "scope1":
+                scope1 += item.emission_kgco2e
+            elif item.scope == "scope2" and item.activity_category == "purchased_electricity":
+                scope2_location += item.emission_kgco2e
+        return CarbonScopeSummary(
+            scope1_kgco2e=_round_value(scope1),
+            scope2_location_kgco2e=_round_value(scope2_location),
+            scope2_market_kgco2e=None,
+            scope3_reserved_kgco2e=None,
+        )

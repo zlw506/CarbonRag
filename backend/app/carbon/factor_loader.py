@@ -28,6 +28,19 @@ def resolve_v2_factor_file(factor_file: Path | str | None = None) -> Path:
     return resolved_dir / "carbon_v2_seed.json"
 
 
+def resolve_v2_factor_files(factor_file: Path | str | None = None) -> list[Path]:
+    if factor_file is not None:
+        return [resolve_v2_factor_file(factor_file)]
+
+    factor_dir = Path(get_settings().factor_data_dir)
+    resolved_dir = factor_dir if factor_dir.is_absolute() else REPO_ROOT / factor_dir
+    return [
+        resolved_dir / "carbon_v2_seed.json",
+        resolved_dir / "electricity_cn_2023_official.json",
+        resolved_dir / "fuel_combustion_cn_guidance_seed.json",
+    ]
+
+
 class FactorLoadError(RuntimeError):
     """Raised when factor data cannot be loaded or validated."""
 
@@ -35,6 +48,7 @@ class FactorLoadError(RuntimeError):
 class CarbonFactorLoader:
     def __init__(self, factor_file: Path | str | None = None) -> None:
         self.factor_file = resolve_factor_file(factor_file)
+        self.factor_files = resolve_v2_factor_files(factor_file)
 
     def _load_payload(self) -> dict:
         if not self.factor_file.exists():
@@ -71,6 +85,27 @@ class CarbonFactorLoader:
         return factors
 
     def load_records(self) -> list[FactorRecord]:
+        if len(self.factor_files) > 1:
+            records_by_id: dict[str, FactorRecord] = {}
+            loaded_any = False
+            for path in self.factor_files:
+                if not path.exists():
+                    continue
+                loaded_any = True
+                payload = self._load_payload_from(path)
+                raw_v2 = payload.get("factor_records") or payload.get("factors_v2")
+                if isinstance(raw_v2, list) and raw_v2:
+                    try:
+                        for item in raw_v2:
+                            record = FactorRecord.model_validate(item)
+                            records_by_id[record.factor_id] = record
+                    except Exception as exc:  # pragma: no cover - pydantic internals are tested through callers
+                        raise FactorLoadError(f"V2 factor payload validation failed: {path}") from exc
+            if records_by_id:
+                return list(records_by_id.values())
+            if not loaded_any:
+                raise FactorLoadError(f"No V2 factor files found: {self.factor_files}")
+
         payload = self._load_payload()
         raw_v2 = payload.get("factor_records") or payload.get("factors_v2")
         if isinstance(raw_v2, list) and raw_v2:
@@ -84,6 +119,15 @@ class CarbonFactorLoader:
             return [self._legacy_factor_to_record(CarbonFactor.model_validate(item)) for item in raw_factors]
 
         raise FactorLoadError("Factor file must contain 'factor_records' or legacy 'factors'.")
+
+    @staticmethod
+    def _load_payload_from(path: Path) -> dict:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except UnicodeDecodeError as exc:
+            raise FactorLoadError(f"Unable to decode factor file: {path}") from exc
+        except json.JSONDecodeError as exc:
+            raise FactorLoadError(f"Factor file is not valid JSON: {path}") from exc
 
     def load_registry(self) -> FactorRegistry:
         return FactorRegistry(self.load_records())
@@ -163,5 +207,5 @@ class CarbonFactorLoader:
 def get_factor_loader() -> CarbonFactorLoader:
     v2_file = resolve_v2_factor_file()
     if v2_file.exists():
-        return CarbonFactorLoader(v2_file)
+        return CarbonFactorLoader()
     return CarbonFactorLoader()

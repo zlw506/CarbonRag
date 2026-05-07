@@ -13,7 +13,17 @@ class FactorRecord(BaseModel):
     activity_category: str
     activity_name: str
     region: str | None = None
+    region_level: str | None = None
+    region_code: str | None = None
+    region_name: str | None = None
     year: int | None = None
+    effective_year: int | None = None
+    method_type: str | None = None
+    source_priority: int = 0
+    applicable_industry: str | None = None
+    applicable_standard: str | None = None
+    quality_level: str | None = None
+    is_official: bool = False
     factor_value: float
     factor_unit: str
     activity_unit: str
@@ -35,6 +45,13 @@ class FactorRecord(BaseModel):
         "activity_category",
         "activity_name",
         "region",
+        "region_level",
+        "region_code",
+        "region_name",
+        "method_type",
+        "applicable_industry",
+        "applicable_standard",
+        "quality_level",
         "factor_unit",
         "activity_unit",
         "result_unit",
@@ -60,7 +77,17 @@ class FactorRecord(BaseModel):
             activity_category=self.activity_category,
             activity_name=self.activity_name,
             region=self.region,
+            region_level=self.region_level,
+            region_code=self.region_code,
+            region_name=self.region_name,
             year=self.year,
+            effective_year=self.effective_year,
+            method_type=self.method_type,
+            source_priority=self.source_priority,
+            applicable_industry=self.applicable_industry,
+            applicable_standard=self.applicable_standard,
+            quality_level=self.quality_level,
+            is_official=self.is_official or self.source_type == "official",
             factor_value=self.factor_value,
             factor_unit=self.factor_unit,
             activity_unit=self.activity_unit,

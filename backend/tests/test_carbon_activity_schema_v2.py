@@ -18,7 +18,12 @@ def test_calc_request_accepts_activity_items_v2() -> None:
                 "activity_value": 12000,
                 "activity_unit": "kWh",
                 "region": "CN",
+                "province": "CN-BJ",
                 "year": 2023,
+                "data_quality": "invoice",
+                "entry_method": "manual",
+                "evidence_reference": "invoice-2026-q1",
+                "source_document_id": "doc-electricity-001",
             }
         ],
     )
@@ -28,6 +33,9 @@ def test_calc_request_accepts_activity_items_v2() -> None:
     assert batch.legacy_mode is False
     assert batch.organization_id == "org_demo"
     assert batch.activity_items[0].activity_name == "electricity"
+    assert batch.activity_items[0].province == "CN-BJ"
+    assert batch.activity_items[0].data_quality == "invoice"
+    assert batch.activity_items[0].source_document_id == "doc-electricity-001"
 
 
 def test_calc_request_converts_legacy_fields_to_activity_items() -> None:
@@ -41,6 +49,15 @@ def test_calc_request_converts_legacy_fields_to_activity_items() -> None:
         "natural_gas",
         "diesel",
     ]
+
+
+def test_legacy_zero_fields_are_not_converted_to_activity_items() -> None:
+    request = CalcCarbonRequest(electricity_kwh=100)
+
+    batch = request.to_activity_batch()
+
+    assert batch.legacy_mode is True
+    assert [item.activity_name for item in batch.activity_items] == ["electricity"]
 
 
 def test_calc_request_rejects_empty_activity_payload() -> None:

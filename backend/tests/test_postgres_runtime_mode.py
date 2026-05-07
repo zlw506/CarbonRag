@@ -26,6 +26,12 @@ class FakeRuntimeDatabase:
         self.session_private_samples: list[dict] = []
         self.feedback_entries: dict[str, dict] = {}
         self.carbon_calculations: dict[str, dict] = {}
+        self.carbon_inventories: dict[str, dict] = {}
+        self.carbon_activity_items: list[dict] = []
+        self.carbon_calculation_lines: list[dict] = []
+        self.carbon_factor_snapshots: list[dict] = []
+        self.carbon_evidence_references: list[dict] = []
+        self.carbon_inventory_summaries: dict[str, dict] = {}
         self.reports: dict[str, dict] = {}
         self.report_sources: list[dict] = []
 
@@ -328,6 +334,7 @@ class FakeCursor:
         if normalized.startswith("insert into carbon_calculations"):
             (
                 trace_id,
+                inventory_id,
                 owner_user_id,
                 session_id,
                 period_label,
@@ -342,10 +349,16 @@ class FakeCursor:
                 formula_trace_json,
                 source_summary_json,
                 warnings_json,
+                activity_items_raw_json,
+                scope_summary_json,
+                activity_count,
+                official_factor_count,
+                fallback_factor_count,
                 created_at,
             ) = params
             self.db.carbon_calculations[trace_id] = {
                 "trace_id": trace_id,
+                "inventory_id": inventory_id,
                 "owner_user_id": owner_user_id,
                 "session_id": session_id,
                 "period_label": period_label,
@@ -360,7 +373,51 @@ class FakeCursor:
                 "formula_trace_json": formula_trace_json,
                 "source_summary_json": source_summary_json,
                 "warnings_json": warnings_json,
+                "activity_items_raw_json": activity_items_raw_json,
+                "scope_summary_json": scope_summary_json,
+                "activity_count": activity_count,
+                "official_factor_count": official_factor_count,
+                "fallback_factor_count": fallback_factor_count,
                 "created_at": created_at,
+            }
+            self.rowcount = 1
+            self._rows = []
+            return
+
+        if normalized.startswith("insert into carbon_inventories"):
+            self.db.carbon_inventories[params[0]] = {"inventory_id": params[0], "owner_user_id": params[1]}
+            self.rowcount = 1
+            self._rows = []
+            return
+
+        if normalized.startswith("insert into carbon_activity_items"):
+            self.db.carbon_activity_items.append({"activity_item_id": params[0], "inventory_id": params[1]})
+            self.rowcount = 1
+            self._rows = []
+            return
+
+        if normalized.startswith("insert into carbon_calculation_lines"):
+            self.db.carbon_calculation_lines.append({"line_id": params[0], "inventory_id": params[1]})
+            self.rowcount = 1
+            self._rows = []
+            return
+
+        if normalized.startswith("insert into carbon_factor_snapshots"):
+            self.db.carbon_factor_snapshots.append({"factor_snapshot_id": params[0], "inventory_id": params[1]})
+            self.rowcount = 1
+            self._rows = []
+            return
+
+        if normalized.startswith("insert into carbon_evidence_references"):
+            self.db.carbon_evidence_references.append({"evidence_id": params[0], "inventory_id": params[1]})
+            self.rowcount = 1
+            self._rows = []
+            return
+
+        if normalized.startswith("insert into carbon_inventory_summaries"):
+            self.db.carbon_inventory_summaries[params[0]] = {
+                "inventory_id": params[0],
+                "scope_summary_json": params[1],
             }
             self.rowcount = 1
             self._rows = []

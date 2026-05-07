@@ -21,7 +21,7 @@ class Scope2Calculator:
         warnings = list(selection.warnings)
         if activity.scope2_method != "location_based":
             warnings.append(
-                "Scope 2 market-based / green power calculation is reserved in V1.4.4; "
+                "Scope 2 market-based / green power calculation is reserved in V1.4.5; "
                 "location-based calculation was used and certified green power was not zeroed."
             )
         return selection, normalized_value, conversion_trace, warnings

@@ -17,6 +17,8 @@ class CarbonFactor(BaseModel):
 
 
 CarbonScope = Literal["scope1", "scope2", "scope3"]
+CarbonDataQuality = Literal["metered", "invoice", "estimate", "user_input", "demo"]
+CarbonEntryMethod = Literal["manual", "file_upload", "imported", "api", "demo"]
 
 
 class CarbonActivityItem(BaseModel):
@@ -28,11 +30,16 @@ class CarbonActivityItem(BaseModel):
     activity_value: float = Field(ge=0)
     activity_unit: str
     region: str | None = None
+    province: str | None = None
     year: int | None = None
     factor_preference: str = "official_latest"
     scope2_method: str = "location_based"
     certified_green_kwh: float | None = Field(default=None, ge=0)
+    data_quality: CarbonDataQuality = "user_input"
     evidence_reference: str | None = None
+    source_document_id: str | None = None
+    entry_method: CarbonEntryMethod = "manual"
+    requested_factor_id: str | None = None
     metadata: dict[str, str] = Field(default_factory=dict)
 
     @field_validator(
@@ -40,9 +47,12 @@ class CarbonActivityItem(BaseModel):
         "activity_name",
         "activity_unit",
         "region",
+        "province",
         "factor_preference",
         "scope2_method",
         "evidence_reference",
+        "source_document_id",
+        "requested_factor_id",
     )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
@@ -109,14 +119,9 @@ class CalcCarbonRequest(BaseModel):
                 legacy_mode=False,
             )
 
-        return CarbonActivityBatch(
-            organization_id=self.organization_id,
-            facility_id=self.facility_id,
-            period_start=self.period_start,
-            period_end=self.period_end,
-            inventory_standard=self.inventory_standard or "org_basic_v1",
-            legacy_mode=True,
-            activity_items=[
+        activity_items: list[CarbonActivityItem] = []
+        if self.electricity_kwh > 0:
+            activity_items.append(
                 CarbonActivityItem(
                     scope="scope2",
                     activity_category="purchased_electricity",
@@ -125,7 +130,10 @@ class CalcCarbonRequest(BaseModel):
                     activity_unit="kWh",
                     region="CN",
                     factor_preference="official_latest",
-                ),
+                )
+            )
+        if self.natural_gas_m3 > 0:
+            activity_items.append(
                 CarbonActivityItem(
                     scope="scope1",
                     activity_category="stationary_combustion",
@@ -133,7 +141,10 @@ class CalcCarbonRequest(BaseModel):
                     activity_value=self.natural_gas_m3,
                     activity_unit="m3",
                     factor_preference="demo_allowed",
-                ),
+                )
+            )
+        if self.diesel_l > 0:
+            activity_items.append(
                 CarbonActivityItem(
                     scope="scope1",
                     activity_category="stationary_combustion",
@@ -141,8 +152,17 @@ class CalcCarbonRequest(BaseModel):
                     activity_value=self.diesel_l,
                     activity_unit="L",
                     factor_preference="demo_allowed",
-                ),
-            ],
+                )
+            )
+
+        return CarbonActivityBatch(
+            organization_id=self.organization_id,
+            facility_id=self.facility_id,
+            period_start=self.period_start,
+            period_end=self.period_end,
+            inventory_standard=self.inventory_standard or "org_basic_v1",
+            legacy_mode=True,
+            activity_items=activity_items,
         )
 
 
@@ -177,7 +197,17 @@ class CarbonFactorSnapshot(BaseModel):
     activity_category: str
     activity_name: str
     region: str | None = None
+    region_level: str | None = None
+    region_code: str | None = None
+    region_name: str | None = None
     year: int | None = None
+    effective_year: int | None = None
+    method_type: str | None = None
+    source_priority: int = 0
+    applicable_industry: str | None = None
+    applicable_standard: str | None = None
+    quality_level: str | None = None
+    is_official: bool = False
     factor_value: float
     factor_unit: str
     activity_unit: str
@@ -213,13 +243,26 @@ class CarbonSourceSummaryItem(BaseModel):
     factor_count: int
 
 
+class CarbonScopeSummary(BaseModel):
+    scope1_kgco2e: float = 0
+    scope2_location_kgco2e: float = 0
+    scope2_market_kgco2e: float | None = None
+    scope3_reserved_kgco2e: float | None = None
+
+
 class CalcCarbonResponse(BaseModel):
     status: Literal["ok"]
     trace_id: str
+    inventory_id: str
     total_emission_kgco2e: float
+    total_kgco2e: float
     breakdown: list[CarbonBreakdownItem]
     formula_summary: str
     citations: list[CarbonCitation]
+    scope_summary: CarbonScopeSummary = Field(default_factory=CarbonScopeSummary)
+    activity_count: int = 0
+    official_factor_count: int = 0
+    fallback_factor_count: int = 0
     factor_snapshot: list[CarbonFactorSnapshot] = Field(default_factory=list)
     unit_conversion_trace: list[CarbonUnitConversionTrace] = Field(default_factory=list)
     formula_trace: list[CarbonFormulaTrace] = Field(default_factory=list)
@@ -236,12 +279,19 @@ class CarbonCalculationSummary(BaseModel):
 
 class StoredCarbonCalculation(BaseModel):
     trace_id: str
+    inventory_id: str | None = None
     session_id: str | None = None
     period_label: str | None = None
     electricity_kwh: float
     natural_gas_m3: float
     diesel_l: float
     total_emission_kgco2e: float
+    total_kgco2e: float | None = None
+    scope_summary: CarbonScopeSummary = Field(default_factory=CarbonScopeSummary)
+    activity_count: int = 0
+    official_factor_count: int = 0
+    fallback_factor_count: int = 0
+    activity_items_raw: list[dict] = Field(default_factory=list)
     breakdown: list[CarbonBreakdownItem]
     citations: list[CarbonCitation]
     factor_snapshot: list[CarbonFactorSnapshot] = Field(default_factory=list)
