@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     rag_rerank_enabled: bool = False
     rag_default_mode: str = "mix"
     rag_parser_provider: str = "default"
+    rag_enable_mineru: bool = False
+    rag_parser_fallback_chain: str = "docling,mineru,default"
     vector_store_path: str = "./data/outputs/vector_store"
     public_data_dir: str = "./data/public"
     private_sample_dir: str = "./data/private_sample"
