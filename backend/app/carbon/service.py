@@ -7,6 +7,7 @@ from uuid import uuid4
 from app.carbon.calculator import CarbonCalculator
 from app.carbon.explain import CarbonExplainer
 from app.carbon.factor_loader import CarbonFactorLoader, get_factor_loader
+from app.carbon.engine import CarbonCalculationEngine
 from app.carbon.schemas import (
     CalcCarbonRequest,
     CalcCarbonResponse,
@@ -63,10 +64,9 @@ class CarbonService:
         if payload.session_id is not None:
             self.session_service.require_session(owner_user_id=owner_user_id, session_id=payload.session_id)
 
-        factors = self.factor_loader.load()
-        breakdown, total = self.calculator.calculate(request=payload, factors=factors)
-        citations = self.explainer.build_citations(factors)
-        formula_summary = self.explainer.build_formula_summary(breakdown)
+        registry = self.factor_loader.load_registry()
+        engine_result = CarbonCalculationEngine(registry=registry).calculate(payload.to_activity_batch())
+        formula_summary = self.explainer.build_formula_summary_from_trace(engine_result.formula_trace)
         trace_id = f"calc-{uuid4().hex[:12]}"
 
         self._persist(
@@ -78,9 +78,14 @@ class CarbonService:
                 electricity_kwh=payload.electricity_kwh,
                 natural_gas_m3=payload.natural_gas_m3,
                 diesel_l=payload.diesel_l,
-                total_emission_kgco2e=total,
-                breakdown=breakdown,
-                citations=citations,
+                total_emission_kgco2e=engine_result.total_emission_kgco2e,
+                breakdown=engine_result.breakdown,
+                citations=engine_result.citations,
+                factor_snapshot=engine_result.factor_snapshot,
+                unit_conversion_trace=engine_result.unit_conversion_trace,
+                formula_trace=engine_result.formula_trace,
+                source_summary=engine_result.source_summary,
+                warnings=engine_result.warnings,
                 created_at=self._utcnow(),
             ),
         )
@@ -88,15 +93,28 @@ class CarbonService:
         return CalcCarbonResponse(
             status="ok",
             trace_id=trace_id,
-            total_emission_kgco2e=total,
-            breakdown=breakdown,
+            total_emission_kgco2e=engine_result.total_emission_kgco2e,
+            breakdown=engine_result.breakdown,
             formula_summary=formula_summary,
-            citations=citations,
+            citations=engine_result.citations,
+            factor_snapshot=engine_result.factor_snapshot,
+            unit_conversion_trace=engine_result.unit_conversion_trace,
+            formula_trace=engine_result.formula_trace,
+            source_summary=engine_result.source_summary,
+            warnings=engine_result.warnings,
         )
 
     def _persist(self, *, owner_user_id: str, calculation: StoredCarbonCalculation) -> None:
         breakdown_json = json.dumps([item.model_dump() for item in calculation.breakdown], ensure_ascii=False)
         citations_json = json.dumps([item.model_dump() for item in calculation.citations], ensure_ascii=False)
+        factor_snapshot_json = json.dumps([item.model_dump() for item in calculation.factor_snapshot], ensure_ascii=False)
+        unit_conversion_trace_json = json.dumps(
+            [item.model_dump() for item in calculation.unit_conversion_trace],
+            ensure_ascii=False,
+        )
+        formula_trace_json = json.dumps([item.model_dump() for item in calculation.formula_trace], ensure_ascii=False)
+        source_summary_json = json.dumps([item.model_dump() for item in calculation.source_summary], ensure_ascii=False)
+        warnings_json = json.dumps(calculation.warnings, ensure_ascii=False)
 
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
@@ -114,9 +132,14 @@ class CarbonService:
                             total_emission_kgco2e,
                             breakdown_json,
                             citations_json,
+                            factor_snapshot_json,
+                            unit_conversion_trace_json,
+                            formula_trace_json,
+                            source_summary_json,
+                            warnings_json,
                             created_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             calculation.trace_id,
@@ -129,6 +152,11 @@ class CarbonService:
                             calculation.total_emission_kgco2e,
                             breakdown_json,
                             citations_json,
+                            factor_snapshot_json,
+                            unit_conversion_trace_json,
+                            formula_trace_json,
+                            source_summary_json,
+                            warnings_json,
                             calculation.created_at.isoformat(),
                         ),
                     )
@@ -146,9 +174,14 @@ class CarbonService:
                         total_emission_kgco2e,
                         breakdown_json,
                         citations_json,
+                        factor_snapshot_json,
+                        unit_conversion_trace_json,
+                        formula_trace_json,
+                        source_summary_json,
+                        warnings_json,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         calculation.trace_id,
@@ -161,6 +194,11 @@ class CarbonService:
                         calculation.total_emission_kgco2e,
                         breakdown_json,
                         citations_json,
+                        factor_snapshot_json,
+                        unit_conversion_trace_json,
+                        formula_trace_json,
+                        source_summary_json,
+                        warnings_json,
                         calculation.created_at.isoformat(),
                     ),
                 )
@@ -204,6 +242,11 @@ class CarbonService:
             total_emission_kgco2e=payload["total_emission_kgco2e"],
             breakdown=json.loads(payload["breakdown_json"]),
             citations=json.loads(payload["citations_json"]),
+            factor_snapshot=json.loads(payload.get("factor_snapshot_json") or "[]"),
+            unit_conversion_trace=json.loads(payload.get("unit_conversion_trace_json") or "[]"),
+            formula_trace=json.loads(payload.get("formula_trace_json") or "[]"),
+            source_summary=json.loads(payload.get("source_summary_json") or "[]"),
+            warnings=json.loads(payload.get("warnings_json") or "[]"),
             created_at=datetime.fromisoformat(payload["created_at"]),
         )
 

@@ -337,6 +337,11 @@ class FakeCursor:
                 total_emission_kgco2e,
                 breakdown_json,
                 citations_json,
+                factor_snapshot_json,
+                unit_conversion_trace_json,
+                formula_trace_json,
+                source_summary_json,
+                warnings_json,
                 created_at,
             ) = params
             self.db.carbon_calculations[trace_id] = {
@@ -350,6 +355,11 @@ class FakeCursor:
                 "total_emission_kgco2e": total_emission_kgco2e,
                 "breakdown_json": breakdown_json,
                 "citations_json": citations_json,
+                "factor_snapshot_json": factor_snapshot_json,
+                "unit_conversion_trace_json": unit_conversion_trace_json,
+                "formula_trace_json": formula_trace_json,
+                "source_summary_json": source_summary_json,
+                "warnings_json": warnings_json,
                 "created_at": created_at,
             }
             self.rowcount = 1

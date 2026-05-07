@@ -231,7 +231,9 @@ export function CarbonCalcPage() {
                                                     <List.Item key={item.item}>
                                                         <div className="calc-breakdown-row">
                                                             <div>
-                                                                <Typography.Text strong>{itemLabelMap[item.item]}</Typography.Text>
+                                                                <Typography.Text strong>
+                                                                    {itemLabelMap[item.item as keyof typeof itemLabelMap] ?? item.item}
+                                                                </Typography.Text>
                                                                 <Typography.Paragraph type="secondary" className="calc-breakdown-row__meta">
                                                                     {item.activity_value} {item.activity_unit} × {item.factor_value} {item.factor_unit}
                                                                 </Typography.Paragraph>
@@ -259,9 +261,11 @@ export function CarbonCalcPage() {
                                                             <Typography.Paragraph className="chat-citation-card__snippet">
                                                                 {citation.source}
                                                             </Typography.Paragraph>
-                                                            <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
-                                                                <FileTextOutlined /> 查看来源
-                                                            </Typography.Link>
+                                                            {citation.source_url ? (
+                                                                <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
+                                                                    <FileTextOutlined /> 查看来源
+                                                                </Typography.Link>
+                                                            ) : null}
                                                         </div>
                                                     </List.Item>
                                                 )}

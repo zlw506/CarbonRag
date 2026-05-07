@@ -252,6 +252,11 @@ CREATE TABLE IF NOT EXISTS carbon_calculations (
     total_emission_kgco2e REAL NOT NULL,
     breakdown_json TEXT NOT NULL,
     citations_json TEXT NOT NULL,
+    factor_snapshot_json TEXT NOT NULL DEFAULT '[]',
+    unit_conversion_trace_json TEXT NOT NULL DEFAULT '[]',
+    formula_trace_json TEXT NOT NULL DEFAULT '[]',
+    source_summary_json TEXT NOT NULL DEFAULT '[]',
+    warnings_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
@@ -568,6 +573,11 @@ POSTGRES_SCHEMA_STATEMENTS = (
         total_emission_kgco2e DOUBLE PRECISION NOT NULL,
         breakdown_json TEXT NOT NULL,
         citations_json TEXT NOT NULL,
+        factor_snapshot_json TEXT NOT NULL DEFAULT '[]',
+        unit_conversion_trace_json TEXT NOT NULL DEFAULT '[]',
+        formula_trace_json TEXT NOT NULL DEFAULT '[]',
+        source_summary_json TEXT NOT NULL DEFAULT '[]',
+        warnings_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL
     )
     """,
@@ -636,6 +646,11 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS business_topic TEXT",
     "ALTER TABLE feedback_entries ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS factor_snapshot_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS unit_conversion_trace_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS formula_trace_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS source_summary_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS warnings_json TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash ON auth_sessions(token_hash)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id, expires_at DESC)",
@@ -681,6 +696,11 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "knowledge_items", "business_topic", "TEXT")
     _ensure_sqlite_column(connection, "feedback_entries", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "carbon_calculations", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "carbon_calculations", "factor_snapshot_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "unit_conversion_trace_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "formula_trace_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "source_summary_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "carbon_calculations", "warnings_json", "TEXT NOT NULL DEFAULT '[]'")
     _ensure_sqlite_column(connection, "reports", "owner_user_id", "TEXT")
     connection.executescript(SQLITE_INDEX_SCRIPT)
 

@@ -61,13 +61,15 @@ V1.4.x 初步方向：
 
 当前 `calc-carbon` 已支持：
 
-- `electricity_kwh`
-- `natural_gas_m3`
-- `diesel_l`
+- 旧三字段输入：`electricity_kwh`、`natural_gas_m3`、`diesel_l`。
+- 新 V1.4.4 输入：`activity_items[]`。
+- Scope 1 stationary/mobile combustion 基础核算。
+- Scope 2 purchased electricity location-based 核算。
 - 分项排放量、总排放量、因子来源 citation。
+- factor snapshot、unit conversion trace、formula trace、source summary、warnings。
 - 结果持久化并可按 session 关联。
 
-V1.4.x 将继续扩展这条线。
+当前官方电力因子种子使用生态环境部、国家统计局 2023 年电力二氧化碳排放因子；燃料因子仍为 demo，不用于正式审计。
 
 ### 报告生成
 
