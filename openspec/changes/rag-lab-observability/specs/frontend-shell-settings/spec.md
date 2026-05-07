@@ -21,7 +21,8 @@ CarbonRag SHALL provide an authenticated workbench surface for retrieval-only RA
 
 #### Scenario: Retrieval request fails
 - **WHEN** the retrieval-only request returns a validation, authorization, or backend error
-- **THEN** the frontend displays HTTP status when available, an error message, and backend error detail when the backend returns one
+- **THEN** the frontend displays HTTP status when available and a controlled error message
+- **AND** the frontend does not render backend internals such as raw exception text, `backend_detail`, or `exception_type`
 
 #### Scenario: Knowledge item filters respect visible scope
 - **WHEN** the user selects private or mixed retrieval with specific knowledge items

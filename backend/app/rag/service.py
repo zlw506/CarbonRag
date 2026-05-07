@@ -81,6 +81,7 @@ class RagEngineService:
         vector_store_health = self._vector_store_health()
         provider_metadata["vector_store"] = vector_store_health.model_dump()
         chunk_source_metadata: dict[str, dict[str, Any]] = {}
+        private_allowed_ids = self._private_allowed_ids(params)
 
         if params.retrieval_strategy is not None:
             strategy_result = self._retrieve_with_experimental_strategy(
@@ -107,12 +108,15 @@ class RagEngineService:
                                 query_embedding=query_embedding,
                                 top_k=chunk_top_k,
                                 filters={
+                                    "knowledge_scope": params.knowledge_scope,
                                     "source_type": self._source_type_filter(params.knowledge_scope),
-                                    "allowed_knowledge_item_ids": list(params.allowed_knowledge_item_ids),
+                                    "allowed_knowledge_item_ids": sorted(private_allowed_ids)
+                                    if private_allowed_ids is not None
+                                    else [],
                                     "region": params.region,
                                     "doc_type": params.doc_type,
                                 },
-                                allowed_knowledge_item_ids=set(params.allowed_knowledge_item_ids) or None,
+                                allowed_knowledge_item_ids=private_allowed_ids,
                             )
                             vector_hits = vector_store_result.chunks
                             vector_hit_count = vector_store_result.total_hits
@@ -139,7 +143,7 @@ class RagEngineService:
                             question=params.question,
                             query_embedding=query_embedding,
                             top_k=chunk_top_k,
-                            allowed_knowledge_item_ids=set(params.allowed_knowledge_item_ids) or None,
+                            allowed_knowledge_item_ids=private_allowed_ids,
                         )
                         vector_hits = vector_result.chunks
                         vector_hit_count = len(vector_hits)
@@ -290,6 +294,12 @@ class RagEngineService:
             return "rag_vector_disabled"
         return None
 
+    @staticmethod
+    def _private_allowed_ids(params: RagQueryParams) -> set[str] | None:
+        if params.knowledge_scope == "public":
+            return None
+        return set(params.allowed_knowledge_item_ids)
+
     def _resolve_query_embedding(self, question: str) -> list[float] | None:
         if not self.vector_retriever.requires_embedding() and not self._uses_pgvector_backend():
             return None
@@ -305,7 +315,7 @@ class RagEngineService:
         chunk_top_k: int,
         vector_store_health: VectorStoreHealth,
     ) -> RetrieverStrategyResult:
-        allowed_ids = set(params.allowed_knowledge_item_ids) or None
+        allowed_ids = self._private_allowed_ids(params)
         filters = {
             "knowledge_scope": params.knowledge_scope,
             "source_type": self._source_type_filter(params.knowledge_scope),
@@ -313,7 +323,7 @@ class RagEngineService:
             "doc_type": params.doc_type,
         }
         if allowed_ids is not None:
-            filters["allowed_knowledge_item_ids"] = list(allowed_ids)
+            filters["allowed_knowledge_item_ids"] = sorted(allowed_ids)
         query_embedding = None
         embedding_metadata: dict[str, Any] = {}
         if params.retrieval_strategy in {"vector_only", "bm25_vector_hybrid"}:
@@ -386,7 +396,7 @@ class RagEngineService:
         return result
 
     def _fallback_search(self, params: RagQueryParams) -> RetrievalResult:
-        allowed_ids = set(params.allowed_knowledge_item_ids) or None
+        allowed_ids = self._private_allowed_ids(params)
         adapter_result = self.fallback_vector_store_adapter.search(
             question=params.question,
             top_k=params.top_k,
@@ -394,7 +404,7 @@ class RagEngineService:
                 "knowledge_scope": params.knowledge_scope,
                 "region": params.region,
                 "doc_type": params.doc_type,
-                "allowed_knowledge_item_ids": list(allowed_ids or []),
+                "allowed_knowledge_item_ids": sorted(allowed_ids) if allowed_ids is not None else [],
             },
             allowed_knowledge_item_ids=allowed_ids,
         )

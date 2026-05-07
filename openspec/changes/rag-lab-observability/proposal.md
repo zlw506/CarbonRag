@@ -5,8 +5,8 @@ CarbonRag V1.3 has a protected RAG Lab and a retrieval-only API, but debugging a
 ## What Changes
 
 - Add retrieval-only metadata for retriever mode, requested top-k, returned count, fallback status, latency, and source-scope hit counts.
-- Return structured retrieval-only errors for runtime failures while preserving FastAPI validation errors for invalid request payloads.
-- Improve the RAG Lab to show `backendBaseUrl`, retrieval endpoint, current request parameters, effective retrieval mode, fallback state, zero-hit guidance, and backend error detail.
+- Return structured retrieval-only errors with controlled public codes/messages while preserving FastAPI validation errors for invalid request payloads.
+- Improve the RAG Lab to show `backendBaseUrl`, retrieval endpoint, current request parameters, effective retrieval mode, fallback state, zero-hit guidance, and safe error details.
 - Keep existing `chunks`, `references`, and `metadata` response fields additive and backward-compatible.
 
 ## Capabilities

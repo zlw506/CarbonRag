@@ -7,6 +7,7 @@ from app.rag.service import RagEngineService
 from app.rag.vector_store import (
     CurrentVectorStoreAdapter,
     PgVectorStoreAdapter,
+    _build_pgvector_filter_clause,
     build_vector_store_adapter,
 )
 from app.retrieval.schemas import RetrievedChunk, RetrievalResult
@@ -134,6 +135,24 @@ def test_pgvector_adapter_search_returns_unified_result_structure() -> None:
     assert result.chunks[0].chunk_id == chunk.chunk_id
     assert result.chunks[0].doc_id == chunk.document_id
     assert result.chunks[0].source_type == "private_sample"
+
+
+def test_pgvector_private_empty_selection_fails_closed() -> None:
+    where_sql, params = _build_pgvector_filter_clause(
+        {"knowledge_scope": "private_sample", "allowed_knowledge_item_ids": []}
+    )
+
+    assert where_sql == "WHERE 1 = 0"
+    assert params == []
+
+
+def test_pgvector_mixed_empty_selection_is_public_only() -> None:
+    where_sql, params = _build_pgvector_filter_clause(
+        {"knowledge_scope": "mixed", "allowed_knowledge_item_ids": []}
+    )
+
+    assert where_sql == "WHERE source_type = %s"
+    assert params == ["public_policy"]
 
 
 def test_pgvector_delete_by_document_does_not_affect_other_documents() -> None:

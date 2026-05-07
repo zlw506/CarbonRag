@@ -3,6 +3,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.rag.contracts import RetrievalTrace
 from app.rag.schemas import RagEvidenceChunk, RagEvidenceReference, RagRetrievalMetadata, RagRetrievalResult
+from app.rag.service import RagEngineService
+from app.retrieval.mixed_retriever import MixedScopeRetriever
+from app.retrieval.schemas import RetrievedChunk, RetrievalResult
 from tests.test_helpers import register_and_login
 
 client = TestClient(app)
@@ -93,9 +96,67 @@ class FakeRagEngine:
         )
 
 
+class StaticSearchRetriever:
+    def __init__(self, hits: list[RetrievedChunk]) -> None:
+        self.chunks = hits
+
+    def search(self, *, question: str, top_k: int = 5, **kwargs) -> RetrievalResult:
+        del kwargs
+        selected = self.chunks[:top_k]
+        return RetrievalResult(query=question, top_k=top_k, total_hits=len(selected), hits=selected)
+
+
+class LeakyPrivateSearchRetriever(StaticSearchRetriever):
+    def search(
+        self,
+        *,
+        question: str,
+        top_k: int = 5,
+        allowed_knowledge_item_ids: set[str] | None = None,
+        allowed_doc_ids: set[str] | None = None,
+        **kwargs,
+    ) -> RetrievalResult:
+        del kwargs
+        if allowed_knowledge_item_ids is not None:
+            allowed_ids = allowed_knowledge_item_ids
+        elif allowed_doc_ids is not None:
+            allowed_ids = allowed_doc_ids
+        else:
+            allowed_ids = None
+        candidates = self.chunks
+        if allowed_ids is not None:
+            candidates = [chunk for chunk in candidates if chunk.knowledge_item_id in allowed_ids]
+        selected = candidates[:top_k]
+        return RetrievalResult(query=question, top_k=top_k, total_hits=len(selected), hits=selected)
+
+
+def _private_upload_chunk(*, knowledge_item_id: str = "user-a-upload") -> RetrievedChunk:
+    return RetrievedChunk(
+        doc_id=knowledge_item_id,
+        knowledge_item_id=knowledge_item_id,
+        title="User A personal upload",
+        source_type="private_upload",
+        source="user-a-upload.md",
+        chunk_id=f"{knowledge_item_id}-chunk-001",
+        snippet="User A confidential carbon inventory evidence.",
+        score=3.0,
+    )
+
+
+def _public_policy_chunk() -> RetrievedChunk:
+    return RetrievedChunk(
+        doc_id="policy-public",
+        title="Public carbon policy",
+        source_type="public_policy",
+        source="public-policy.md",
+        chunk_id="policy-public-chunk-001",
+        snippet="Public carbon peak policy evidence.",
+        score=2.0,
+    )
+
+
 def test_rag_retrieve_route_returns_retrieval_only_data(monkeypatch) -> None:
     fake_engine = FakeRagEngine()
-    monkeypatch.setattr("app.api.v1.endpoints.rag._sync_user_knowledge", lambda owner_user_id: None)
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: fake_engine)
     register_and_login(client, prefix="ragroute")
 
@@ -136,7 +197,6 @@ def test_rag_retrieve_route_returns_retrieval_only_data(monkeypatch) -> None:
 
 def test_rag_retrieve_route_returns_zero_hit_metadata(monkeypatch) -> None:
     fake_engine = FakeRagEngine(hit_count=0)
-    monkeypatch.setattr("app.api.v1.endpoints.rag._sync_user_knowledge", lambda owner_user_id: None)
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: fake_engine)
     register_and_login(client, prefix="ragzero")
 
@@ -154,7 +214,6 @@ def test_rag_retrieve_route_returns_zero_hit_metadata(monkeypatch) -> None:
 
 def test_rag_retrieve_route_accepts_experimental_strategy(monkeypatch) -> None:
     fake_engine = FakeRagEngine()
-    monkeypatch.setattr("app.api.v1.endpoints.rag._sync_user_knowledge", lambda owner_user_id: None)
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: fake_engine)
     register_and_login(client, prefix="ragstrategy")
 
@@ -189,8 +248,7 @@ def test_rag_retrieve_route_requires_authenticated_user() -> None:
     assert response.status_code == 401
 
 
-def test_rag_retrieve_route_rejects_blank_question(monkeypatch) -> None:
-    monkeypatch.setattr("app.api.v1.endpoints.rag._sync_user_knowledge", lambda owner_user_id: None)
+def test_rag_retrieve_route_rejects_blank_question() -> None:
     register_and_login(client, prefix="ragblank")
 
     response = client.post(
@@ -202,8 +260,7 @@ def test_rag_retrieve_route_rejects_blank_question(monkeypatch) -> None:
     assert "question cannot be blank" in response.text
 
 
-def test_rag_retrieve_route_rejects_invalid_top_k(monkeypatch) -> None:
-    monkeypatch.setattr("app.api.v1.endpoints.rag._sync_user_knowledge", lambda owner_user_id: None)
+def test_rag_retrieve_route_rejects_invalid_top_k() -> None:
     register_and_login(client, prefix="ragtopk")
 
     response = client.post(
@@ -217,7 +274,6 @@ def test_rag_retrieve_route_rejects_invalid_top_k(monkeypatch) -> None:
 
 def test_rag_retrieve_route_returns_structured_runtime_error(monkeypatch) -> None:
     fake_engine = FakeRagEngine(raises=True)
-    monkeypatch.setattr("app.api.v1.endpoints.rag._sync_user_knowledge", lambda owner_user_id: None)
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: fake_engine)
     register_and_login(client, prefix="ragerror")
 
@@ -229,5 +285,68 @@ def test_rag_retrieve_route_returns_structured_runtime_error(monkeypatch) -> Non
     assert response.status_code == 500
     payload = response.json()
     assert payload["detail"]["error"] == "rag_retrieval_failed"
-    assert payload["detail"]["message"] == "RAG retrieval failed."
-    assert payload["detail"]["backend_detail"] == "fake rag engine failure"
+    assert payload["detail"]["error_code"] == "rag_retrieval_failed"
+    assert payload["detail"]["message"] == "RAG retrieval failed. Please retry later."
+    assert "backend_detail" not in payload["detail"]
+    assert "exception_type" not in payload["detail"]
+    assert "fake rag engine failure" not in response.text
+
+
+def test_rag_retrieve_private_empty_selection_does_not_leak_other_user_upload(monkeypatch) -> None:
+    private_retriever = LeakyPrivateSearchRetriever([_private_upload_chunk()])
+    rag_service = RagEngineService(
+        public_retriever=StaticSearchRetriever([]),  # type: ignore[arg-type]
+        private_retriever=private_retriever,  # type: ignore[arg-type]
+        mixed_retriever=MixedScopeRetriever(
+            public_retriever=StaticSearchRetriever([]),  # type: ignore[arg-type]
+            private_retriever=private_retriever,  # type: ignore[arg-type]
+        ),
+    )
+    monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: rag_service)
+    register_and_login(client, prefix="raguserbprivate")
+
+    response = client.post(
+        "/api/v1/rag/retrieve",
+        json={
+            "question": "carbon inventory evidence",
+            "knowledge_scope": "private_sample",
+            "allowed_knowledge_item_ids": [],
+            "top_k": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["chunks"] == []
+    assert payload["metadata"]["private_chunk_count"] == 0
+
+
+def test_rag_retrieve_mixed_empty_selection_returns_public_only(monkeypatch) -> None:
+    private_retriever = LeakyPrivateSearchRetriever([_private_upload_chunk()])
+    rag_service = RagEngineService(
+        public_retriever=StaticSearchRetriever([_public_policy_chunk()]),  # type: ignore[arg-type]
+        private_retriever=private_retriever,  # type: ignore[arg-type]
+        mixed_retriever=MixedScopeRetriever(
+            public_retriever=StaticSearchRetriever([_public_policy_chunk()]),  # type: ignore[arg-type]
+            private_retriever=private_retriever,  # type: ignore[arg-type]
+        ),
+    )
+    monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: rag_service)
+    register_and_login(client, prefix="raguserbmixed")
+
+    response = client.post(
+        "/api/v1/rag/retrieve",
+        json={
+            "question": "carbon policy evidence",
+            "knowledge_scope": "mixed",
+            "allowed_knowledge_item_ids": [],
+            "top_k": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [chunk["source_type"] for chunk in payload["chunks"]] == ["public_policy"]
+    assert payload["metadata"]["public_chunk_count"] == 1
+    assert payload["metadata"]["private_chunk_count"] == 0
+    assert all(chunk["knowledge_item_id"] != "user-a-upload" for chunk in payload["chunks"])

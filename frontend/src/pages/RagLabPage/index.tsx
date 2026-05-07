@@ -912,7 +912,7 @@ function extractBackendMessage(detail: unknown): string | null {
     }
     if (detail && typeof detail === "object") {
         const candidate = detail as Record<string, unknown>;
-        for (const key of ["message", "msg", "backend_detail", "error"]) {
+        for (const key of ["message", "msg", "error_code", "error"]) {
             const value = candidate[key];
             if (typeof value === "string" && value.trim()) {
                 return value;
@@ -937,7 +937,7 @@ function formatBackendDetail(detail: unknown): string | null {
     }
     if (detail && typeof detail === "object") {
         const candidate = detail as Record<string, unknown>;
-        const parts = ["error", "message", "msg", "backend_detail", "exception_type"]
+        const parts = ["error", "error_code", "message", "msg"]
             .map((key) => {
                 const value = candidate[key];
                 if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -948,11 +948,6 @@ function formatBackendDetail(detail: unknown): string | null {
             .filter((item): item is string => Boolean(item));
         if (parts.length > 0) {
             return parts.join("；");
-        }
-        try {
-            return JSON.stringify(detail);
-        } catch {
-            return null;
         }
     }
     return null;

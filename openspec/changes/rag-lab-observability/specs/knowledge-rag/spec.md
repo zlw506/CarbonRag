@@ -19,7 +19,8 @@ CarbonRag SHALL expose structured retrieval data before LLM answer generation, i
 
 #### Scenario: Retrieval-only execution fails unexpectedly
 - **WHEN** retrieval-only execution raises an unexpected exception
-- **THEN** CarbonRag returns a structured backend error detail instead of an empty 500 response
+- **THEN** CarbonRag returns a controlled public error code and safe user-facing message instead of an empty 500 response
+- **AND** internal exception details are logged server-side instead of returned in the HTTP response
 
 #### Scenario: Ask mode consumes retrieval data
 - **WHEN** ask mode uses RAG evidence to build context

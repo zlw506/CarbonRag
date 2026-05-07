@@ -1,3 +1,5 @@
+import logging
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -13,10 +15,9 @@ from app.rag.schemas import (
     RagRetrievalResult,
 )
 from app.rag.service import get_rag_engine_service
-from app.retrieval.mixed_retriever import get_mixed_scope_retriever
-from app.retrieval.private_retriever import get_private_sample_retriever
 
 router = APIRouter(prefix="/rag")
+logger = logging.getLogger(__name__)
 
 
 class RagRetrieveRequest(BaseModel):
@@ -49,19 +50,6 @@ class RagRetrieveRequest(BaseModel):
     def normalize_allowed_ids(cls, value: list[str]) -> list[str]:
         return list(dict.fromkeys(item.strip() for item in value if item.strip()))
 
-
-def _sync_user_knowledge(owner_user_id: str) -> None:
-    service = get_knowledge_service()
-    service.sync_shared_private_samples()
-    service.sync_uploaded_files(owner_user_id=owner_user_id)
-    try:
-        service.run_queued_tasks()
-    except Exception:
-        pass
-    get_private_sample_retriever.cache_clear()
-    get_mixed_scope_retriever.cache_clear()
-
-
 def _resolve_visible_knowledge_item_ids(
     *,
     owner_user_id: str,
@@ -89,7 +77,6 @@ def retrieve_rag_evidence(
     payload: RagRetrieveRequest,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> RagRetrievalResult:
-    _sync_user_knowledge(current_user.user_id)
     allowed_knowledge_item_ids = _resolve_visible_knowledge_item_ids(
         owner_user_id=current_user.user_id,
         knowledge_scope=payload.knowledge_scope,
@@ -116,12 +103,12 @@ def retrieve_rag_evidence(
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
+        logger.exception("RAG retrieval failed.", extra={"user_id": current_user.user_id})
         raise HTTPException(
             status_code=500,
             detail={
                 "error": "rag_retrieval_failed",
-                "message": "RAG retrieval failed.",
-                "backend_detail": str(exc),
-                "exception_type": type(exc).__name__,
+                "error_code": "rag_retrieval_failed",
+                "message": "RAG retrieval failed. Please retry later.",
             },
         ) from exc

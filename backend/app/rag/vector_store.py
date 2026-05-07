@@ -619,8 +619,17 @@ class FakeVectorStoreAdapter:
             allowed_knowledge_item_ids=allowed_knowledge_item_ids,
             filters=filters or {},
         )
+        knowledge_scope = str((filters or {}).get("knowledge_scope") or "mixed")
         candidates = self.chunks
-        if allowed_ids is not None:
+        if knowledge_scope == "public":
+            candidates = [chunk for chunk in candidates if chunk.source_type == "public_policy"]
+        elif allowed_ids is not None and knowledge_scope == "mixed":
+            candidates = [
+                chunk
+                for chunk in candidates
+                if chunk.source_type == "public_policy" or chunk.knowledge_item_id in allowed_ids
+            ]
+        elif allowed_ids is not None:
             candidates = [chunk for chunk in candidates if chunk.knowledge_item_id in allowed_ids]
         selected = candidates[:top_k]
         return VectorStoreSearchResult(
@@ -766,7 +775,47 @@ def _vector_literal(vector: list[float]) -> str:
 def _build_pgvector_filter_clause(filters: VectorStoreFilters) -> tuple[str, list[Any]]:
     clauses: list[str] = []
     params: list[Any] = []
+    knowledge_scope = _optional_str(filters.get("knowledge_scope"))
+    allowed_ids = _resolve_allowed_ids(allowed_knowledge_item_ids=None, filters=filters)
+    source_type_filter = filters.get("source_type")
+    scope_handles_source_type = False
+
+    if knowledge_scope == "public":
+        clauses.append("source_type = %s")
+        params.append("public_policy")
+        scope_handles_source_type = True
+    elif knowledge_scope == "private_sample":
+        scope_handles_source_type = True
+        if not allowed_ids:
+            return "WHERE 1 = 0", []
+        private_source_types = ("private_sample", "private_upload")
+        placeholders = ", ".join(["%s"] * len(private_source_types))
+        clauses.append(f"source_type IN ({placeholders})")
+        params.extend(private_source_types)
+        allowed_placeholders = ", ".join(["%s"] * len(allowed_ids))
+        clauses.append(f"metadata->>'knowledge_item_id' IN ({allowed_placeholders})")
+        params.extend(sorted(allowed_ids))
+    elif knowledge_scope == "mixed":
+        scope_handles_source_type = True
+        if not allowed_ids:
+            clauses.append("source_type = %s")
+            params.append("public_policy")
+        else:
+            allowed_placeholders = ", ".join(["%s"] * len(allowed_ids))
+            clauses.append(f"(source_type = %s OR metadata->>'knowledge_item_id' IN ({allowed_placeholders}))")
+            params.append("public_policy")
+            params.extend(sorted(allowed_ids))
+    elif "allowed_knowledge_item_ids" in filters and not allowed_ids:
+        if source_type_filter in {"private_sample", "private_upload"}:
+            return "WHERE 1 = 0", []
+        if source_type_filter is None:
+            clauses.append("source_type = %s")
+            params.append("public_policy")
+            scope_handles_source_type = True
+
     for key in ("source_type", "document_id", "visibility"):
+        if key == "source_type" and scope_handles_source_type:
+            continue
         value = filters.get(key)
         if value is None:
             continue
@@ -780,8 +829,7 @@ def _build_pgvector_filter_clause(filters: VectorStoreFilters) -> tuple[str, lis
         else:
             clauses.append(f"{key} = %s")
             params.append(str(value))
-    allowed_ids = _resolve_allowed_ids(allowed_knowledge_item_ids=None, filters=filters)
-    if allowed_ids:
+    if allowed_ids and not scope_handles_source_type:
         placeholders = ", ".join(["%s"] * len(allowed_ids))
         clauses.append(f"metadata->>'knowledge_item_id' IN ({placeholders})")
         params.extend(sorted(allowed_ids))

@@ -21,11 +21,6 @@ class PrivateSampleRetriever:
         self._refresh_corpus()
 
     def _refresh_corpus(self) -> None:
-        self.knowledge_service.sync_shared_private_samples()
-        try:
-            self.knowledge_service.run_queued_tasks()
-        except Exception:
-            pass
         knowledge_items = self.knowledge_service.list_visible_items(owner_user_id=None)
         self.chunks: list[RetrievedChunk] = []
         for item in knowledge_items:
@@ -76,7 +71,9 @@ class PrivateSampleRetriever:
         elif allowed_doc_ids is not None:
             allowed_ids = allowed_doc_ids
         else:
-            allowed_ids = None
+            allowed_ids = set()
+        if not allowed_ids:
+            return RetrievalResult(query=question, top_k=top_k, total_hits=0, hits=[])
         query_tokens = _tokenize(question)
         if not query_tokens or self._bm25 is None:
             return RetrievalResult(query=question, top_k=top_k, total_hits=0, hits=[])
