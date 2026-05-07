@@ -5,8 +5,9 @@ from typing import Any
 from app.ai_runtime.providers.base import BaseEmbeddingProvider, BaseRerankProvider, RerankItem
 from app.ai_runtime.providers.factory import get_embedding_provider, get_rerank_provider
 from app.core.config import Settings, get_settings
-from app.rag.adapters import citation_refs_from_references
+from app.rag.adapters import chunk_record_from_evidence_chunk, citation_refs_from_references
 from app.rag.contracts import RetrievalTrace
+from app.rag.graph import GraphIndexBuilder, RuleBasedGraphIndexBuilder
 from app.rag.schemas import (
     RagEvidenceChunk,
     RagEvidenceReference,
@@ -42,6 +43,7 @@ class RagEngineService:
         private_retriever: PrivateSampleRetriever | None = None,
         mixed_retriever: MixedScopeRetriever | None = None,
         vector_store_adapter: VectorStoreAdapter | None = None,
+        graph_index_builder: GraphIndexBuilder | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.vector_retriever = vector_retriever or DisabledVectorRetriever()
@@ -50,6 +52,7 @@ class RagEngineService:
         self.public_retriever = public_retriever or get_public_policy_retriever()
         self.private_retriever = private_retriever or get_private_sample_retriever()
         self.mixed_retriever = mixed_retriever or get_mixed_scope_retriever()
+        self.graph_index_builder = graph_index_builder or RuleBasedGraphIndexBuilder()
         self.current_vector_store_adapter = CurrentVectorStoreAdapter(
             public_retriever=self.public_retriever,
             private_retriever=self.private_retriever,
@@ -224,6 +227,12 @@ class RagEngineService:
             },
         )
         public_chunk_count, private_chunk_count = self._count_chunk_scopes(chunks)
+        graph_metadata = (
+            self._build_graph_metadata(chunks=chunks)
+            if params.retrieval_strategy is not None
+            else self._empty_graph_metadata(status="skipped")
+        )
+        provider_metadata["graph"] = graph_metadata["metadata"]
 
         metadata = RagRetrievalMetadata(
             mode=params.mode,
@@ -249,6 +258,9 @@ class RagEngineService:
             latency_ms=trace.latency_ms,
             public_chunk_count=public_chunk_count,
             private_chunk_count=private_chunk_count,
+            graph_entities=graph_metadata["entities"],
+            graph_relations=graph_metadata["relations"],
+            graph_candidates=graph_metadata["candidates"],
             trace=trace,
             provider_metadata=provider_metadata,
         )
@@ -498,6 +510,51 @@ class RagEngineService:
                 reason=str(exc),
                 metadata={"adapter_name": type(self.vector_store_adapter).__name__, "error_type": type(exc).__name__},
             )
+
+    def _build_graph_metadata(self, *, chunks: list[RagEvidenceChunk]) -> dict[str, Any]:
+        if not chunks:
+            return self._empty_graph_metadata(status="ok")
+        try:
+            chunk_records = [chunk_record_from_evidence_chunk(chunk) for chunk in chunks]
+            build_result = self.graph_index_builder.build(chunks=chunk_records)
+            return {
+                "entities": build_result.entities,
+                "relations": build_result.relations,
+                "candidates": build_result.candidates,
+                "metadata": {
+                    **build_result.metadata,
+                    "status": build_result.status,
+                    "entity_count": build_result.entity_count,
+                    "relation_count": build_result.relation_count,
+                    "community_count": build_result.community_count,
+                    "candidate_count": build_result.candidate_count,
+                },
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "entities": [],
+                "relations": [],
+                "candidates": [],
+                "metadata": {
+                    "status": "error",
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                },
+            }
+
+    @staticmethod
+    def _empty_graph_metadata(*, status: str) -> dict[str, Any]:
+        return {
+            "entities": [],
+            "relations": [],
+            "candidates": [],
+            "metadata": {
+                "status": status,
+                "entity_count": 0,
+                "relation_count": 0,
+                "candidate_count": 0,
+            },
+        }
 
     @staticmethod
     def _vector_adapter_name(health: VectorStoreHealth) -> str:

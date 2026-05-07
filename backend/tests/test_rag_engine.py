@@ -269,8 +269,18 @@ def test_rag_engine_reports_zero_hit_metadata() -> None:
 
 
 def test_rag_engine_experimental_hybrid_returns_source_metadata() -> None:
-    bm25_chunk = build_chunk(chunk_id="policy_001_chunk_01", score=2.0)
-    vector_chunk = build_chunk(chunk_id="policy_001_chunk_01", score=0.8)
+    bm25_chunk = build_chunk(chunk_id="policy_001_chunk_01", score=2.0).model_copy(
+        update={
+            "title": "国务院关于印发2030年前碳达峰行动方案的通知",
+            "snippet": "2030年前碳达峰行动方案提出完善碳排放统计核算体系。",
+        }
+    )
+    vector_chunk = build_chunk(chunk_id="policy_001_chunk_01", score=0.8).model_copy(
+        update={
+            "title": "国务院关于印发2030年前碳达峰行动方案的通知",
+            "snippet": "2030年前碳达峰行动方案提出完善碳排放统计核算体系。",
+        }
+    )
     service = build_service(
         settings=Settings(rag_engine_enabled=True, rag_vector_enabled=True),
         vector_store_adapter=FakeVectorStoreAdapter(chunks=[vector_chunk]),
@@ -296,6 +306,8 @@ def test_rag_engine_experimental_hybrid_returns_source_metadata() -> None:
     assert result.chunks[0].from_bm25 is True
     assert result.chunks[0].from_vector is True
     assert result.chunks[0].merged_score is not None
+    assert result.metadata.graph_candidates
+    assert result.metadata.provider_metadata["graph"]["candidate_count"] >= 1
 
 
 def test_rag_engine_experimental_vector_unavailable_falls_back_to_bm25() -> None:

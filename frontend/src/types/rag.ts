@@ -59,6 +59,37 @@ export interface RagEvidenceReference {
     source_url: string | null;
 }
 
+export interface RagGraphEntity {
+    entity_id: string;
+    name: string;
+    entity_type: string;
+    source_chunk_ids: string[];
+    confidence: number;
+    metadata?: Record<string, unknown>;
+}
+
+export interface RagGraphRelation {
+    relation_id: string;
+    source_entity_id: string;
+    target_entity_id: string;
+    relation_type: string;
+    description?: string | null;
+    source_chunk_ids: string[];
+    confidence: number;
+    metadata?: Record<string, unknown>;
+}
+
+export interface RagGraphCandidate {
+    candidate_id: string;
+    title: string;
+    snippet: string;
+    source_chunk_ids: string[];
+    entity_ids?: string[];
+    relation_ids?: string[];
+    score: number;
+    metadata?: Record<string, unknown>;
+}
+
 export interface RagRetrievalMetadata {
     mode?: RagQueryMode | null;
     knowledge_scope?: RagKnowledgeScope | null;
@@ -83,6 +114,9 @@ export interface RagRetrievalMetadata {
     latency_ms?: number | null;
     public_chunk_count?: number | null;
     private_chunk_count?: number | null;
+    graph_entities?: RagGraphEntity[] | null;
+    graph_relations?: RagGraphRelation[] | null;
+    graph_candidates?: RagGraphCandidate[] | null;
     trace?: {
         trace_id: string;
         query?: string | null;

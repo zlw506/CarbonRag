@@ -3,6 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from app.rag.contracts import RetrievalStrategyName, RetrievalTrace
+from app.rag.graph import GraphCandidate, GraphEntity, GraphRelation
 from app.retrieval.schemas import SourceType
 
 
@@ -113,6 +114,9 @@ class RagRetrievalMetadata(BaseModel):
     latency_ms: float | None = None
     public_chunk_count: int | None = None
     private_chunk_count: int | None = None
+    graph_entities: list[GraphEntity] = Field(default_factory=list)
+    graph_relations: list[GraphRelation] = Field(default_factory=list)
+    graph_candidates: list[GraphCandidate] = Field(default_factory=list)
     trace: RetrievalTrace = Field(default_factory=RetrievalTrace)
     provider_metadata: dict[str, Any] = Field(default_factory=dict)
 

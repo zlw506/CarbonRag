@@ -33,6 +33,9 @@ import type { KnowledgeItem } from "../../types/knowledge";
 import type {
     RagEvidenceChunk,
     RagExperimentalRetrievalStrategy,
+    RagGraphCandidate,
+    RagGraphEntity,
+    RagGraphRelation,
     RagGraphStatus,
     RagKnowledgeScope,
     RagQueryMode,
@@ -518,6 +521,14 @@ export function RagLabPage() {
                         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有 references。" />
                     )}
                 </Card>
+
+                <Card title="Graph candidates">
+                    <GraphMetadataPanel
+                        entities={metadata?.graph_entities ?? []}
+                        relations={metadata?.graph_relations ?? []}
+                        candidates={metadata?.graph_candidates ?? []}
+                    />
+                </Card>
             </div>
         </div>
     );
@@ -621,6 +632,74 @@ function EvidenceChunkCard({ chunk }: { chunk: RagEvidenceChunk }) {
                 </Space>
             </Space>
         </div>
+    );
+}
+
+function GraphMetadataPanel({
+    entities,
+    relations,
+    candidates,
+}: {
+    entities: RagGraphEntity[];
+    relations: RagGraphRelation[];
+    candidates: RagGraphCandidate[];
+}) {
+    if (entities.length === 0 && relations.length === 0 && candidates.length === 0) {
+        return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有 graph candidates。" />;
+    }
+    return (
+        <Space direction="vertical" size={16} style={{ width: "100%" }}>
+            {candidates.length ? (
+                <List
+                    dataSource={candidates}
+                    renderItem={(candidate) => (
+                        <List.Item key={candidate.candidate_id}>
+                            <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                                <Space size={8} wrap>
+                                    <Typography.Text strong>{candidate.title}</Typography.Text>
+                                    <Tag>score {formatScore(candidate.score)}</Tag>
+                                    {candidate.source_chunk_ids.map((chunkId) => (
+                                        <Tag key={chunkId}>{chunkId}</Tag>
+                                    ))}
+                                </Space>
+                                <Typography.Text>{candidate.snippet}</Typography.Text>
+                                <Space size={8} wrap>
+                                    {(candidate.entity_ids ?? []).slice(0, 6).map((entityId) => (
+                                        <Tag key={entityId} color="cyan">{entityId}</Tag>
+                                    ))}
+                                </Space>
+                            </Space>
+                        </List.Item>
+                    )}
+                />
+            ) : null}
+
+            <Descriptions bordered size="small" column={{ xs: 1, md: 3 }}>
+                <Descriptions.Item label="graph_entities">{entities.length}</Descriptions.Item>
+                <Descriptions.Item label="graph_relations">{relations.length}</Descriptions.Item>
+                <Descriptions.Item label="graph_candidates">{candidates.length}</Descriptions.Item>
+            </Descriptions>
+
+            {entities.length ? (
+                <Space size={8} wrap>
+                    {entities.slice(0, 12).map((entity) => (
+                        <Tag key={entity.entity_id} color="blue">
+                            {entity.name} · {entity.entity_type} · {formatScore(entity.confidence)}
+                        </Tag>
+                    ))}
+                </Space>
+            ) : null}
+
+            {relations.length ? (
+                <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                    {relations.slice(0, 8).map((relation) => (
+                        <Typography.Text key={relation.relation_id} type="secondary">
+                            {relation.relation_type}: {relation.source_entity_id} → {relation.target_entity_id}
+                        </Typography.Text>
+                    ))}
+                </Space>
+            ) : null}
+        </Space>
     );
 }
 
