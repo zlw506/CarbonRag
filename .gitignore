@@ -37,6 +37,7 @@ coverage/
 !frontend/.env.production
 .env.mattermost
 .mattermost-token
+.mattermost-*-credentials.local.txt
 coordination.local.json
 
 # Logs
