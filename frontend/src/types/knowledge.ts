@@ -1,15 +1,16 @@
 import type { ReportSummary } from "./report";
 
 export type KnowledgeLibraryScope = "personal" | "shared";
-export type KnowledgeSourceType = "uploaded_file" | "private_sample_repo" | "knowledge_item";
+export type KnowledgeSourceType = "uploaded_file" | "private_sample_repo" | "knowledge_item" | "public_policy_web";
 export type KnowledgeLifecycleStatus = "pending" | "running" | "succeeded" | "failed" | "ready";
 export type KnowledgeTaskStatus = "queued" | "running" | "succeeded" | "failed";
-export type KnowledgeTaskAction = "upload_ingest" | "rebuild" | "rescan" | "retry";
+export type KnowledgeTaskAction = "upload_ingest" | "rebuild" | "rescan" | "retry" | "crawl_ingest" | "crawl_refresh";
 
 export interface KnowledgeItem {
     knowledge_item_id: string;
     title: string;
     owner_user_id: string | null;
+    visibility?: "public" | "tenant" | "private" | "demo" | null;
     library_scope: KnowledgeLibraryScope;
     source_type: KnowledgeSourceType;
     source_ref: string;
