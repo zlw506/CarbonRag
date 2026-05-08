@@ -133,6 +133,25 @@ read_channel: ok
 create_post: ok
 ```
 
+### 2026-05-08 #1 可见性复测
+
+#1 Codex 使用 `t1-codex` 身份完成了真实读写复测：
+
+```text
+当前账号：t1-codex
+读取 carbonrag-control：成功
+读取 carbonrag-review：成功
+向 carbonrag-control 发送 [#1][CHANGED]：成功
+读取最新 carbonrag-control 消息确认回显：成功
+```
+
+本次复测说明：
+
+- `carbonrag-control` 中能看到 #1/#2 人类账号的普通聊天，但这不符合频道纪律；后续普通聊天应迁到 `carbonrag-review` 或私聊。
+- PR #6 的正式驳回同步发到了 `carbonrag-review`，因此只看 `carbonrag-control` 会看不到那条消息。
+- `carbonrag-control` 只保留 `PLAN / ACK / BLOCK / DECISION / CHANGED / REVIEW_READY`，这样 Codex 才能可靠搜索控制信号。
+- 人类查看消息使用 Mattermost Web UI；Codex 自动读写使用 MCP 或 REST fallback。
+
 真实 PAT 不写入 `config.toml`。启动 Codex 前必须在本机用户环境变量中设置：
 
 | 使用者 | 应使用的 Mattermost 账号 | `MATTERMOST_TOKEN` 填写来源 |
@@ -157,6 +176,32 @@ codex mcp list
 ```
 
 如果只是当前窗口临时设置，关闭 PowerShell 后会失效；如果用 `[Environment]::SetEnvironmentVariable(..., "User")`，需要重启 VS Code / Codex 才会生效。
+
+### #1 当前调用经验
+
+当前最稳的调用路径是：
+
+```text
+Codex -> ~/.codex/config.toml -> mattermost-mcp.ps1 -> mattermost-mcp-server.exe -> Mattermost REST API
+```
+
+关键点：
+
+- `MATTERMOST_TOKEN` 必须是 Codex 专用账号 PAT，不是人类账号密码。
+- #1 用 `t1-codex` PAT，#2 用 `t2-codex` PAT。
+- 设置用户级环境变量后必须重启 VS Code / Codex。
+- 如果 `codex mcp list` 能看到 `mattermost ... enabled`，说明 Codex 已加载 MCP server 配置。
+- 如果 Codex MCP UI 暂时看不到调用细节，可用 REST fallback 或本机 MCP smoke 脚本验证读写。
+
+最小 REST 验证命令：
+
+```powershell
+$base = "http://8.141.111.33:8065"
+$headers = @{ Authorization = "Bearer $env:MATTERMOST_TOKEN" }
+Invoke-RestMethod -Headers $headers -Uri "$base/api/v4/users/me"
+```
+
+能返回当前用户，例如 `t1-codex`，说明 PAT 可用。
 
 ### HTTP MCP 配置草案
 
