@@ -51,6 +51,26 @@ VS Code 中可选两种方式：
 
 结论：人类看状态用 Mattermost Web UI；Codex 自动协作用 REST/MCP；暂时不需要为 CarbonRag 自己开发一套发帖可视化容器。
 
+## 持续监听与 Codex 唤醒
+
+Codex 当前不能可靠地让外部脚本直接把文本塞进“已经打开的这个聊天输入框”。不要用模拟键盘、剪贴板或屏幕点击作为正式协同方案。
+
+V1.4.7C 起采用 watcher 桥接方案：
+
+```text
+Mattermost 新 PLAN / BLOCK / REVIEW_READY
+-> scripts/coordination/watch-mattermost.ps1 发现
+-> 终端提示和蜂鸣
+-> 可选调用 codex resume --last
+-> #1 人类继续指挥 Codex 审查或回应
+```
+
+运行说明见：
+
+```text
+docs/governance/MATTERMOST_WATCHER_RUNBOOK.md
+```
+
 ## VPS 部署建议
 
 CarbonRag 后端继续使用 `80 -> 127.0.0.1:8000`。Mattermost 试点先独立监听 `8065`，不改现有 Nginx 后端。
