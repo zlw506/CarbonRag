@@ -51,6 +51,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/coordination/watch-m
 
 发现 #2 的 `PLAN`、`BLOCK`、`REVIEW_READY` 后，脚本会在终端显示消息并蜂鸣。
 
+每次触发都会写入本地交接文件：
+
+```text
+logs/coordination/latest-trigger.md
+logs/coordination/<timestamp>-<channel>-<type>.md
+```
+
+这些文件是本地运行痕迹，已被 `.gitignore` 忽略。它们的作用是把“刚才 Mattermost 触发了什么”稳定保存下来，方便 #1 人类或 Codex 接管，不依赖终端滚动历史。
+
 ## 尝试唤醒 Codex
 
 带 `-LaunchCodexResume` 后，脚本会尝试打开一个 PowerShell 窗口并执行：
@@ -71,6 +80,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/coordination/watch-m
 - 它不保证能把消息注入已经打开的 UI 输入框。
 - 如果同时开了多个 Codex 会话，`--last` 可能不是你正在看的窗口。
 - 高风险动作仍必须由 #1 人类确认。
+
+## 尝试自动生成只读审查
+
+如果触发类型是 `REVIEW_READY`，可以让 watcher 额外打开一个非交互式 Codex 只读审查窗口：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/coordination/watch-mattermost.ps1 `
+  -LaunchCodexExecReview
+```
+
+或同时开启 resume：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/coordination/watch-mattermost.ps1 `
+  -LaunchCodexResume `
+  -LaunchCodexExecReview
+```
+
+`-LaunchCodexExecReview` 会把审查结果写到：
+
+```text
+logs/coordination/<timestamp>-codex-review-output.md
+```
+
+注意：
+
+- 这个模式只允许 Codex 做只读审查建议。
+- 不允许自动 approve、merge、push 或改文件。
+- 它可能消耗额度，因此默认关闭。
+- 如果要正式 approve / request changes，仍由 #1 在当前会话或 GitHub CLI 中明确执行。
 
 ## 回放最新消息测试
 
