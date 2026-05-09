@@ -1,0 +1,68 @@
+export interface CarbonFactorSource {
+    source_id: string;
+    title: string;
+    publisher: string;
+    source_url?: string | null;
+    license?: string | null;
+    published_year?: number | null;
+    source_type: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CarbonFactorSummary {
+    factor_id: string;
+    name: string;
+    category: string;
+    industry?: string | null;
+    scope: string;
+    region?: string | null;
+    region_code?: string | null;
+    region_name?: string | null;
+    year?: number | null;
+    factor_value: number;
+    factor_unit: string;
+    activity_unit: string;
+    co2e_unit: string;
+    quality: string;
+    version: string;
+    source?: CarbonFactorSource | null;
+    tags: string[];
+}
+
+export interface CarbonFactorDetail extends CarbonFactorSummary {
+    aliases: string[];
+    metadata: Record<string, unknown>;
+    is_enabled: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CarbonFactorSearchResponse {
+    items: CarbonFactorSummary[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
+export interface CarbonFactorCategoryNode {
+    label: string;
+    value?: string | null;
+    count?: number;
+    children: Array<{
+        label: string;
+        value?: string | null;
+        count: number;
+        raw_count?: number;
+    }>;
+}
+
+export interface CarbonFactorFacets {
+    categories: string[];
+    industries: string[];
+    regions: string[];
+    years: number[];
+    source_types: string[];
+    qualities: string[];
+    category_tree: CarbonFactorCategoryNode[];
+}

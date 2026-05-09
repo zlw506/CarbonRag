@@ -130,7 +130,18 @@ class CarbonFactorLoader:
             raise FactorLoadError(f"Factor file is not valid JSON: {path}") from exc
 
     def load_registry(self) -> FactorRegistry:
-        return FactorRegistry(self.load_records())
+        records_by_id: dict[str, FactorRecord] = {record.factor_id: record for record in self.load_records()}
+        try:
+            from app.carbon_factors.store import get_carbon_factor_store
+
+            for record in get_carbon_factor_store().list_enabled_factor_records():
+                records_by_id[record.factor_id] = record
+        except Exception:
+            # Runtime factor DB is an enhancement over file seeds. If the runtime
+            # store is unavailable during bootstrap or tests, keep the existing
+            # seed fallback behavior rather than breaking calc-carbon.
+            pass
+        return FactorRegistry(list(records_by_id.values()))
 
     @staticmethod
     def _legacy_factor_to_record(factor: CarbonFactor) -> FactorRecord:

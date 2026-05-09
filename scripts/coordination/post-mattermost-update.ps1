@@ -13,6 +13,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
 
 if (-not $ServerUrl) { throw "MATTERMOST_URL is required, for example http://8.141.111.33:8065" }
 if (-not $Token) { throw "MATTERMOST_TOKEN is required" }
@@ -31,6 +34,7 @@ $body = @{
   message = "$prefix`n$Message"
 } | ConvertTo-Json -Depth 5
 
-$post = Invoke-RestMethod -Method Post -Uri "$ServerUrl/api/v4/posts" -Headers ($headers + @{ "Content-Type" = "application/json" }) -Body $body
+$bodyBytes = $utf8NoBom.GetBytes($body)
+$post = Invoke-RestMethod -Method Post -Uri "$ServerUrl/api/v4/posts" -Headers $headers -ContentType "application/json; charset=utf-8" -Body $bodyBytes
 Write-Host "Posted Mattermost update: $($post.id)"
 
