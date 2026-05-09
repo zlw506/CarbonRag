@@ -1,4 +1,5 @@
 import {
+    DatabaseOutlined,
     DesktopOutlined,
     ExperimentOutlined,
     FolderOpenOutlined,
@@ -26,6 +27,7 @@ const iconMap = {
     "/": <SearchOutlined />,
     "/my-knowledge": <FolderOpenOutlined />,
     "/rag-lab": <ClusterOutlined />,
+    "/carbon-factors": <DatabaseOutlined />,
     "/carbon-calc": <ExperimentOutlined />,
     "/report": <FileTextOutlined />,
     "/admin": <DesktopOutlined />,
