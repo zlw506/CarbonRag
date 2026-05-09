@@ -1586,3 +1586,123 @@ body {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+.carbon-factor-page {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-height: 100%;
+}
+
+.carbon-factor-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
+    gap: 18px;
+    align-items: stretch;
+    padding: 24px;
+    border: 1px solid var(--app-border);
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at 16% 20%, color-mix(in srgb, var(--app-primary) 20%, transparent), transparent 34%),
+        linear-gradient(135deg, var(--app-surface), var(--app-surface-elevated));
+}
+
+.carbon-factor-hero h2 {
+    margin: 12px 0 8px;
+}
+
+.carbon-factor-hero__search {
+    align-self: center;
+}
+
+.carbon-factor-hot-tag {
+    cursor: pointer;
+}
+
+.carbon-factor-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 18px;
+}
+
+.carbon-factor-category-card {
+    position: sticky;
+    top: 16px;
+    align-self: start;
+}
+
+.carbon-factor-main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+.carbon-factor-filter-card .ant-card-body {
+    padding: 16px;
+}
+
+.carbon-factor-card {
+    min-height: 238px;
+    cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.carbon-factor-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--app-primary);
+    box-shadow: 0 18px 44px color-mix(in srgb, var(--app-primary) 18%, transparent);
+}
+
+.carbon-factor-card h4 {
+    margin: 0;
+}
+
+.carbon-factor-card__value {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 30px;
+    font-weight: 760;
+    color: var(--app-primary);
+}
+
+.carbon-factor-card__value span {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--app-text-secondary);
+}
+
+.carbon-factor-detail-value {
+    padding: 18px;
+    border: 1px solid var(--app-border);
+    border-radius: 18px;
+    background: var(--app-surface-elevated);
+}
+
+.carbon-factor-detail-value h2 {
+    margin: 4px 0 0;
+}
+
+.carbon-factor-detail-value small {
+    font-size: 18px;
+    color: var(--app-text-secondary);
+}
+
+.carbon-factor-raw-json {
+    max-height: 260px;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-family: "JetBrains Mono", "Cascadia Code", monospace;
+    font-size: 12px;
+}
+
+@media (max-width: 960px) {
+    .carbon-factor-hero,
+    .carbon-factor-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .carbon-factor-category-card {
+        position: static;
+    }
+}

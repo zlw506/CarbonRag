@@ -19,6 +19,10 @@ CORE_TABLES = (
     "execution_checkpoints",
     "feedback_entries",
     "carbon_calculations",
+    "carbon_factor_sources",
+    "carbon_factor_records",
+    "carbon_factor_aliases",
+    "carbon_factor_import_jobs",
     "carbon_inventories",
     "carbon_activity_items",
     "carbon_calculation_lines",
@@ -333,6 +337,69 @@ CREATE TABLE IF NOT EXISTS carbon_calculations (
     FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS carbon_factor_sources (
+    source_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    publisher TEXT NOT NULL,
+    source_url TEXT,
+    license TEXT,
+    published_year INTEGER,
+    source_type TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS carbon_factor_records (
+    factor_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    factor_id TEXT NOT NULL UNIQUE,
+    source_id TEXT,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    industry TEXT,
+    scope TEXT NOT NULL,
+    region TEXT,
+    region_level TEXT,
+    region_code TEXT,
+    region_name TEXT,
+    year INTEGER,
+    effective_year INTEGER,
+    gas TEXT,
+    method_type TEXT,
+    factor_value REAL NOT NULL,
+    factor_unit TEXT NOT NULL,
+    activity_unit TEXT NOT NULL,
+    co2e_unit TEXT NOT NULL DEFAULT 'kgCO2e',
+    quality TEXT NOT NULL,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    version TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES carbon_factor_sources(source_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS carbon_factor_aliases (
+    alias_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    alias_id TEXT NOT NULL UNIQUE,
+    factor_id TEXT NOT NULL,
+    alias TEXT NOT NULL,
+    locale TEXT NOT NULL DEFAULT 'zh-CN',
+    FOREIGN KEY (factor_id) REFERENCES carbon_factor_records(factor_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS carbon_factor_import_jobs (
+    job_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
+    source_kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS carbon_inventories (
     inventory_seq INTEGER PRIMARY KEY AUTOINCREMENT,
     inventory_id TEXT NOT NULL UNIQUE,
@@ -533,6 +600,14 @@ CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace
     ON feedback_entries(owner_user_id, trace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at
     ON carbon_calculations(owner_user_id, session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_carbon_factor_records_search
+    ON carbon_factor_records(is_enabled, category, industry, region_code, year);
+CREATE INDEX IF NOT EXISTS idx_carbon_factor_records_source
+    ON carbon_factor_records(source_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_carbon_factor_aliases_factor
+    ON carbon_factor_aliases(factor_id, alias);
+CREATE INDEX IF NOT EXISTS idx_carbon_factor_import_jobs_owner_created
+    ON carbon_factor_import_jobs(owner_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_carbon_inventories_owner_session_created_at
     ON carbon_inventories(owner_user_id, session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_carbon_activity_items_inventory_order
@@ -840,6 +915,70 @@ POSTGRES_SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS carbon_factor_sources (
+        source_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        publisher TEXT NOT NULL,
+        source_url TEXT,
+        license TEXT,
+        published_year INTEGER,
+        source_type TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carbon_factor_records (
+        factor_seq BIGSERIAL PRIMARY KEY,
+        factor_id TEXT NOT NULL UNIQUE,
+        source_id TEXT REFERENCES carbon_factor_sources(source_id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        industry TEXT,
+        scope TEXT NOT NULL,
+        region TEXT,
+        region_level TEXT,
+        region_code TEXT,
+        region_name TEXT,
+        year INTEGER,
+        effective_year INTEGER,
+        gas TEXT,
+        method_type TEXT,
+        factor_value DOUBLE PRECISION NOT NULL,
+        factor_unit TEXT NOT NULL,
+        activity_unit TEXT NOT NULL,
+        co2e_unit TEXT NOT NULL DEFAULT 'kgCO2e',
+        quality TEXT NOT NULL,
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        version TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carbon_factor_aliases (
+        alias_seq BIGSERIAL PRIMARY KEY,
+        alias_id TEXT NOT NULL UNIQUE,
+        factor_id TEXT NOT NULL REFERENCES carbon_factor_records(factor_id) ON DELETE CASCADE,
+        alias TEXT NOT NULL,
+        locale TEXT NOT NULL DEFAULT 'zh-CN'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carbon_factor_import_jobs (
+        job_seq BIGSERIAL PRIMARY KEY,
+        job_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        source_kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary_json TEXT NOT NULL DEFAULT '{}',
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS carbon_inventories (
         inventory_seq BIGSERIAL PRIMARY KEY,
         inventory_id TEXT NOT NULL UNIQUE,
@@ -1030,6 +1169,10 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS activity_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS official_factor_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS fallback_factor_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE carbon_factor_records ADD COLUMN IF NOT EXISTS gas TEXT",
+    "ALTER TABLE carbon_factor_records ADD COLUMN IF NOT EXISTS effective_year INTEGER",
+    "ALTER TABLE carbon_factor_records ADD COLUMN IF NOT EXISTS method_type TEXT",
+    "ALTER TABLE carbon_factor_records ADD COLUMN IF NOT EXISTS metadata_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash ON auth_sessions(token_hash)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id, expires_at DESC)",
@@ -1051,6 +1194,10 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_execution_checkpoints_workflow_created ON execution_checkpoints(workflow_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_feedback_entries_owner_trace ON feedback_entries(owner_user_id, trace_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at ON carbon_calculations(owner_user_id, session_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_factor_records_search ON carbon_factor_records(is_enabled, category, industry, region_code, year)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_factor_records_source ON carbon_factor_records(source_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_factor_aliases_factor ON carbon_factor_aliases(factor_id, alias)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_factor_import_jobs_owner_created ON carbon_factor_import_jobs(owner_user_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_inventories_owner_session_created_at ON carbon_inventories(owner_user_id, session_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_activity_items_inventory_order ON carbon_activity_items(inventory_id, order_index ASC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_lines_inventory ON carbon_calculation_lines(inventory_id, line_seq ASC)",
@@ -1103,6 +1250,10 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "carbon_calculations", "activity_count", "INTEGER NOT NULL DEFAULT 0")
     _ensure_sqlite_column(connection, "carbon_calculations", "official_factor_count", "INTEGER NOT NULL DEFAULT 0")
     _ensure_sqlite_column(connection, "carbon_calculations", "fallback_factor_count", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_sqlite_column(connection, "carbon_factor_records", "gas", "TEXT")
+    _ensure_sqlite_column(connection, "carbon_factor_records", "effective_year", "INTEGER")
+    _ensure_sqlite_column(connection, "carbon_factor_records", "method_type", "TEXT")
+    _ensure_sqlite_column(connection, "carbon_factor_records", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
     _ensure_sqlite_column(connection, "reports", "owner_user_id", "TEXT")
     connection.executescript(SQLITE_INDEX_SCRIPT)
 

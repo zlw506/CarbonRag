@@ -5,6 +5,7 @@ import { AppShell } from "../layouts/AppShell";
 import { AdminPlaceholderPage } from "../pages/AdminPlaceholderPage";
 import { AskPage } from "../pages/AskPage";
 import { CarbonCalcPage } from "../pages/CarbonCalcPage";
+import { CarbonFactorsPage } from "../pages/CarbonFactorsPage";
 import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { LoginPage } from "../pages/LoginPage";
 import { MyKnowledgePage } from "../pages/MyKnowledgePage";
@@ -107,6 +108,7 @@ export const router = createBrowserRouter([
                     { index: true, element: <AskPage /> },
                     { path: "my-knowledge", element: <MyKnowledgePage /> },
                     { path: "rag-lab", element: <RagLabPage /> },
+                    { path: "carbon-factors", element: <CarbonFactorsPage /> },
                     { path: "carbon-calc", element: <CarbonCalcPage /> },
                     { path: "report", element: <ReportPage /> },
                     { path: "settings", element: <SettingsPage /> },
