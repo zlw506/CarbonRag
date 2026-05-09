@@ -80,7 +80,6 @@ interface StreamContextSource {
 interface LoadSessionDetailOptions {
     silent?: boolean;
     preserveDraftSelections?: boolean;
-    previousReadyFileIds?: Set<string>;
 }
 
 export function AskPage() {
@@ -139,7 +138,6 @@ export function AskPage() {
     const citationGroups = groupCitationsBySource(selectedCitationMessage?.citations ?? []);
     const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
     const pendingUploadSignature = getPendingUploadSignature(uploadedAttachments);
-    const readyUploadSignature = getReadyUploadSignature(uploadedAttachments);
     const currentSourceSummary = buildPanelSourceSummary(selectedCitationMessage?.citations ?? [], activeSession?.source_summary);
     const effectiveMemoryState = streamMemoryState ?? activeSession?.memory_state ?? null;
     const currentStreamState = streamDraft?.assistantMessage.client_state ?? null;
@@ -189,15 +187,13 @@ export function AskPage() {
             return;
         }
         const timer = window.setInterval(() => {
-            const previousReadyFileIds = new Set(readyUploadSignature ? readyUploadSignature.split("|") : []);
             void loadSessionDetail(activeSessionId, {
                 silent: true,
                 preserveDraftSelections: true,
-                previousReadyFileIds,
             });
         }, 2500);
         return () => window.clearInterval(timer);
-    }, [activeSessionId, pendingUploadSignature, readyUploadSignature, dismissedUploadedFileIds]);
+    }, [activeSessionId, pendingUploadSignature, dismissedUploadedFileIds]);
 
     useEffect(() => {
         const container = messageStreamRef.current;
@@ -238,7 +234,7 @@ export function AskPage() {
                 setDraftAttachedFileIds([]);
             } else {
                 setDraftAttachedFileIds((current) =>
-                    mergeReadyUploadedFileSelection(current, detail.attached_files, options.previousReadyFileIds, dismissedUploadedFileIdSet),
+                    keepAvailableUploadedFileSelection(current, detail.attached_files, dismissedUploadedFileIdSet),
                 );
             }
             if (!options.silent) {
@@ -1290,34 +1286,16 @@ function dedupeUploadedAttachments(attachedFiles: SessionAttachment[]) {
     return [...deduped.values()];
 }
 
-function getReadyUploadedFileIds(attachedFiles: SessionAttachment[]) {
-    return dedupeUploadedAttachments(attachedFiles.filter((item) => item.source_type === "uploaded_file"))
-        .filter(isAttachmentReadyForAsk)
-        .map((item) => item.file_id);
-}
-
-function mergeReadyUploadedFileSelection(
+function keepAvailableUploadedFileSelection(
     currentFileIds: string[],
     attachedFiles: SessionAttachment[],
-    previousReadyFileIds?: Set<string>,
     dismissedFileIds?: Set<string>,
 ) {
     const availableUploadedFileIds = dedupeUploadedAttachments(attachedFiles.filter((item) => item.source_type === "uploaded_file"))
         .map((item) => item.file_id)
         .filter((fileId) => !dismissedFileIds?.has(fileId));
     const availableUploadedFileIdSet = new Set(availableUploadedFileIds);
-    const readyFileIds = getReadyUploadedFileIds(attachedFiles).filter((fileId) => !dismissedFileIds?.has(fileId));
-    const readyFileIdSet = new Set(readyFileIds);
-    const nextFileIds = currentFileIds.filter((fileId) => availableUploadedFileIdSet.has(fileId));
-
-    for (const fileId of readyFileIds) {
-        const becameReadySinceLastPoll = !previousReadyFileIds || !previousReadyFileIds.has(fileId);
-        if (becameReadySinceLastPoll && !nextFileIds.includes(fileId)) {
-            nextFileIds.push(fileId);
-        }
-    }
-
-    return nextFileIds;
+    return currentFileIds.filter((fileId) => availableUploadedFileIdSet.has(fileId));
 }
 
 function attachCitedFilesToUserMessages(messages: ChatMessageView[], uploadedAttachments: SessionAttachment[]) {
@@ -1371,14 +1349,6 @@ function getPendingUploadSignature(attachments: SessionAttachment[]) {
     }
     return pendingUploads
         .map((item) => `${item.file_id}:${item.parse_status ?? ""}:${item.index_status ?? ""}:${item.chunk_count ?? 0}`)
-        .sort()
-        .join("|");
-}
-
-function getReadyUploadSignature(attachments: SessionAttachment[]) {
-    return attachments
-        .filter(isAttachmentReadyForAsk)
-        .map((item) => item.file_id)
         .sort()
         .join("|");
 }
