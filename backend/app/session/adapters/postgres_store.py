@@ -244,6 +244,39 @@ class PostgreSQLSessionStore(SessionStore):
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
+                    "SELECT 1 FROM sessions WHERE session_id = %s AND owner_user_id = %s",
+                    (session_id, owner_user_id),
+                )
+                if cursor.fetchone() is None:
+                    return False
+
+                # Existing runtime databases may have been created before every
+                # child table had ON DELETE CASCADE. Delete dependent rows
+                # explicitly so the UI delete action behaves consistently.
+                cursor.execute(
+                    """
+                    DELETE FROM report_sources
+                    WHERE report_id IN (
+                        SELECT report_id FROM reports WHERE session_id = %s
+                    )
+                    """,
+                    (session_id,),
+                )
+                cursor.execute("DELETE FROM reports WHERE session_id = %s", (session_id,))
+                cursor.execute(
+                    """
+                    DELETE FROM file_parse_results
+                    WHERE file_id IN (
+                        SELECT file_id FROM files WHERE session_id = %s
+                    )
+                    """,
+                    (session_id,),
+                )
+                cursor.execute("DELETE FROM session_knowledge_items WHERE session_id = %s", (session_id,))
+                cursor.execute("DELETE FROM session_private_samples WHERE session_id = %s", (session_id,))
+                cursor.execute("DELETE FROM messages WHERE session_id = %s", (session_id,))
+                cursor.execute("DELETE FROM files WHERE session_id = %s", (session_id,))
+                cursor.execute(
                     "DELETE FROM sessions WHERE session_id = %s AND owner_user_id = %s",
                     (session_id, owner_user_id),
                 )

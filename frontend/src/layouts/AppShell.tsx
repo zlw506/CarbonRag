@@ -9,7 +9,7 @@ import {
     SearchOutlined,
     SettingOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Input, Layout, Menu, Modal, Popover, Space, Tag, Typography, message } from "antd";
+import { App as AntdApp, Avatar, Button, Input, Layout, Menu, Modal, Popover, Space, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
@@ -38,6 +38,7 @@ export function AppShell() {
     const navigate = useNavigate();
     const { user, logout } = useAuth();
     const { settings } = useSettings();
+    const { modal, message } = AntdApp.useApp();
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [loadingSessions, setLoadingSessions] = useState(true);
@@ -206,7 +207,7 @@ export function AppShell() {
     }
 
     function handleDeleteSession(session: SessionSummary) {
-        Modal.confirm({
+        modal.confirm({
             title: "删除这个会话？",
             content: `“${session.title}” 删除后不可恢复。`,
             okText: "删除",
