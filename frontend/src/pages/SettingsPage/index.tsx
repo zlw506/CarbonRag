@@ -20,6 +20,7 @@ import { useTheme } from "../../app/ThemeContext";
 import { useSettings } from "../../app/SettingsContext";
 import { discoverProviderModels, testProviderConnection } from "../../services/settings";
 import type {
+    AppearanceSettings,
     ChatPreferenceSettings,
     CredentialStorageMode,
     DataPrivacySettings,
@@ -92,19 +93,49 @@ export function SettingsPage() {
     }, [settings?.appearance.theme_mode, settings?.appearance.theme_preset]);
 
     async function handleSaveAppearance() {
+        await handleSaveAppearanceDraft({
+            ...settings!.appearance,
+            theme_mode: themeMode,
+            theme_preset: themePreset,
+        }, true);
+    }
+
+    async function handleSaveAppearanceDraft(nextAppearance: AppearanceSettings, showSuccess = false) {
         try {
             setTransportError(null);
             await saveSettings({
-                appearance: {
-                    ...settings!.appearance,
-                    theme_mode: themeMode,
-                    theme_preset: themePreset,
-                },
+                appearance: nextAppearance,
             });
-            message.success("外观设置已保存。");
+            if (showSuccess) {
+                message.success("外观设置已保存。");
+            }
         } catch {
             setTransportError("当前无法保存外观设置。");
         }
+    }
+
+    function handleThemeModeChange(nextMode: typeof themeMode) {
+        setThemeMode(nextMode);
+        if (!settings) {
+            return;
+        }
+        void handleSaveAppearanceDraft({
+            ...settings.appearance,
+            theme_mode: nextMode,
+            theme_preset: themePreset,
+        });
+    }
+
+    function handleThemePresetChange(nextPreset: typeof themePreset) {
+        setThemePreset(nextPreset);
+        if (!settings) {
+            return;
+        }
+        void handleSaveAppearanceDraft({
+            ...settings.appearance,
+            theme_mode: themeMode,
+            theme_preset: nextPreset,
+        });
     }
 
     async function handleSaveChatSettings(partial: Partial<ChatPreferenceSettings>) {
@@ -290,7 +321,7 @@ export function SettingsPage() {
                                 { label: "暗色", value: "dark" },
                                 { label: "跟随系统", value: "system" },
                             ]}
-                            onChange={(value) => setThemeMode(value as typeof themeMode)}
+                            onChange={(value) => handleThemeModeChange(value as typeof themeMode)}
                         />
                     </div>
                     <div>
@@ -301,7 +332,7 @@ export function SettingsPage() {
                                     key={preset.id}
                                     type="button"
                                     className={preset.id === themePreset ? "theme-preset-card theme-preset-card--active" : "theme-preset-card"}
-                                    onClick={() => setThemePreset(preset.id)}
+                                    onClick={() => handleThemePresetChange(preset.id)}
                                 >
                                     <span className="theme-preset-card__swatches">
                                         {preset.preview.map((color, index) => (
@@ -324,7 +355,7 @@ export function SettingsPage() {
                                     key={preset.id}
                                     type="button"
                                     className={preset.id === themePreset ? "theme-preset-card theme-preset-card--active" : "theme-preset-card"}
-                                    onClick={() => setThemePreset(preset.id)}
+                                    onClick={() => handleThemePresetChange(preset.id)}
                                 >
                                     <span className="theme-preset-card__swatches">
                                         {preset.preview.map((color, index) => (

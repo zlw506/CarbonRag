@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.core.config import get_settings
+from app.ai_runtime.providers.base import BaseChatProvider
 from app.private_samples.catalog import list_attachable_private_sample_catalog
 from app.memory.service import get_memory_service
 from app.schemas.ask import AskCitation, AskSourceSummary, KnowledgeScope, MessageStatus
@@ -26,6 +27,24 @@ def _get_default_knowledge_service():
 
 def _get_knowledge_service():
     return _get_default_knowledge_service()
+
+
+def _sanitize_auto_title(raw_title: str) -> str | None:
+    normalized = " ".join(raw_title.replace("\n", " ").split()).strip()
+    if not normalized:
+        return None
+
+    prefixes = ("标题：", "标题:", "会话标题：", "会话标题:", "总结标题：", "总结标题:")
+    for prefix in prefixes:
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix):].strip()
+
+    normalized = normalized.strip("「」\"'“”‘’`，。.!！?？、：:")
+    if not normalized:
+        return None
+
+    max_length = 28
+    return normalized if len(normalized) <= max_length else f"{normalized[:max_length].rstrip()}..."
 
 
 class SessionService:
@@ -123,12 +142,6 @@ class SessionService:
             knowledge_scope=knowledge_scope,
             source_summary=source_summary,
         )
-        if assistant_status in {"ok", "done"}:
-            self.maybe_promote_title_after_success(
-                owner_user_id=owner_user_id,
-                session_id=session_id,
-                enabled=True,
-            )
         return user_message, assistant_message
 
     def begin_exchange(
@@ -204,6 +217,7 @@ class SessionService:
         owner_user_id: str,
         session_id: str,
         enabled: bool = True,
+        chat_provider: BaseChatProvider | None = None,
     ) -> SessionSummary | None:
         if not enabled:
             return self.get_session(owner_user_id=owner_user_id, session_id=session_id)
@@ -212,14 +226,14 @@ class SessionService:
         if session is None:
             return None
 
-        user_messages = [message.content.strip() for message in session.messages if message.role == "user" and message.content.strip()]
-        if not user_messages:
+        valid_exchanges = self._collect_valid_title_exchanges(session.messages)
+        if len(valid_exchanges) < 2:
             return session
 
-        if len(user_messages) > 3 and not session.title.startswith(DEFAULT_TITLE_PREFIX):
+        if len(valid_exchanges) > 2 and not session.title.startswith(DEFAULT_TITLE_PREFIX):
             return session
 
-        promoted = self._build_auto_title_from_user_messages(user_messages[:3])
+        promoted = self._build_auto_title_from_valid_exchanges(valid_exchanges[:2], chat_provider=chat_provider)
         if not promoted or promoted == session.title:
             return session
         return self.update_session_title(owner_user_id=owner_user_id, session_id=session_id, title=promoted)
@@ -235,10 +249,10 @@ class SessionService:
         if session is None:
             return None
 
-        user_messages = [message.content.strip() for message in session.messages if message.role == "user" and message.content.strip()]
-        if question and question.strip() and not user_messages:
-            user_messages = [question.strip()]
-        promoted = self._build_auto_title_from_user_messages(user_messages[:3])
+        valid_exchanges = self._collect_valid_title_exchanges(session.messages)
+        if len(valid_exchanges) < 2:
+            return session
+        promoted = self._build_auto_title_from_valid_exchanges(valid_exchanges[:2], chat_provider=None)
         if not promoted or promoted == session.title:
             return session
         return self.update_session_title(owner_user_id=owner_user_id, session_id=session_id, title=promoted)
@@ -255,6 +269,69 @@ class SessionService:
             normalized = normalized.split("?", 1)[0]
         max_length = 26
         return normalized if len(normalized) <= max_length else f"{normalized[:max_length].rstrip()}..."
+
+    @staticmethod
+    def _collect_valid_title_exchanges(messages: list[SessionMessage]) -> list[tuple[str, str]]:
+        valid_exchanges: list[tuple[str, str]] = []
+        pending_user: str | None = None
+        for message in messages:
+            content = message.content.strip()
+            if message.role == "user":
+                pending_user = content or None
+                continue
+            if message.role != "assistant":
+                continue
+            if pending_user is None:
+                continue
+            if message.status not in {"ok", "done"} or not content:
+                pending_user = None
+                continue
+            valid_exchanges.append((pending_user, content))
+            pending_user = None
+        return valid_exchanges
+
+    @classmethod
+    def _build_auto_title_from_valid_exchanges(
+        cls,
+        exchanges: list[tuple[str, str]],
+        *,
+        chat_provider: BaseChatProvider | None,
+    ) -> str:
+        if not exchanges:
+            return DEFAULT_TITLE_PREFIX
+
+        if chat_provider is not None:
+            title = cls._generate_auto_title_with_provider(exchanges, chat_provider=chat_provider)
+            if title:
+                return title
+
+        user_messages = [question for question, _ in exchanges]
+        return cls._build_auto_title_from_user_messages(user_messages)
+
+    @staticmethod
+    def _generate_auto_title_with_provider(
+        exchanges: list[tuple[str, str]],
+        *,
+        chat_provider: BaseChatProvider,
+    ) -> str | None:
+        conversation_lines: list[str] = []
+        for index, (question, answer) in enumerate(exchanges[:2], start=1):
+            conversation_lines.append(f"第 {index} 轮用户：{question}")
+            conversation_lines.append(f"第 {index} 轮助手：{answer}")
+
+        try:
+            result = chat_provider.generate_response(
+                system_prompt=(
+                    "你是 CarbonRag 的会话标题生成器。"
+                    "请根据前两轮有效问答生成一个中文短标题。"
+                    "只输出标题本身，不要解释，不要加引号，不要超过 18 个汉字或 24 个英文字符。"
+                ),
+                user_input="\n".join(conversation_lines),
+            )
+        except Exception:
+            return None
+
+        return _sanitize_auto_title(result.content)
 
     def record_system_message(self, *, owner_user_id: str, session_id: str, content: str) -> SessionMessage:
         self.require_session(owner_user_id=owner_user_id, session_id=session_id)

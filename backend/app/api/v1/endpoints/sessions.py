@@ -387,6 +387,7 @@ def run_stream_worker(
                 owner_user_id=current_user.user_id,
                 session_id=stream_session.session_id,
                 enabled=user_settings.chat.auto_generate_title_for_new_session,
+                chat_provider=chat_provider,
             )
             title_updated = bool(updated_summary and updated_summary.title != previous_title)
             refreshed_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=stream_session.session_id)
@@ -570,6 +571,7 @@ def ask_in_session(
             owner_user_id=current_user.user_id,
             session_id=session_id,
             enabled=user_settings.chat.auto_generate_title_for_new_session,
+            chat_provider=chat_provider,
         )
 
     response = AskResponse(
