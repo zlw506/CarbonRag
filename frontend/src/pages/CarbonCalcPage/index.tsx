@@ -1,4 +1,9 @@
-import { ExperimentOutlined, FileTextOutlined } from "@ant-design/icons";
+import {
+    CloseOutlined,
+    ExperimentOutlined,
+    FileTextOutlined,
+    ReloadOutlined,
+} from "@ant-design/icons";
 import {
     Alert,
     Button,
@@ -15,32 +20,44 @@ import {
     Tag,
     Typography,
 } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { submitCarbonCalculation } from "../../services/carbon";
+import { searchCarbonFactors } from "../../services/carbonFactors";
 import { getSession } from "../../services/sessions";
-import type { CalcCarbonResponse } from "../../types/carbon";
+import type { CalcCarbonResponse, CarbonActivityInput } from "../../types/carbon";
+import type { CarbonFactorSummary } from "../../types/carbonFactor";
 import type { SessionDetail } from "../../types/session";
 
-interface CarbonFormState {
-    period_label: string;
-    electricity_kwh: number;
-    natural_gas_m3: number;
-    diesel_l: number;
+type CalculatorGroupKey = "clothes" | "food" | "home" | "travel" | "daily";
+
+interface SelectedCalculatorItem {
+    row_id: string;
+    factor: CarbonFactorSummary;
+    activity_value: number;
 }
 
-const initialFormState: CarbonFormState = {
-    period_label: "",
-    electricity_kwh: 0,
-    natural_gas_m3: 0,
-    diesel_l: 0,
-};
+const CALCULATOR_GROUPS: Array<{ key: CalculatorGroupKey; label: string; hint: string }> = [
+    { key: "clothes", label: "衣", hint: "纺织、服装、清洁用品等消费品因子" },
+    { key: "food", label: "食", hint: "食品、烟酒茶、农林牧渔相关因子" },
+    { key: "home", label: "住", hint: "电力、热力、燃气、建筑材料与居家能源" },
+    { key: "travel", label: "行", hint: "陆上交通、公共交通、海上交通与物流运输" },
+    { key: "daily", label: "用", hint: "日用品、电子设备、废弃物、快递物流等" },
+];
+
+const TREE_ABSORPTION_KGCO2E = 18.3;
+const MAX_VISIBLE_OPTIONS_PER_GROUP = 36;
 
 export function CarbonCalcPage() {
     const { activeSessionId, refreshSessions } = useWorkbenchShellContext();
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
-    const [formState, setFormState] = useState<CarbonFormState>(initialFormState);
+    const [periodLabel, setPeriodLabel] = useState("");
+    const [factors, setFactors] = useState<CarbonFactorSummary[]>([]);
+    const [factorLoading, setFactorLoading] = useState(false);
+    const [activeGroup, setActiveGroup] = useState<CalculatorGroupKey>("travel");
+    const [factorSearch, setFactorSearch] = useState("");
+    const [selectedItems, setSelectedItems] = useState<SelectedCalculatorItem[]>([]);
     const [calcResult, setCalcResult] = useState<CalcCarbonResponse | null>(null);
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -53,6 +70,10 @@ export function CarbonCalcPage() {
         }
         void loadSessionDetail(activeSessionId);
     }, [activeSessionId]);
+
+    useEffect(() => {
+        void loadCalculatorFactors();
+    }, []);
 
     async function loadSessionDetail(sessionId: string) {
         setLoadingSessionDetail(true);
@@ -68,16 +89,127 @@ export function CarbonCalcPage() {
         }
     }
 
+    async function loadCalculatorFactors() {
+        setFactorLoading(true);
+        setTransportError(null);
+        try {
+            const pageSize = 100;
+            const firstPage = await searchCarbonFactors({ quality: "public_ccdb", page: 1, page_size: pageSize });
+            const pages = Math.min(Math.ceil(firstPage.total / pageSize), 10);
+            const rest = await Promise.all(
+                Array.from({ length: Math.max(pages - 1, 0) }, (_, index) =>
+                    searchCarbonFactors({ quality: "public_ccdb", page: index + 2, page_size: pageSize }),
+                ),
+            );
+            const merged = [firstPage, ...rest].flatMap((page) => page.items);
+            setFactors(dedupeFactors(merged));
+        } catch {
+            setFactors([]);
+            setTransportError("当前无法读取本地碳因子库，碳计算器暂不可用。");
+        } finally {
+            setFactorLoading(false);
+        }
+    }
+
+    const factorsByGroup = useMemo(() => {
+        const grouped: Record<CalculatorGroupKey, CarbonFactorSummary[]> = {
+            clothes: [],
+            food: [],
+            home: [],
+            travel: [],
+            daily: [],
+        };
+        factors.forEach((factor) => grouped[groupFactorForCalculator(factor)].push(factor));
+        Object.keys(grouped).forEach((key) => {
+            grouped[key as CalculatorGroupKey] = sortCalculatorFactors(grouped[key as CalculatorGroupKey]);
+        });
+        return grouped;
+    }, [factors]);
+
+    const visibleFactors = useMemo(() => {
+        const keyword = factorSearch.trim().toLowerCase();
+        const source = factorsByGroup[activeGroup];
+        const filtered = keyword
+            ? source.filter((factor) =>
+                [
+                    factor.name,
+                    factor.category,
+                    factor.industry ?? "",
+                    factor.source?.publisher ?? "",
+                    factor.source?.title ?? "",
+                ]
+                    .join(" ")
+                    .toLowerCase()
+                    .includes(keyword),
+            )
+            : source;
+        return filtered.slice(0, MAX_VISIBLE_OPTIONS_PER_GROUP);
+    }, [activeGroup, factorSearch, factorsByGroup]);
+
+    const localTotalKgco2e = useMemo(
+        () => roundCarbonValue(
+            selectedItems.reduce(
+                (sum, item) =>
+                    sum
+                    + item.activity_value
+                    * item.factor.factor_value
+                    * resultUnitToKgco2eMultiplier(item.factor.co2e_unit || item.factor.factor_unit),
+                0,
+            ),
+        ),
+        [selectedItems],
+    );
+
+    const treeCount = Math.ceil(localTotalKgco2e / TREE_ABSORPTION_KGCO2E);
+    const positiveItems = selectedItems.filter((item) => item.activity_value > 0);
+
+    function addFactor(factor: CarbonFactorSummary) {
+        setSelectedItems((current) => {
+            const existed = current.find((item) => item.factor.factor_id === factor.factor_id);
+            if (existed) {
+                return current.map((item) =>
+                    item.factor.factor_id === factor.factor_id
+                        ? { ...item, activity_value: item.activity_value + 1 }
+                        : item,
+                );
+            }
+            return [
+                ...current,
+                {
+                    row_id: `${factor.factor_id}-${Date.now()}`,
+                    factor,
+                    activity_value: 1,
+                },
+            ];
+        });
+    }
+
+    function updateSelectedValue(rowId: string, value: number | null) {
+        setSelectedItems((current) =>
+            current.map((item) =>
+                item.row_id === rowId
+                    ? { ...item, activity_value: Number(value ?? 0) }
+                    : item,
+            ),
+        );
+    }
+
+    function removeSelected(rowId: string) {
+        setSelectedItems((current) => current.filter((item) => item.row_id !== rowId));
+    }
+
     async function handleSubmit() {
+        if (!positiveItems.length) {
+            setTransportError("请先选择至少一个排放源，并输入大于 0 的活动数据。");
+            return;
+        }
         setSubmitting(true);
         setTransportError(null);
         try {
             const response = await submitCarbonCalculation({
                 session_id: activeSessionId ?? undefined,
-                period_label: formState.period_label.trim() || undefined,
-                electricity_kwh: formState.electricity_kwh,
-                natural_gas_m3: formState.natural_gas_m3,
-                diesel_l: formState.diesel_l,
+                period_label: periodLabel.trim() || undefined,
+                activity_items: positiveItems.map((item) => buildActivityInput(item.factor, item.activity_value)),
             });
             setCalcResult(response);
             if (activeSessionId) {
@@ -109,75 +241,167 @@ export function CarbonCalcPage() {
                 ) : null}
 
                 <Card
-                    className="calc-workbench__form-card"
-                    title="碳核算输入"
+                    className="calc-workbench__form-card carbon-calculator-card"
+                    title={
+                        <div className="carbon-calculator-title">
+                            <span>碳计算器</span>
+                            <Tag color="green">使用本地碳因子库</Tag>
+                        </div>
+                    }
                     extra={<Tag color="blue">{activeSession?.title ?? "未选择会话"}</Tag>}
                 >
-                    <Typography.Paragraph type="secondary">
-                        先输入本期的用电、天然气和柴油数据，系统会转换为 activity_items[]，再由 V1.4.4 因子驱动引擎完成计算、快照和溯源。
+                    <Typography.Paragraph type="secondary" className="carbon-calculator-intro">
+                        选择需要计算的类目并输入活动数据。计算因子来自当前 CarbonRag 碳因子库，结果会保存到当前会话，供报告和后续问答引用。
                     </Typography.Paragraph>
-                    <div className="chat-session-state">
-                        <Tag color="purple">V1.4.4 因子驱动引擎</Tag>
+
+                    <div className="chat-session-state carbon-calculator-meta">
                         <Tag color="blue">当前会话：{activeSession ? "已关联" : "未关联"}</Tag>
                         <Tag color="green">上传附件：{uploadedFileCount}</Tag>
                         <Tag color="magenta">挂接样例：{privateSampleCount}</Tag>
+                        <Tag color="cyan">可用因子：{factors.length}</Tag>
                     </div>
 
-                    <div className="calc-form-grid">
-                        <div className="calc-form-grid__item">
-                            <Typography.Text strong>期间标签</Typography.Text>
-                            <Input
-                                value={formState.period_label}
-                                onChange={(event) => setFormState((current) => ({ ...current, period_label: event.target.value }))}
-                                placeholder="例如：2026-Q1"
-                            />
-                            <Typography.Text type="secondary">用于区分不同月份、季度或年度，不填也可以先算。</Typography.Text>
-                        </div>
-                        <div className="calc-form-grid__item">
-                            <Typography.Text strong>购电量（kWh）</Typography.Text>
-                            <InputNumber
-                                min={0}
-                                value={formState.electricity_kwh}
-                                onChange={(value) => setFormState((current) => ({ ...current, electricity_kwh: Number(value ?? 0) }))}
-                                style={{ width: "100%" }}
-                            />
-                            <Typography.Text type="secondary">示例：一间中小工厂或办公区一个月的总购电量。</Typography.Text>
-                        </div>
-                        <div className="calc-form-grid__item">
-                            <Typography.Text strong>天然气用量（m³）</Typography.Text>
-                            <InputNumber
-                                min={0}
-                                value={formState.natural_gas_m3}
-                                onChange={(value) => setFormState((current) => ({ ...current, natural_gas_m3: Number(value ?? 0) }))}
-                                style={{ width: "100%" }}
-                            />
-                            <Typography.Text type="secondary">示例：锅炉、供热或生产设备的天然气使用量。</Typography.Text>
-                        </div>
-                        <div className="calc-form-grid__item">
-                            <Typography.Text strong>柴油用量（L）</Typography.Text>
-                            <InputNumber
-                                min={0}
-                                value={formState.diesel_l}
-                                onChange={(value) => setFormState((current) => ({ ...current, diesel_l: Number(value ?? 0) }))}
-                                style={{ width: "100%" }}
-                            />
-                            <Typography.Text type="secondary">示例：柴油车辆、叉车或备用发电机的燃料消耗。</Typography.Text>
-                        </div>
-                    </div>
-
-                    <Space size={12} wrap className="chat-composer__actions">
-                        <Button
-                            type="primary"
-                            icon={<ExperimentOutlined />}
-                            loading={submitting}
-                            onClick={() => void handleSubmit()}
-                        >
-                            计算当前排放
+                    <div className="carbon-calculator-toolbar">
+                        <Input
+                            value={periodLabel}
+                            onChange={(event) => setPeriodLabel(event.target.value)}
+                            placeholder="期间标签，例如：2026-Q1"
+                            className="carbon-calculator-toolbar__period"
+                        />
+                        <Input.Search
+                            value={factorSearch}
+                            onChange={(event) => setFactorSearch(event.target.value)}
+                            placeholder="在当前类目内搜索排放源"
+                            allowClear
+                            className="carbon-calculator-toolbar__search"
+                        />
+                        <Button icon={<ReloadOutlined />} onClick={() => void loadCalculatorFactors()} loading={factorLoading}>
+                            刷新因子
                         </Button>
-                        <Typography.Text type="secondary">
-                            当前结果将{activeSessionId ? "关联到选中的会话" : "不关联任何会话"}
-                        </Typography.Text>
-                    </Space>
+                    </div>
+
+                    <div className="carbon-calculator-layout">
+                        <section className="carbon-calculator-source-panel" aria-label="排放源类型">
+                            <div className="carbon-calculator-source-panel__header">类型</div>
+                            <div className="carbon-calculator-groups">
+                                {CALCULATOR_GROUPS.map((group) => (
+                                    <button
+                                        key={group.key}
+                                        type="button"
+                                        className={`carbon-calculator-group ${activeGroup === group.key ? "carbon-calculator-group--active" : ""}`}
+                                        onClick={() => setActiveGroup(group.key)}
+                                    >
+                                        <span className="carbon-calculator-group__label">{group.label}</span>
+                                        <span className="carbon-calculator-group__count">{factorsByGroup[group.key].length}</span>
+                                    </button>
+                                ))}
+                            </div>
+                            <Typography.Paragraph className="carbon-calculator-group-hint">
+                                {CALCULATOR_GROUPS.find((item) => item.key === activeGroup)?.hint}
+                            </Typography.Paragraph>
+
+                            <div className="carbon-calculator-options">
+                                {factorLoading ? (
+                                    <div className="carbon-calculator-loading"><Spin /></div>
+                                ) : visibleFactors.length ? (
+                                    visibleFactors.map((factor) => (
+                                        <button
+                                            key={factor.factor_id}
+                                            type="button"
+                                            className="carbon-calculator-option"
+                                            onClick={() => addFactor(factor)}
+                                            title={`${factor.name}：${factor.factor_value} ${factor.factor_unit}`}
+                                        >
+                                            <span className="carbon-calculator-option__name">{factor.name}</span>
+                                            <span className="carbon-calculator-option__meta">
+                                                {formatFactorValue(factor.factor_value)} {factor.factor_unit}
+                                            </span>
+                                        </button>
+                                    ))
+                                ) : (
+                                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前类目暂无可计算因子。" />
+                                )}
+                            </div>
+                        </section>
+
+                        <section className="carbon-calculator-result-panel" aria-label="已选排放源">
+                            <div className="carbon-calculator-result-panel__header">
+                                <span>排放源</span>
+                                <span>活动数据</span>
+                            </div>
+                            <div className="carbon-calculator-selected-list">
+                                {selectedItems.length ? (
+                                    selectedItems.map((item) => {
+                                        const itemEmission = roundCarbonValue(
+                                            item.activity_value
+                                            * item.factor.factor_value
+                                            * resultUnitToKgco2eMultiplier(item.factor.co2e_unit || item.factor.factor_unit),
+                                        );
+                                        return (
+                                            <div className="carbon-calculator-selected" key={item.row_id}>
+                                                <div className="carbon-calculator-selected__info">
+                                                    <Typography.Text strong ellipsis title={item.factor.name}>
+                                                        {item.factor.name}
+                                                    </Typography.Text>
+                                                    <Typography.Text type="secondary">
+                                                        {formatFactorValue(item.factor.factor_value)} {item.factor.factor_unit}
+                                                    </Typography.Text>
+                                                    <Typography.Text type="secondary" ellipsis title={item.factor.source?.publisher ?? item.factor.source?.title ?? "未知来源"}>
+                                                        来源：{item.factor.source?.publisher ?? item.factor.source?.title ?? "未知来源"}
+                                                    </Typography.Text>
+                                                </div>
+                                                <div className="carbon-calculator-selected__input">
+                                                    <InputNumber
+                                                        min={0}
+                                                        value={item.activity_value}
+                                                        onChange={(value) => updateSelectedValue(item.row_id, Number(value ?? 0))}
+                                                    />
+                                                    <Typography.Text className="carbon-calculator-selected__unit">
+                                                        {item.factor.activity_unit}
+                                                    </Typography.Text>
+                                                    <Typography.Text className="carbon-calculator-selected__emission">
+                                                        {formatFactorValue(itemEmission)} kgCO₂e
+                                                    </Typography.Text>
+                                                    <Button
+                                                        type="text"
+                                                        size="small"
+                                                        icon={<CloseOutlined />}
+                                                        onClick={() => removeSelected(item.row_id)}
+                                                        aria-label={`移除 ${item.factor.name}`}
+                                                    />
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    <Empty
+                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                        description="从左侧选择排放源后，这里会生成可填写的计算项。"
+                                    />
+                                )}
+                            </div>
+                            <footer className="carbon-calculator-summary">
+                                <div>
+                                    <Typography.Text type="secondary">总排放量</Typography.Text>
+                                    <div className="carbon-calculator-summary__total">
+                                        {formatFactorValue(localTotalKgco2e)} kgCO₂e
+                                    </div>
+                                </div>
+                                <Typography.Text type="secondary">
+                                    约需种植 <b>{treeCount}</b> 棵树抵消这些碳排放
+                                </Typography.Text>
+                                <Button
+                                    type="primary"
+                                    icon={<ExperimentOutlined />}
+                                    loading={submitting}
+                                    disabled={!positiveItems.length}
+                                    onClick={() => void handleSubmit()}
+                                >
+                                    保存本次核算
+                                </Button>
+                            </footer>
+                        </section>
+                    </div>
                 </Card>
 
                 <Card
@@ -195,10 +419,10 @@ export function CarbonCalcPage() {
                                         title="本次总排放量"
                                         value={calcResult.total_emission_kgco2e}
                                         precision={3}
-                                        suffix="kgCO2e"
+                                        suffix="kgCO₂e"
                                     />
                                     <Typography.Paragraph type="secondary" className="calc-result-summary__hint">
-                                        先看总量，再按来源查看分项、因子快照、单位换算和公式 trace。
+                                        结果已由后端因子引擎复核，并保存本次活动数据、因子快照和来源依据。
                                     </Typography.Paragraph>
                                 </div>
                                 <Space size={12} wrap>
@@ -247,17 +471,17 @@ export function CarbonCalcPage() {
                                             <List
                                                 dataSource={calcResult.breakdown}
                                                 renderItem={(item) => (
-                                                    <List.Item key={item.item}>
+                                                    <List.Item key={`${item.factor_id}-${item.activity_name}`}>
                                                         <div className="calc-breakdown-row">
                                                             <div>
                                                                 <Typography.Text strong>
-                                                                    {itemLabelMap[item.item as keyof typeof itemLabelMap] ?? item.item}
+                                                                    {item.activity_name ?? item.item}
                                                                 </Typography.Text>
                                                                 <Typography.Paragraph type="secondary" className="calc-breakdown-row__meta">
                                                                     {item.activity_value} {item.activity_unit} × {item.factor_value} {item.factor_unit}
                                                                 </Typography.Paragraph>
                                                             </div>
-                                                            <Tag color="green">{item.emission_kgco2e} kgCO2e</Tag>
+                                                            <Tag color="green">{item.emission_kgco2e} kgCO₂e</Tag>
                                                         </div>
                                                     </List.Item>
                                                 )}
@@ -303,16 +527,16 @@ export function CarbonCalcPage() {
                                                     <List.Item key={factor.factor_id}>
                                                         <div className="chat-citation-card">
                                                             <Space size={8} wrap>
-                                                                <Typography.Text strong>{factor.factor_id}</Typography.Text>
-                                                                <Tag color={factor.source_type === "official" ? "green" : "orange"}>
-                                                                    {factor.source_type === "official" ? "官方因子" : "演示因子"}
+                                                                <Typography.Text strong>{factor.activity_name}</Typography.Text>
+                                                                <Tag color={factor.source_type === "official" ? "green" : "blue"}>
+                                                                    {factor.source_type}
                                                                 </Tag>
                                                                 <Tag>{factor.scope}</Tag>
                                                                 <Tag>{factor.activity_category}</Tag>
                                                             </Space>
                                                             <Typography.Paragraph className="chat-citation-card__snippet">
                                                                 {factor.factor_value} {factor.factor_unit}，活动单位 {factor.activity_unit}
-                                                                {factor.region ? `，区域 ${factor.region}` : ""}
+                                                                {factor.region_name || factor.region ? `，区域 ${factor.region_name ?? factor.region}` : ""}
                                                                 {factor.year ? `，年份 ${factor.year}` : ""}
                                                             </Typography.Paragraph>
                                                             <Typography.Paragraph type="secondary">
@@ -327,92 +551,13 @@ export function CarbonCalcPage() {
                                             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有因子快照。" />
                                         ),
                                     },
-                                    {
-                                        key: "unit_trace",
-                                        label: `查看单位换算 trace（${calcResult.unit_conversion_trace.length}）`,
-                                        children: calcResult.unit_conversion_trace.length ? (
-                                            <List
-                                                dataSource={calcResult.unit_conversion_trace}
-                                                renderItem={(trace) => (
-                                                    <List.Item key={`${trace.activity_name}-${trace.input_unit}-${trace.normalized_unit}`}>
-                                                        <div className="calc-breakdown-row">
-                                                            <div>
-                                                                <Typography.Text strong>{itemLabelMap[trace.activity_name as keyof typeof itemLabelMap] ?? trace.activity_name}</Typography.Text>
-                                                                <Typography.Paragraph type="secondary" className="calc-breakdown-row__meta">
-                                                                    {trace.input_value} {trace.input_unit} → {trace.normalized_value} {trace.normalized_unit}
-                                                                </Typography.Paragraph>
-                                                            </div>
-                                                            <Tag color="cyan">换算系数 {trace.conversion_factor}</Tag>
-                                                        </div>
-                                                    </List.Item>
-                                                )}
-                                            />
-                                        ) : (
-                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有单位换算 trace。" />
-                                        ),
-                                    },
-                                    {
-                                        key: "formula_trace",
-                                        label: `查看公式 trace（${calcResult.formula_trace.length}）`,
-                                        children: calcResult.formula_trace.length ? (
-                                            <List
-                                                dataSource={calcResult.formula_trace}
-                                                renderItem={(trace) => (
-                                                    <List.Item key={`${trace.activity_name}-${trace.factor_unit}`}>
-                                                        <div className="calc-breakdown-row">
-                                                            <div>
-                                                                <Typography.Text strong>{itemLabelMap[trace.activity_name as keyof typeof itemLabelMap] ?? trace.activity_name}</Typography.Text>
-                                                                <Typography.Paragraph type="secondary" className="calc-breakdown-row__meta">
-                                                                    {trace.formula}
-                                                                </Typography.Paragraph>
-                                                            </div>
-                                                            <Tag color="green">{trace.emission_kgco2e} kgCO2e</Tag>
-                                                        </div>
-                                                    </List.Item>
-                                                )}
-                                            />
-                                        ) : (
-                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有公式 trace。" />
-                                        ),
-                                    },
-                                    {
-                                        key: "source_summary",
-                                        label: `查看来源摘要（${calcResult.source_summary.length}）`,
-                                        children: calcResult.source_summary.length ? (
-                                            <List
-                                                dataSource={calcResult.source_summary}
-                                                renderItem={(source) => (
-                                                    <List.Item key={`${source.source_type}-${source.source_name}`}>
-                                                        <div className="calc-breakdown-row">
-                                                            <div>
-                                                                <Space size={8} wrap>
-                                                                    <Typography.Text strong>{source.source_name}</Typography.Text>
-                                                                    <Tag color={source.source_type === "official" ? "green" : "orange"}>{source.source_type}</Tag>
-                                                                </Space>
-                                                                {source.source_url ? (
-                                                                    <Typography.Paragraph className="calc-breakdown-row__meta">
-                                                                        <Typography.Link href={source.source_url} target="_blank" rel="noreferrer">
-                                                                            <FileTextOutlined /> 查看来源
-                                                                        </Typography.Link>
-                                                                    </Typography.Paragraph>
-                                                                ) : null}
-                                                            </div>
-                                                            <Tag color="blue">{source.factor_count} 个因子</Tag>
-                                                        </div>
-                                                    </List.Item>
-                                                )}
-                                            />
-                                        ) : (
-                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有来源摘要。" />
-                                        ),
-                                    },
                                 ]}
                             />
                         </div>
                     ) : (
                         <Empty
                             image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            description="提交活动数据后，这里会先显示总排放结论，再展开明细和因子来源。"
+                            description="选择排放源并保存核算后，这里会展示后端复核结果、分项和因子来源。"
                         />
                     )}
                 </Card>
@@ -421,24 +566,94 @@ export function CarbonCalcPage() {
     );
 }
 
-const itemLabelMap = {
-    electricity: "购电量",
-    natural_gas: "天然气",
-    diesel: "柴油",
-} as const;
+function dedupeFactors(items: CarbonFactorSummary[]) {
+    const map = new Map<string, CarbonFactorSummary>();
+    items.forEach((item) => map.set(item.factor_id, item));
+    return Array.from(map.values());
+}
 
-function formatTimestamp(value: string) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-    return date.toLocaleString("zh-CN", {
-        hour12: false,
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
+function sortCalculatorFactors(items: CarbonFactorSummary[]) {
+    return [...items].sort((a, b) => {
+        const aYear = a.year ?? 0;
+        const bYear = b.year ?? 0;
+        if (aYear !== bYear) {
+            return bYear - aYear;
+        }
+        return a.name.localeCompare(b.name, "zh-CN");
     });
+}
+
+function groupFactorForCalculator(factor: CarbonFactorSummary): CalculatorGroupKey {
+    const text = `${factor.name} ${factor.category} ${factor.industry ?? ""}`.toLowerCase();
+    if (includesAny(text, ["交通", "运输", "汽车", "公交", "火车", "飞机", "轮船", "物流", "公里"])) {
+        return "travel";
+    }
+    if (includesAny(text, ["食品", "烟酒", "茶", "农林牧渔", "肉", "米", "奶", "菜", "啤酒"])) {
+        return "food";
+    }
+    if (includesAny(text, ["电力", "热力", "天然气", "煤气", "燃气", "建筑", "水泥", "玻璃", "供暖", "石油化工"])) {
+        return "home";
+    }
+    if (includesAny(text, ["纺织", "服装", "织物", "衣", "洗衣"])) {
+        return "clothes";
+    }
+    return "daily";
+}
+
+function includesAny(text: string, keywords: string[]) {
+    return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+}
+
+function buildActivityInput(factor: CarbonFactorSummary, activityValue: number): CarbonActivityInput {
+    return {
+        scope: toCarbonScope(factor.scope),
+        activity_category: factor.category,
+        activity_name: factor.name,
+        activity_value: activityValue,
+        activity_unit: factor.activity_unit,
+        region: factor.region ?? factor.region_code ?? null,
+        year: factor.year ?? null,
+        factor_preference: "official_latest",
+        requested_factor_id: factor.factor_id,
+        metadata: {
+            factor_id: factor.factor_id,
+            factor_unit: factor.factor_unit,
+            source: factor.source?.publisher ?? factor.source?.title ?? "CarbonRag 碳因子库",
+        },
+    };
+}
+
+function toCarbonScope(value: string): "scope1" | "scope2" | "scope3" {
+    return value === "scope1" || value === "scope2" || value === "scope3" ? value : "scope3";
+}
+
+function resultUnitToKgco2eMultiplier(unit: string) {
+    const normalized = unit.replace("₂", "2").toLowerCase();
+    const resultUnit = normalized.includes("/") ? normalized.split("/", 1)[0] : normalized;
+    if (resultUnit.includes("tco2e")) {
+        return 1000;
+    }
+    if (resultUnit.includes("gco2e")) {
+        return 0.001;
+    }
+    return 1;
+}
+
+function roundCarbonValue(value: number) {
+    return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function formatFactorValue(value: number) {
+    if (!Number.isFinite(value)) {
+        return "0";
+    }
+    if (Math.abs(value) >= 100) {
+        return value.toFixed(2);
+    }
+    if (Math.abs(value) >= 1) {
+        return value.toFixed(3).replace(/\.?0+$/, "");
+    }
+    return value.toPrecision(4).replace(/\.?0+$/, "");
 }
 
 function extractDetailMessage(value: unknown): string | null {

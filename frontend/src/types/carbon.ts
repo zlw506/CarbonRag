@@ -26,6 +26,7 @@ export interface CarbonActivityInput {
     scope2_method?: string;
     certified_green_kwh?: number | null;
     evidence_reference?: string | null;
+    requested_factor_id?: string | null;
     metadata?: Record<string, string>;
 }
 
@@ -60,6 +61,7 @@ export interface CarbonFactorSnapshot {
     activity_category: string;
     activity_name: string;
     region?: string | null;
+    region_name?: string | null;
     year?: number | null;
     factor_value: number;
     factor_unit: string;

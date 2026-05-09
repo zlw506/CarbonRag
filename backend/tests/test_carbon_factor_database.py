@@ -1,7 +1,8 @@
 import sqlite3
 
+from app.carbon.engine import CarbonCalculationEngine
 from app.carbon.factor_loader import CarbonFactorLoader
-from app.carbon.schemas import CarbonActivityItem
+from app.carbon.schemas import CalcCarbonRequest, CarbonActivityItem
 from app.carbon.factors.registry import FactorRegistry
 from app.carbon_factors.carbonstop import CarbonStopPublicAdapter
 from app.carbon_factors.service import CarbonFactorDatabaseService
@@ -89,6 +90,31 @@ def test_factor_registry_reads_runtime_db_before_file_seed(tmp_path) -> None:
     )
 
     assert selected.factor.factor_id.startswith("carbonstop-ccdb-")
+
+
+def test_carbonstop_public_factor_can_drive_scope3_calculation(tmp_path) -> None:
+    service = build_service(tmp_path)
+    service.import_carbonstop_seed(owner_user_id="tester")
+
+    records = service.store.list_enabled_factor_records()
+    registry = FactorRegistry(records)
+    result = CarbonCalculationEngine(registry=registry).calculate(
+        CalcCarbonRequest(
+            activity_items=[
+                {
+                    "scope": "scope3",
+                    "activity_category": "陆上交通",
+                    "activity_name": "载客汽车",
+                    "activity_value": 10,
+                    "activity_unit": "km",
+                    "requested_factor_id": "carbonstop-ccdb-1704587623764736",
+                }
+            ]
+        ).to_activity_batch()
+    )
+
+    assert result.breakdown[0].factor_id == "carbonstop-ccdb-1704587623764736"
+    assert result.total_emission_kgco2e == 2.4
 
 
 def test_runtime_factor_loader_keeps_seed_fallback_when_db_unavailable(monkeypatch) -> None:
