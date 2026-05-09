@@ -17,7 +17,7 @@ CARBONSTOP_CCDB_URL = "https://www.carbonstop.com/ccdb"
 CARBONSTOP_GATEWAY_URL = "https://gateway.carbonstop.com/management/system/website/queryFactorListWebsite_classify"
 CARBONSTOP_AES_KEY = b"carbon@stp2060ja"
 CARBONSTOP_SEED_PATH = Path(__file__).resolve().parents[3] / "data" / "factors" / "carbonstop_ccdb_public_seed.json"
-CARBONSTOP_MAPPING_VERSION = "carbonstop-parent-group-v2"
+CARBONSTOP_MAPPING_VERSION = "carbonstop-public-catalog-v3"
 
 
 @dataclass(frozen=True)
@@ -28,8 +28,29 @@ class CarbonStopFactorRow:
 
 
 @dataclass(frozen=True)
+class CarbonStopCatalogRow:
+    entry_id: str
+    name: str
+    category: str
+    industry: str | None
+    region: str | None
+    year: int | None
+    factor_unit: str | None
+    activity_unit: str | None
+    raw_value: str | None
+    factor_value: float | None
+    value_status: str
+    is_calculation_ready: bool
+    source_title: str
+    publisher: str
+    source_url: str
+    metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class CarbonStopImportPayload:
     rows: list[CarbonStopFactorRow]
+    catalog_rows: list[CarbonStopCatalogRow]
     skipped_rows: list[dict[str, Any]]
     categories: list[dict[str, Any]]
     origin: str = CARBONSTOP_CCDB_URL
@@ -116,14 +137,18 @@ class CarbonStopPublicAdapter:
 
     def normalize_snapshot(self, payload: dict[str, Any]) -> CarbonStopImportPayload:
         records: list[CarbonStopFactorRow] = []
+        catalog_rows: list[CarbonStopCatalogRow] = []
         skipped: list[dict[str, Any]] = []
         for row in payload.get("rows") or []:
+            catalog_rows.append(self._row_to_catalog(row))
             normalized = self._row_to_factor(row)
             if normalized is None:
                 skipped.append(
                     {
                         "id": row.get("id"),
                         "name": row.get("name"),
+                        "industry": row.get("ccdbGroupLabel"),
+                        "category": row.get("ccdbClassifyLabel") or row.get("business"),
                         "reason": "公开页面未展示可计算数值",
                         "raw_value": row.get("cValue"),
                         "institution": row.get("institution"),
@@ -134,9 +159,61 @@ class CarbonStopPublicAdapter:
             records.append(normalized)
         return CarbonStopImportPayload(
             rows=records,
+            catalog_rows=catalog_rows,
             skipped_rows=skipped,
             categories=payload.get("categories") or [],
             origin=payload.get("origin") or CARBONSTOP_CCDB_URL,
+        )
+
+    def _row_to_catalog(self, row: dict[str, Any]) -> CarbonStopCatalogRow:
+        row_id = _normalize_text(row.get("id")) or _stable_row_id(row)
+        raw_value = _normalize_text(row.get("cValue"))
+        factor_value = _parse_factor_value(raw_value)
+        unit = _normalize_text(row.get("unit"))
+        _, activity_unit = _split_unit(unit or "kgCO2e/unit")
+        source_title = _normalize_text(row.get("source")) or "CarbonStop CCDB 公开因子"
+        publisher = _normalize_text(row.get("institution")) or "CarbonStop CCDB"
+        category = _normalize_text(row.get("ccdbClassifyLabel") or row.get("business")) or "未分类"
+        industry = _normalize_text(row.get("ccdbGroupLabel"))
+        year = _parse_int(row.get("year") or row.get("applyYear"))
+        value_status = "calculation_ready" if factor_value is not None else "encrypted"
+        metadata = {
+            "source_platform": "CarbonStop CCDB 中国碳数据库",
+            "source_platform_url": CARBONSTOP_CCDB_URL,
+            "ccdb_row_id": row.get("id"),
+            "ccdb_source_id": row.get("sourceId"),
+            "ccdb_group_label": industry,
+            "ccdb_group_value": row.get("ccdbGroupValue"),
+            "ccdb_classify_label": category,
+            "ccdb_classify_value": row.get("ccdbClassifyValue") or row.get("factorClassify"),
+            "source_level": row.get("sourceLevel"),
+            "document_type": row.get("documentType"),
+            "original_source": source_title,
+            "institution": publisher,
+            "specification": row.get("specification"),
+            "description": row.get("description"),
+            "business": row.get("business"),
+            "apply_year": row.get("applyYear"),
+            "apply_year_end": row.get("applyYearEnd"),
+            "raw_row": row,
+        }
+        return CarbonStopCatalogRow(
+            entry_id=f"carbonstop-ccdb-{row_id}",
+            name=_normalize_text(row.get("name")) or _normalize_text(row.get("nameEn")) or row_id,
+            category=category,
+            industry=industry,
+            region=_normalize_text(row.get("countries") or row.get("area")),
+            year=year,
+            factor_unit=unit,
+            activity_unit=activity_unit,
+            raw_value=raw_value,
+            factor_value=factor_value,
+            value_status=value_status,
+            is_calculation_ready=factor_value is not None,
+            source_title=source_title,
+            publisher=publisher,
+            source_url=CARBONSTOP_CCDB_URL,
+            metadata=metadata,
         )
 
     def _row_to_factor(self, row: dict[str, Any]) -> CarbonStopFactorRow | None:

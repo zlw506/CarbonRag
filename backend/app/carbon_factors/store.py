@@ -57,6 +57,15 @@ class CarbonFactorStore:
             row = connection.execute("SELECT COUNT(*) AS count FROM carbon_factor_records").fetchone()
             return int(row["count"])
 
+    def count_catalog_entries(self) -> int:
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT COUNT(*) AS count FROM carbon_factor_catalog_entries")
+                    return int(cursor.fetchone()["count"])
+            row = connection.execute("SELECT COUNT(*) AS count FROM carbon_factor_catalog_entries").fetchone()
+            return int(row["count"])
+
     def upsert_source(
         self,
         *,
@@ -245,6 +254,94 @@ class CarbonFactorStore:
                 )
         self.replace_aliases(record=record)
 
+    def upsert_catalog_entry(self, *, entry, now: str | None = None) -> None:
+        now = now or utc_now()
+        metadata_json = json.dumps(entry.metadata, ensure_ascii=False)
+        params = (
+            entry.entry_id,
+            "CarbonStop CCDB 中国碳数据库",
+            entry.source_url,
+            entry.name,
+            entry.category,
+            entry.industry,
+            entry.region,
+            entry.year,
+            entry.factor_unit,
+            entry.activity_unit,
+            entry.value_status,
+            entry.raw_value,
+            entry.factor_value,
+            entry.source_title,
+            entry.publisher,
+            metadata_json,
+            entry.is_calculation_ready if self.backend_kind == "postgresql" else int(entry.is_calculation_ready),
+            now,
+            now,
+        )
+        if self.backend_kind == "postgresql":
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO carbon_factor_catalog_entries (
+                            entry_id, source_platform, source_url, name, category, industry, region, year,
+                            factor_unit, activity_unit, value_status, raw_value, factor_value, source_title,
+                            publisher, metadata_json, is_calculation_ready, created_at, updated_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (entry_id) DO UPDATE SET
+                            source_platform = EXCLUDED.source_platform,
+                            source_url = EXCLUDED.source_url,
+                            name = EXCLUDED.name,
+                            category = EXCLUDED.category,
+                            industry = EXCLUDED.industry,
+                            region = EXCLUDED.region,
+                            year = EXCLUDED.year,
+                            factor_unit = EXCLUDED.factor_unit,
+                            activity_unit = EXCLUDED.activity_unit,
+                            value_status = EXCLUDED.value_status,
+                            raw_value = EXCLUDED.raw_value,
+                            factor_value = EXCLUDED.factor_value,
+                            source_title = EXCLUDED.source_title,
+                            publisher = EXCLUDED.publisher,
+                            metadata_json = EXCLUDED.metadata_json,
+                            is_calculation_ready = EXCLUDED.is_calculation_ready,
+                            updated_at = EXCLUDED.updated_at
+                        """,
+                        params,
+                    )
+        else:
+            with self._connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO carbon_factor_catalog_entries (
+                        entry_id, source_platform, source_url, name, category, industry, region, year,
+                        factor_unit, activity_unit, value_status, raw_value, factor_value, source_title,
+                        publisher, metadata_json, is_calculation_ready, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(entry_id) DO UPDATE SET
+                        source_platform = excluded.source_platform,
+                        source_url = excluded.source_url,
+                        name = excluded.name,
+                        category = excluded.category,
+                        industry = excluded.industry,
+                        region = excluded.region,
+                        year = excluded.year,
+                        factor_unit = excluded.factor_unit,
+                        activity_unit = excluded.activity_unit,
+                        value_status = excluded.value_status,
+                        raw_value = excluded.raw_value,
+                        factor_value = excluded.factor_value,
+                        source_title = excluded.source_title,
+                        publisher = excluded.publisher,
+                        metadata_json = excluded.metadata_json,
+                        is_calculation_ready = excluded.is_calculation_ready,
+                        updated_at = excluded.updated_at
+                    """,
+                    params,
+                )
+
     def replace_aliases(self, *, record: FactorRecord) -> None:
         aliases = list(dict.fromkeys([record.activity_name, record.region_name or "", *(record.tags or [])]))
         aliases = [item for item in aliases if item]
@@ -336,6 +433,59 @@ class CarbonFactorStore:
             FROM carbon_factor_records r
             LEFT JOIN carbon_factor_sources s ON s.source_id = r.source_id
             WHERE {where_sql}
+        """
+        if self.backend_kind == "postgresql":
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(count_sql, tuple(params))
+                    total = int(cursor.fetchone()["count"])
+                    cursor.execute(select_sql, tuple([*params, page_size, offset]))
+                    rows = cursor.fetchall()
+        else:
+            with self._connect() as connection:
+                total = int(connection.execute(count_sql, params).fetchone()["count"])
+                rows = connection.execute(select_sql, [*params, page_size, offset]).fetchall()
+        return [row_to_dict(row) for row in rows], total
+
+    def search_catalog_entries(
+        self,
+        *,
+        q: str | None = None,
+        category: str | None = None,
+        industry: str | None = None,
+        year: int | None = None,
+        value_status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[dict], int]:
+        where = ["1 = 1"]
+        params: list = []
+        p = self.placeholder
+        if q:
+            like = f"%{q.strip()}%"
+            where.append(f"(name LIKE {p} OR category LIKE {p} OR industry LIKE {p} OR source_title LIKE {p} OR publisher LIKE {p} OR metadata_json LIKE {p})")
+            params.extend([like, like, like, like, like, like])
+        if category:
+            where.append(f"category = {p}")
+            params.append(category)
+        if industry:
+            where.append(f"industry = {p}")
+            params.append(industry)
+        if year is not None:
+            where.append(f"year = {p}")
+            params.append(year)
+        if value_status:
+            where.append(f"value_status = {p}")
+            params.append(value_status)
+        where_sql = " AND ".join(where)
+        offset = max(page - 1, 0) * page_size
+        count_sql = f"SELECT COUNT(*) AS count FROM carbon_factor_catalog_entries WHERE {where_sql}"
+        select_sql = f"""
+            SELECT *
+            FROM carbon_factor_catalog_entries
+            WHERE {where_sql}
+            ORDER BY is_calculation_ready DESC, year DESC, updated_at DESC, entry_id ASC
+            LIMIT {p} OFFSET {p}
         """
         if self.backend_kind == "postgresql":
             with self._connect() as connection:

@@ -45,6 +45,32 @@ export interface CarbonFactorSearchResponse {
     page_size: number;
 }
 
+export interface CarbonFactorCatalogEntry {
+    entry_id: string;
+    name: string;
+    category: string;
+    industry?: string | null;
+    region?: string | null;
+    year?: number | null;
+    factor_unit?: string | null;
+    activity_unit?: string | null;
+    value_status: "calculation_ready" | "encrypted" | string;
+    raw_value?: string | null;
+    factor_value?: number | null;
+    is_calculation_ready: boolean;
+    source_title?: string | null;
+    publisher?: string | null;
+    source_url?: string | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface CarbonFactorCatalogSearchResponse {
+    items: CarbonFactorCatalogEntry[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
 export interface CarbonFactorCategoryNode {
     label: string;
     value?: string | null;

@@ -22,6 +22,7 @@ CORE_TABLES = (
     "carbon_calculations",
     "carbon_factor_sources",
     "carbon_factor_records",
+    "carbon_factor_catalog_entries",
     "carbon_factor_aliases",
     "carbon_factor_import_jobs",
     "carbon_inventories",
@@ -410,6 +411,28 @@ CREATE TABLE IF NOT EXISTS carbon_factor_records (
     FOREIGN KEY (source_id) REFERENCES carbon_factor_sources(source_id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS carbon_factor_catalog_entries (
+    entry_id TEXT PRIMARY KEY,
+    source_platform TEXT NOT NULL,
+    source_url TEXT,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    industry TEXT,
+    region TEXT,
+    year INTEGER,
+    factor_unit TEXT,
+    activity_unit TEXT,
+    value_status TEXT NOT NULL,
+    raw_value TEXT,
+    factor_value REAL,
+    source_title TEXT,
+    publisher TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    is_calculation_ready INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS carbon_factor_aliases (
     alias_seq INTEGER PRIMARY KEY AUTOINCREMENT,
     alias_id TEXT NOT NULL UNIQUE,
@@ -700,6 +723,8 @@ CREATE INDEX IF NOT EXISTS idx_carbon_factor_records_search
     ON carbon_factor_records(is_enabled, category, industry, region_code, year);
 CREATE INDEX IF NOT EXISTS idx_carbon_factor_records_source
     ON carbon_factor_records(source_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_carbon_factor_catalog_entries_search
+    ON carbon_factor_catalog_entries(industry, category, value_status, year, is_calculation_ready);
 CREATE INDEX IF NOT EXISTS idx_carbon_factor_aliases_factor
     ON carbon_factor_aliases(factor_id, alias);
 CREATE INDEX IF NOT EXISTS idx_carbon_factor_import_jobs_owner_created
@@ -1089,6 +1114,29 @@ POSTGRES_SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS carbon_factor_catalog_entries (
+        entry_id TEXT PRIMARY KEY,
+        source_platform TEXT NOT NULL,
+        source_url TEXT,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        industry TEXT,
+        region TEXT,
+        year INTEGER,
+        factor_unit TEXT,
+        activity_unit TEXT,
+        value_status TEXT NOT NULL,
+        raw_value TEXT,
+        factor_value DOUBLE PRECISION,
+        source_title TEXT,
+        publisher TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        is_calculation_ready BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS carbon_factor_aliases (
         alias_seq BIGSERIAL PRIMARY KEY,
         alias_id TEXT NOT NULL UNIQUE,
@@ -1401,6 +1449,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_carbon_calculations_owner_session_created_at ON carbon_calculations(owner_user_id, session_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_factor_records_search ON carbon_factor_records(is_enabled, category, industry, region_code, year)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_factor_records_source ON carbon_factor_records(source_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_carbon_factor_catalog_entries_search ON carbon_factor_catalog_entries(industry, category, value_status, year, is_calculation_ready)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_factor_aliases_factor ON carbon_factor_aliases(factor_id, alias)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_factor_import_jobs_owner_created ON carbon_factor_import_jobs(owner_user_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_carbon_inventories_owner_session_created_at ON carbon_inventories(owner_user_id, session_id, created_at DESC)",

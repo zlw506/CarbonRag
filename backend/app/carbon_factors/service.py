@@ -5,6 +5,8 @@ from app.carbon.factor_loader import CarbonFactorLoader
 from app.carbon.factors.schema import FactorRecord
 from app.carbon_factors.carbonstop import CARBONSTOP_MAPPING_VERSION, CarbonStopImportPayload, CarbonStopPublicAdapter
 from app.carbon_factors.schemas import (
+    CarbonFactorCatalogEntry,
+    CarbonFactorCatalogSearchResponse,
     CarbonFactorDetail,
     CarbonFactorFacets,
     CarbonFactorImportJob,
@@ -64,6 +66,8 @@ class CarbonFactorDatabaseService:
         source_kind: str,
     ) -> CarbonFactorImportJob:
         source_ids: dict[str, str] = {}
+        for catalog_entry in payload.catalog_rows:
+            self.store.upsert_catalog_entry(entry=catalog_entry)
         for item in payload.rows:
             source_key = json.dumps(item.source, ensure_ascii=False, sort_keys=True)
             source_id = source_ids.get(source_key)
@@ -84,6 +88,7 @@ class CarbonFactorDatabaseService:
                 "source": "CarbonStop CCDB 中国碳数据库",
                 "origin": payload.origin,
                 "mapping_version": CARBONSTOP_MAPPING_VERSION,
+                "catalog_count": len(payload.catalog_rows),
                 "accepted_count": len(payload.rows),
                 "skipped_count": len(payload.skipped_rows),
                 "category_count": len(payload.categories),
@@ -124,6 +129,36 @@ class CarbonFactorDatabaseService:
         )
         return CarbonFactorSearchResponse(
             items=[self._row_to_summary(row) for row in rows],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    def search_catalog(
+        self,
+        *,
+        q: str | None = None,
+        category: str | None = None,
+        industry: str | None = None,
+        year: int | None = None,
+        value_status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> CarbonFactorCatalogSearchResponse:
+        self.ensure_seeded()
+        page = max(page, 1)
+        page_size = min(max(page_size, 1), 100)
+        rows, total = self.store.search_catalog_entries(
+            q=q,
+            category=category,
+            industry=industry,
+            year=year,
+            value_status=value_status,
+            page=page,
+            page_size=page_size,
+        )
+        return CarbonFactorCatalogSearchResponse(
+            items=[self._row_to_catalog_entry(row) for row in rows],
             total=total,
             page=page,
             page_size=page_size,
@@ -233,6 +268,27 @@ class CarbonFactorDatabaseService:
             version=row["version"],
             source=self._row_to_source(row),
             tags=metadata.get("tags") or [],
+        )
+
+    @staticmethod
+    def _row_to_catalog_entry(row: dict) -> CarbonFactorCatalogEntry:
+        return CarbonFactorCatalogEntry(
+            entry_id=row["entry_id"],
+            name=row["name"],
+            category=row["category"],
+            industry=row.get("industry"),
+            region=row.get("region"),
+            year=row.get("year"),
+            factor_unit=row.get("factor_unit"),
+            activity_unit=row.get("activity_unit"),
+            value_status=row["value_status"],
+            raw_value=row.get("raw_value"),
+            factor_value=float(row["factor_value"]) if row.get("factor_value") is not None else None,
+            is_calculation_ready=bool(row.get("is_calculation_ready")),
+            source_title=row.get("source_title"),
+            publisher=row.get("publisher"),
+            source_url=row.get("source_url"),
+            metadata=json.loads(row.get("metadata_json") or "{}"),
         )
 
     @staticmethod

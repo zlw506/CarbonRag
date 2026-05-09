@@ -1,4 +1,5 @@
 import type {
+    CarbonFactorCatalogSearchResponse,
     CarbonFactorDetail,
     CarbonFactorFacets,
     CarbonFactorSearchResponse,
@@ -19,8 +20,23 @@ export interface SearchCarbonFactorsParams {
     page_size?: number;
 }
 
+export interface SearchCarbonFactorCatalogParams {
+    q?: string;
+    category?: string;
+    industry?: string;
+    year?: number;
+    value_status?: string;
+    page?: number;
+    page_size?: number;
+}
+
 export async function searchCarbonFactors(params: SearchCarbonFactorsParams = {}) {
     const response = await httpClient.get<CarbonFactorSearchResponse>("/v1/carbon-factors", { params });
+    return response.data;
+}
+
+export async function searchCarbonFactorCatalog(params: SearchCarbonFactorCatalogParams = {}) {
+    const response = await httpClient.get<CarbonFactorCatalogSearchResponse>("/v1/carbon-factor-catalog", { params });
     return response.data;
 }
 
