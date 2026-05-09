@@ -20,6 +20,11 @@ class AskCitation(BaseModel):
     snippet: str
     chunk_id: str
     library_scope: Literal["personal", "shared"] | None = None
+    file_id: str | None = None
+    page_number: int | None = None
+    sheet_name: str | None = None
+    slide_number: int | None = None
+    section_title: str | None = None
 
 
 class AskSourceSummary(BaseModel):

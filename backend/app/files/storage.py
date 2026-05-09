@@ -20,10 +20,11 @@ class FileStorage:
         self.upload_root = resolve_upload_root(upload_root)
         self.upload_root.mkdir(parents=True, exist_ok=True)
 
-    def save(self, *, session_id: str, file_id: str, filename: str, content: bytes) -> Path:
+    def save(self, *, session_id: str, file_id: str, file_ext: str, content: bytes) -> Path:
         target_dir = self.upload_root / session_id
         target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / f"{file_id}__{sanitize_filename(filename)}"
+        safe_ext = file_ext if file_ext.startswith(".") else f".{file_ext}"
+        target_path = target_dir / f"{file_id}{safe_ext.lower()}"
         target_path.write_bytes(content)
         return target_path
 

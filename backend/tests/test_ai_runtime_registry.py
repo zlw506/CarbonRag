@@ -14,6 +14,7 @@ def test_default_registry_contains_all_stub_tools() -> None:
         "mixed_retrieve",
         "policy_retrieve",
         "report_draft",
+        "session_file_search",
     ]
 
 

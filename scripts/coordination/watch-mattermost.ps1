@@ -9,8 +9,10 @@ param(
   [switch]$Once,
   [switch]$ReplayLatest,
   [switch]$LaunchCodexResume,
+  [switch]$LaunchCodexExecReview,
   [string]$Workspace = (Resolve-Path ".").Path,
-  [string]$StatePath = "coordination.local.json"
+  [string]$StatePath = "coordination.local.json",
+  [string]$TriggerOutDir = "logs/coordination"
 )
 
 $ErrorActionPreference = "Stop"
@@ -115,6 +117,88 @@ codex resume --last -C '$workspaceEscaped' `$p
   Start-Process powershell -ArgumentList @("-NoProfile", "-NoExit", "-Command", $command) | Out-Null
 }
 
+function Write-TriggerFile {
+  param(
+    [string]$ChannelName,
+    [string]$Username,
+    [string]$Type,
+    [string]$Message,
+    [long]$CreateAt,
+    [string]$OutDir
+  )
+  $resolvedOutDir = Join-Path $Workspace $OutDir
+  New-Item -ItemType Directory -Force -Path $resolvedOutDir | Out-Null
+  $time = [DateTimeOffset]::FromUnixTimeMilliseconds($CreateAt).ToOffset([TimeSpan]::FromHours(8))
+  $stamp = $time.ToString("yyyyMMdd-HHmmss")
+  $fileName = "$stamp-$ChannelName-$Type.md"
+  $targetPath = Join-Path $resolvedOutDir $fileName
+  $content = @(
+    "# Mattermost trigger",
+    "",
+    "- channel: $ChannelName",
+    "- user: $Username",
+    "- type: $Type",
+    "- time: $($time.ToString("yyyy-MM-dd HH:mm:ss zzz"))",
+    "",
+    "## Message",
+    "",
+    "-----",
+    $Message,
+    "-----",
+    "",
+    "## Codex handoff prompt",
+    "",
+    "-----",
+    "Read AGENTS.md, OpenSpec, latest Mattermost messages, and related PR state first.",
+    "This watcher captured a $Type event from channel $ChannelName, sender $Username.",
+    "If this is REVIEW_READY: run read-only PR review, OpenSpec/tests/key diff checks, then suggest approve/request changes/comment.",
+    "If this is PLAN/BLOCK: provide #1 coordination advice for ACK/BLOCK/DECISION. Do not edit code automatically.",
+    "Do not approve, merge, push, or modify business code unless the user explicitly asks.",
+    "-----"
+  ) -join [Environment]::NewLine
+  $content | Set-Content -LiteralPath $targetPath -Encoding UTF8
+  $latestPath = Join-Path $resolvedOutDir "latest-trigger.md"
+  $content | Set-Content -LiteralPath $latestPath -Encoding UTF8
+  return $targetPath
+}
+
+function Invoke-CodexExecReview {
+  param(
+    [string]$TriggerFile,
+    [string]$Workspace
+  )
+  $resolvedOutDir = Join-Path $Workspace "logs/coordination"
+  New-Item -ItemType Directory -Force -Path $resolvedOutDir | Out-Null
+  $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $outputPath = Join-Path $resolvedOutDir "$stamp-codex-review-output.md"
+  $prompt = @(
+    "You are doing a read-only review triggered by Mattermost. Do not edit code.",
+    "Read AGENTS.md, OpenSpec, the Mattermost trigger file, and related PR state first.",
+    "Trigger file: $TriggerFile",
+    "",
+    "If the trigger type is REVIEW_READY, find the related PR and run read-only review:",
+    "1. gh pr view / checkout",
+    "2. openspec validate --all",
+    "3. target tests or CI status checks",
+    "4. key diff risk assessment",
+    "5. output approve / comment / request changes recommendation.",
+    "",
+    "Never approve, merge, push, or modify files automatically."
+  ) -join [Environment]::NewLine
+  $prompt64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($prompt))
+  $workspaceEscaped = $Workspace.Replace("'", "''")
+  $outputEscaped = $outputPath.Replace("'", "''")
+  $command = @"
+`$p = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$prompt64'))
+codex exec -C '$workspaceEscaped' -o '$outputEscaped' `$p
+Write-Host ''
+Write-Host 'Codex exec output: $outputEscaped' -ForegroundColor Green
+if (Test-Path -LiteralPath '$outputEscaped') { Get-Content -LiteralPath '$outputEscaped' -Encoding UTF8 }
+"@
+  Start-Process powershell -ArgumentList @("-NoProfile", "-NoExit", "-Command", $command) | Out-Null
+  return $outputPath
+}
+
 function Handle-Trigger {
   param(
     [string]$ChannelName,
@@ -133,6 +217,9 @@ function Handle-Trigger {
   Write-Host "message:"
   Write-Host $Message
   try { [Console]::Beep(880, 180); [Console]::Beep(1175, 180) } catch {}
+
+  $triggerFile = Write-TriggerFile -ChannelName $ChannelName -Username $Username -Type $Type -Message $Message -CreateAt $CreateAt -OutDir $TriggerOutDir
+  Write-Host "Trigger file: $triggerFile" -ForegroundColor Cyan
 
   if ($LaunchCodexResume) {
     $prompt = @(
@@ -153,6 +240,11 @@ function Handle-Trigger {
     Invoke-CodexResume -Prompt $prompt -Workspace $Workspace
     Write-Host "Launched: codex resume --last" -ForegroundColor Green
   }
+
+  if ($LaunchCodexExecReview -and $Type -eq "REVIEW_READY") {
+    $outputPath = Invoke-CodexExecReview -TriggerFile $triggerFile -Workspace $Workspace
+    Write-Host "Launched: codex exec read-only review -> $outputPath" -ForegroundColor Green
+  }
 }
 
 $channelMap = Get-ChannelMap
@@ -162,7 +254,9 @@ Write-Host "Watching Mattermost channels: $($channelMap.Keys -join ', ')"
 Write-Host "Trigger types: $($TriggerTypes -join ', ')"
 Write-Host "Ignored users: $($IgnoreUsernames -join ', ')"
 Write-Host "Launch Codex resume: $LaunchCodexResume"
+Write-Host "Launch Codex exec review: $LaunchCodexExecReview"
 Write-Host "State path: $StatePath"
+Write-Host "Trigger out dir: $TriggerOutDir"
 
 while ($true) {
   $state = Read-State -Path $StatePath

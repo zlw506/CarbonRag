@@ -47,6 +47,10 @@ Local-only ignored files are not missing source. Recreate them from templates, s
 - Keep generated drafts separate from manually reviewed specs.
 - Treat `openspec/specs/**` as the current behavior source of truth and `openspec/changes/**` as proposed change work.
 
+## V1.5.x Session File Reading Boundary
+
+V1.5.x session file reading belongs to the #1 chat/workbench line. Do not change #2 LightRAG core without #2 ACK. File parsing output should expose stable chunks and metadata that #2 can later consume.
+
 ## GitNexus Code Intelligence Rule
 
 Before modifying non-trivial backend, frontend, carbon, RAG, session, report, auth, deployment, or cross-module code, Codex must use GitNexus context first.

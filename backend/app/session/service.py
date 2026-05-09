@@ -276,6 +276,9 @@ class SessionService:
         size: int,
         mime_type: str,
         storage_path: str,
+        stored_filename: str | None = None,
+        file_ext: str | None = None,
+        sha256: str | None = None,
     ) -> UploadedFile:
         self.require_session(owner_user_id=owner_user_id, session_id=session_id)
         stored_at = utcnow().isoformat()
@@ -287,6 +290,9 @@ class SessionService:
             mime_type=mime_type,
             stored_at=stored_at,
             storage_path=storage_path,
+            stored_filename=stored_filename,
+            file_ext=file_ext,
+            sha256=sha256,
         )
 
     def list_private_sample_catalog(self):

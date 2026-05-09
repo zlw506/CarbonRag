@@ -53,6 +53,7 @@ async def upload_file(
                 session_id=session_id,
                 knowledge_item_ids=[*existing_item_ids, item.knowledge_item_id],
             )
+        refreshed = service.get_upload_detail(owner_user_id=current_user.user_id, file_id=uploaded.file_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Session not found.")
     except ValueError as exc:
@@ -62,4 +63,15 @@ async def upload_file(
     finally:
         await file.close()
 
-    return UploadedFileResponse.model_validate(uploaded.model_dump())
+    return UploadedFileResponse.model_validate((refreshed or uploaded).model_dump())
+
+
+@router.get("/files/{file_id}", response_model=UploadedFileResponse)
+async def get_file_detail(
+    file_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> UploadedFileResponse:
+    detail = get_file_service().get_upload_detail(owner_user_id=current_user.user_id, file_id=file_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    return UploadedFileResponse.model_validate(detail.model_dump())

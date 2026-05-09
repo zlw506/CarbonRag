@@ -31,6 +31,7 @@ class PrivateSampleRetriever:
             if item.source_type not in {"uploaded_file", "private_sample_repo"}:
                 continue
             for chunk in self.knowledge_service.list_chunks(knowledge_item_id=item.knowledge_item_id):
+                metadata = chunk.metadata or {}
                 self.chunks.append(
                     RetrievedChunk(
                         doc_id=item.knowledge_item_id,
@@ -48,6 +49,11 @@ class PrivateSampleRetriever:
                         chunk_id=chunk.chunk_id,
                         snippet=chunk.snippet,
                         score=0.0,
+                        file_id=str(metadata.get("file_id") or item.file_id or "") or None,
+                        page_number=_optional_int(metadata.get("page_number")),
+                        sheet_name=_optional_str(metadata.get("sheet_name")),
+                        slide_number=_optional_int(metadata.get("slide_number")),
+                        section_title=_optional_str(metadata.get("section_title")),
                     )
                 )
         self._corpus_tokens = [_tokenize(chunk.snippet) for chunk in self.chunks]
@@ -107,3 +113,19 @@ class PrivateSampleRetriever:
 @lru_cache(maxsize=1)
 def get_private_sample_retriever() -> PrivateSampleRetriever:
     return PrivateSampleRetriever()
+
+
+def _optional_str(value) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _optional_int(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

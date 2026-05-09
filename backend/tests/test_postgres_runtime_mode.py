@@ -214,7 +214,29 @@ class FakeCursor:
             return
 
         if normalized.startswith("insert into files"):
-            file_id, owner_user_id, session_id, filename, size, mime_type, stored_at, storage_path = params
+            if len(params) == 8:
+                file_id, owner_user_id, session_id, filename, size, mime_type, stored_at, storage_path = params
+                stored_filename = None
+                file_ext = None
+                sha256 = None
+                parse_status = "uploaded"
+                updated_at = stored_at
+            else:
+                (
+                    file_id,
+                    owner_user_id,
+                    session_id,
+                    filename,
+                    stored_filename,
+                    file_ext,
+                    size,
+                    mime_type,
+                    stored_at,
+                    storage_path,
+                    sha256,
+                    parse_status,
+                    updated_at,
+                ) = params
             self.db.files.append(
                 {
                     "file_seq": len(self.db.files) + 1,
@@ -222,20 +244,42 @@ class FakeCursor:
                     "owner_user_id": owner_user_id,
                     "session_id": session_id,
                     "filename": filename,
+                    "stored_filename": stored_filename,
+                    "file_ext": file_ext,
                     "size": size,
                     "mime_type": mime_type,
                     "stored_at": stored_at,
                     "storage_path": storage_path,
+                    "sha256": sha256,
+                    "parse_status": parse_status,
+                    "parser_name": None,
+                    "parser_version": None,
+                    "ocr_used": False,
+                    "page_count": None,
+                    "sheet_count": None,
+                    "slide_count": None,
+                    "error_message": None,
+                    "updated_at": updated_at,
+                    "knowledge_item_id": None,
+                    "index_status": None,
+                    "summary": None,
+                    "chunk_count": 0,
                 }
             )
             self.rowcount = 1
             self._rows = []
             return
 
+        if ("from files" in normalized or "from files f" in normalized) and "where f.file_id = %s" in normalized:
+            row = next((item for item in self.db.files if item["file_id"] == params[0]), None)
+            self._rows = [row] if row is not None else []
+            return
+
         if "from files" in normalized and "where file_id = %s" in normalized:
             row = next((item for item in self.db.files if item["file_id"] == params[0]), None)
             if row is not None:
                 row = {
+                    **row,
                     "file_id": row["file_id"],
                     "session_id": row["session_id"],
                     "filename": row["filename"],
@@ -244,6 +288,16 @@ class FakeCursor:
                     "stored_at": row["stored_at"],
                 }
             self._rows = [row] if row is not None else []
+            return
+
+        if ("from files" in normalized or "from files f" in normalized) and "where f.session_id = %s and f.owner_user_id = %s" in normalized:
+            session_id, owner_user_id = params
+            rows = [
+                item for item in self.db.files
+                if item["session_id"] == session_id and item["owner_user_id"] == owner_user_id
+            ]
+            rows.sort(key=lambda item: item["file_seq"], reverse=True)
+            self._rows = rows
             return
 
         if "from files" in normalized and "where session_id = %s and owner_user_id = %s" in normalized:
@@ -255,6 +309,7 @@ class FakeCursor:
             rows.sort(key=lambda item: item["file_seq"], reverse=True)
             self._rows = [
                 {
+                    **row,
                     "file_id": row["file_id"],
                     "session_id": row["session_id"],
                     "filename": row["filename"],

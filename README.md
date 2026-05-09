@@ -1,6 +1,6 @@
 # CarbonRag
 
-当前状态：`V1.4.7 GitNexus 结构感知工作流试点 / V1.4.x 碳核算主线由 #1 负责 / V1.3.x RAG 主线由 #2 负责`
+当前状态：`V1.5.1 会话文件读取工作台施工中 / V1.4.x 碳核算主线由 #1 负责 / V1.3.x RAG 主线由 #2 负责`
 
 CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标不是做一个泛用聊天壳，而是把“政策问答、私有知识、碳核算、报告生成、反馈闭环、多人治理”整合成一套可试用、可部署、可协作演进的垂直系统。
 
@@ -48,16 +48,30 @@ V1.4.x 初步方向：
 - 支持 session conversation workbench。
 - 支持 `public / private_sample / mixed` 三种 ask scope。
 - 支持 grounded citations。
+- 支持会话级上传附件读取：文件上传、解析、分块、检索、`private_upload` citation。
 - 支持用户隔离，只能访问自己的会话、报告、反馈、计算结果与上传资产。
 - 支持 session summary / context compaction / memory state 的基础能力。
 
 ### 知识库
 
 - 支持个人知识库与管理员共享知识库。
-- 上传文件进入知识任务流。
+- 上传文件进入知识任务流，并在 V1.5.1 中作为 AskPage 会话附件被检索引用。
 - 支持 parse / ingest / index 状态。
 - 支持失败重试、管理员扫描、重建与任务查看。
 - private / mixed 检索以当前 session 已挂接知识条目为边界。
+
+### 会话文件读取
+
+V1.5.1 让聊天页具备真正的文件读取能力：
+
+- 支持上传 `pdf / docx / xlsx / csv / txt / md / html / pptx / png / jpg / jpeg`。
+- 后端使用 Docling-first parser，轻量 fallback 解析常见文本、Office、CSV、HTML、PDF、PPTX。
+- 上传文件保存为服务端安全文件名，原始文件名只作展示。
+- 解析结果写入 `file_parse_results`，文件块继续走 `knowledge_chunks`。
+- 提问时 `attached_file_ids` 会真实检索当前 session 已解析文件。
+- 回答引用以 `private_upload` citation 展示文件名、页码、sheet、slide 或章节定位。
+
+详见 [docs/architecture/SESSION_FILE_READING_ARCHITECTURE.md](docs/architecture/SESSION_FILE_READING_ARCHITECTURE.md) 和 [docs/architecture/DOCUMENT_PARSING_PIPELINE.md](docs/architecture/DOCUMENT_PARSING_PIPELINE.md)。
 
 ### 碳核算
 

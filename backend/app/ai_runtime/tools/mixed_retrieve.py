@@ -54,7 +54,7 @@ class MixedRetrieveTool(BaseTool):
                 "knowledge_scope": "mixed",
                 "top_k": top_k,
                 "allowed_knowledge_item_ids": sorted(allowed_knowledge_item_ids),
-                "hits": rag_result.hits,
+                "hits": [chunk.to_retrieved_hit() for chunk in rag_result.chunks],
                 "retrieval_data": rag_result.model_dump(),
             },
             metadata={

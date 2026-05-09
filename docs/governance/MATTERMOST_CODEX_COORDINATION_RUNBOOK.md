@@ -71,6 +71,29 @@ Mattermost 新 PLAN / BLOCK / REVIEW_READY
 docs/governance/MATTERMOST_WATCHER_RUNBOOK.md
 ```
 
+当前 watcher 的能力边界：
+
+- 可以持续轮询 `carbonrag-control` / `carbonrag-review`。
+- 可以把触发消息写入 `logs/coordination/latest-trigger.md`。
+- 可以蜂鸣和在终端打印触发消息。
+- 可以可选打开 `codex resume --last`。
+- 可以可选对 `REVIEW_READY` 启动一次只读 `codex exec` 审查，并把结果写入本地日志。
+- 不能可靠地把消息直接注入已经打开的 Codex UI 输入框。
+
+推荐 #1 长久在线命令：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/coordination/watch-mattermost.ps1 `
+  -LaunchCodexResume
+```
+
+如果只想先生成审查草稿，不想干扰当前 UI：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/coordination/watch-mattermost.ps1 `
+  -LaunchCodexExecReview
+```
+
 ## VPS 部署建议
 
 CarbonRag 后端继续使用 `80 -> 127.0.0.1:8000`。Mattermost 试点先独立监听 `8065`，不改现有 Nginx 后端。

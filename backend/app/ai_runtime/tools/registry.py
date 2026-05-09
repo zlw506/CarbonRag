@@ -5,6 +5,7 @@ from app.ai_runtime.tools.enterprise_retrieve import EnterpriseRetrieveTool
 from app.ai_runtime.tools.mixed_retrieve import MixedRetrieveTool
 from app.ai_runtime.tools.policy_retrieve import PolicyRetrieveTool
 from app.ai_runtime.tools.report_draft_stub import ReportDraftStubTool
+from app.ai_runtime.tools.session_file_search import SessionFileSearchTool
 
 
 class ToolRegistry:
@@ -37,6 +38,7 @@ def build_default_registry() -> ToolRegistry:
         PolicyRetrieveTool(),
         EnterpriseRetrieveTool(),
         MixedRetrieveTool(),
+        SessionFileSearchTool(),
         CarbonFactorLookupStubTool(),
         CarbonCalcStubTool(),
         ReportDraftStubTool(),

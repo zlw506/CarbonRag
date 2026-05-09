@@ -37,6 +37,7 @@ coverage/
 !frontend/.env.production
 .env.mattermost
 .mattermost-token
+.mattermost-*-credentials.local.txt
 coordination.local.json
 
 # Logs
@@ -72,6 +73,7 @@ openspec/**/.DS_Store
 # GitNexus local indexes and diagnostic logs
 .gitnexus/
 logs/gitnexus/
+logs/coordination/
 .claude/skills/generated/
 
 # Local-only AI/model artifacts

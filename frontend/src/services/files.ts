@@ -21,3 +21,15 @@ export async function uploadSessionFile(sessionId: string, file: File) {
         throw error;
     }
 }
+
+export async function getSessionFile(fileId: string) {
+    try {
+        const response = await httpClient.get<UploadedFile>(`/v1/files/${encodeURIComponent(fileId)}`);
+        return response.data;
+    } catch (error) {
+        if (axios.isAxiosError<{ detail?: string }>(error) && error.response?.data) {
+            throw error.response.data;
+        }
+        throw error;
+    }
+}

@@ -25,6 +25,11 @@ def _extract_citations(tool_results: list[ToolResult]) -> list[dict]:
                     "snippet": hit.get("snippet"),
                     "chunk_id": hit.get("chunk_id"),
                     "library_scope": hit.get("library_scope"),
+                    "file_id": hit.get("file_id"),
+                    "page_number": hit.get("page_number"),
+                    "sheet_name": hit.get("sheet_name"),
+                    "slide_number": hit.get("slide_number"),
+                    "section_title": hit.get("section_title"),
                 }
             )
     return citations

@@ -28,7 +28,7 @@ import {
     message as antdMessage,
 } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, KeyboardEvent } from "react";
+import type { ChangeEvent, DragEvent, KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
@@ -76,6 +76,12 @@ interface StreamContextSource {
     citation_count: number;
 }
 
+interface LoadSessionDetailOptions {
+    silent?: boolean;
+    preserveDraftSelections?: boolean;
+    previousReadyFileIds?: Set<string>;
+}
+
 export function AskPage() {
     const { user } = useAuth();
     const { settings, getActiveProviderOverride } = useSettings();
@@ -98,12 +104,14 @@ export function AskPage() {
     const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
     const [privateSampleDrawerOpen, setPrivateSampleDrawerOpen] = useState(false);
     const [draftAttachedDocIds, setDraftAttachedDocIds] = useState<string[]>([]);
+    const [draftAttachedFileIds, setDraftAttachedFileIds] = useState<string[]>([]);
     const [savingAttachedSamples, setSavingAttachedSamples] = useState(false);
     const [loadingPrivateSamples, setLoadingPrivateSamples] = useState(true);
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [sending, setSending] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [draggingFiles, setDraggingFiles] = useState(false);
     const [transportError, setTransportError] = useState<string | null>(null);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const focusModeEnabled = searchParams.get("focus") !== "0";
@@ -122,8 +130,11 @@ export function AskPage() {
 
     const selectedCitationMessage = visibleMessages.find((message) => message.message_id === selectedCitationMessageId) ?? null;
     const citationGroups = groupCitationsBySource(selectedCitationMessage?.citations ?? []);
-    const uploadedAttachments = activeSession?.attached_files.filter((item) => item.source_type === "uploaded_file") ?? [];
+    const uploadedAttachments = dedupeUploadedAttachments(activeSession?.attached_files.filter((item) => item.source_type === "uploaded_file") ?? []);
+    const parsedUploadedAttachments = uploadedAttachments.filter((item) => isAttachmentReadyForAsk(item));
     const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
+    const pendingUploadSignature = getPendingUploadSignature(uploadedAttachments);
+    const readyUploadSignature = getReadyUploadSignature(uploadedAttachments);
     const currentSourceSummary = buildPanelSourceSummary(selectedCitationMessage?.citations ?? [], activeSession?.source_summary);
     const effectiveMemoryState = streamMemoryState ?? activeSession?.memory_state ?? null;
     const currentStreamState = streamDraft?.assistantMessage.client_state ?? null;
@@ -168,6 +179,21 @@ export function AskPage() {
     }, [settings?.chat.show_evidence_panel_by_default]);
 
     useEffect(() => {
+        if (!activeSessionId || !pendingUploadSignature) {
+            return;
+        }
+        const timer = window.setInterval(() => {
+            const previousReadyFileIds = new Set(readyUploadSignature ? readyUploadSignature.split("|") : []);
+            void loadSessionDetail(activeSessionId, {
+                silent: true,
+                preserveDraftSelections: true,
+                previousReadyFileIds,
+            });
+        }, 2500);
+        return () => window.clearInterval(timer);
+    }, [activeSessionId, pendingUploadSignature, readyUploadSignature]);
+
+    useEffect(() => {
         const container = messageStreamRef.current;
         if (!container) {
             return;
@@ -191,21 +217,34 @@ export function AskPage() {
         }
     }
 
-    async function loadSessionDetail(sessionId: string) {
-        setLoadingSessionDetail(true);
-        setTransportError(null);
+    async function loadSessionDetail(sessionId: string, options: LoadSessionDetailOptions = {}) {
+        if (!options.silent) {
+            setLoadingSessionDetail(true);
+            setTransportError(null);
+        }
 
         try {
             const detail = await getSession(sessionId);
             setActiveSession(detail);
-            setKnowledgeScope(detail.knowledge_scope_last_used ?? "public");
-            setDraftAttachedDocIds(getAttachedPrivateSampleIds(detail.attached_files));
-            setSelectedCitationMessageId(resolvePreferredCitationMessageId(detail));
+            if (!options.preserveDraftSelections) {
+                setKnowledgeScope(detail.knowledge_scope_last_used ?? "public");
+                setDraftAttachedDocIds(getAttachedPrivateSampleIds(detail.attached_files));
+                setDraftAttachedFileIds(getReadyUploadedFileIds(detail.attached_files));
+            } else {
+                setDraftAttachedFileIds((current) => mergeReadyUploadedFileSelection(current, detail.attached_files, options.previousReadyFileIds));
+            }
+            if (!options.silent) {
+                setSelectedCitationMessageId(resolvePreferredCitationMessageId(detail));
+            }
         } catch {
-            setActiveSession(null);
-            setTransportError("当前无法读取选中会话，请稍后重试。");
+            if (!options.silent) {
+                setActiveSession(null);
+                setTransportError("当前无法读取选中会话，请稍后重试。");
+            }
         } finally {
-            setLoadingSessionDetail(false);
+            if (!options.silent) {
+                setLoadingSessionDetail(false);
+            }
         }
     }
 
@@ -284,7 +323,8 @@ export function AskPage() {
                     question: draftQuestion,
                     knowledge_scope: knowledgeScope,
                     top_k: 5,
-                    attached_file_ids: knowledgeScope === "public" ? [] : draftAttachedDocIds,
+                    attached_file_ids: draftAttachedFileIds,
+                    attached_knowledge_item_ids: draftAttachedDocIds,
                     provider_override: providerOverride,
                 },
                 {
@@ -431,16 +471,22 @@ export function AskPage() {
     }
 
     async function handleUploadChange(event: ChangeEvent<HTMLInputElement>) {
-        const file = event.target.files?.[0];
+        const files = Array.from(event.target.files ?? []);
         event.target.value = "";
-        if (!file || !activeSessionId) {
+        await handleUploadFiles(files);
+    }
+
+    async function handleUploadFiles(files: File[]) {
+        if (!files.length || !activeSessionId) {
             return;
         }
 
         setUploading(true);
         setUploadError(null);
         try {
-            await uploadSessionFile(activeSessionId, file);
+            for (const file of files) {
+                await uploadSessionFile(activeSessionId, file);
+            }
             await refreshSessions(activeSessionId);
             await loadSessionDetail(activeSessionId);
         } catch (error) {
@@ -448,6 +494,25 @@ export function AskPage() {
         } finally {
             setUploading(false);
         }
+    }
+
+    function handleDragOver(event: DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        if (event.dataTransfer.types.includes("Files")) {
+            setDraggingFiles(true);
+        }
+    }
+
+    function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setDraggingFiles(false);
+        }
+    }
+
+    function handleDrop(event: DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        setDraggingFiles(false);
+        void handleUploadFiles(Array.from(event.dataTransfer.files ?? []));
     }
 
     function openCitationPanel(messageId: string) {
@@ -610,10 +675,16 @@ export function AskPage() {
     const contextCircleBackground = `conic-gradient(#1677ff 0 ${contextUsagePercent}%, rgba(22, 119, 255, 0.14) ${contextUsagePercent}% 100%)`;
 
     return (
-        <div className={`chat-workbench chat-workbench--single-column${focusModeEnabled ? " chat-workbench--focus-mode" : ""}`}>
+        <div
+            className={`chat-workbench chat-workbench--single-column${focusModeEnabled ? " chat-workbench--focus-mode" : ""}${draggingFiles ? " chat-workbench--dragging-files" : ""}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
             <div className="chat-workbench__main">
                 {transportError ? <Alert type="warning" showIcon className="chat-workbench__alert" message="对话工作台提示" description={transportError} /> : null}
                 {uploadError ? <Alert type="warning" showIcon className="chat-workbench__alert" message="附件上传提示" description={uploadError} /> : null}
+                {draggingFiles ? <Alert type="info" showIcon className="chat-workbench__alert" message="松开鼠标即可上传附件" description="文件会先解析成可检索片段，解析完成后才会进入本轮提问。" /> : null}
                 {knowledgeScope !== "public" && privateAttachments.length === 0 ? (
                     <Alert
                         type="info"
@@ -709,7 +780,30 @@ export function AskPage() {
                     {showComposerMeta ? (
                         <div className="chat-composer-dock__meta">
                             <Space size={8} wrap className="chat-composer-dock__chips">
-                                {uploadedAttachments.length > 0 ? <Tag color="green">附件 {uploadedAttachments.length}</Tag> : null}
+                                {uploadedAttachments.map((attachment) => (
+                                    <Popover key={attachment.file_id} trigger="click" content={<FileAttachmentPopover attachment={attachment} />}>
+                                        <Tag
+                                            closable={draftAttachedFileIds.includes(attachment.file_id)}
+                                            color={fileAttachmentStatusColor(attachment)}
+                                            onClose={(event) => {
+                                                event.preventDefault();
+                                                setDraftAttachedFileIds((current) => current.filter((fileId) => fileId !== attachment.file_id));
+                                            }}
+                                            onClick={() => {
+                                                if (isAttachmentReadyForAsk(attachment)) {
+                                                    setDraftAttachedFileIds((current) =>
+                                                        current.includes(attachment.file_id)
+                                                            ? current.filter((fileId) => fileId !== attachment.file_id)
+                                                            : [...current, attachment.file_id],
+                                                    );
+                                                }
+                                            }}
+                                        >
+                                            {attachment.filename} · {fileAttachmentStatusLabel(attachment)}
+                                        </Tag>
+                                    </Popover>
+                                ))}
+                                {parsedUploadedAttachments.length > 0 ? <Tag color="green">本轮文件 {draftAttachedFileIds.length}/{parsedUploadedAttachments.length}</Tag> : null}
                                 {privateAttachments.length > 0 ? <Tag color="magenta">知识条目 {privateAttachments.length}</Tag> : null}
                                 {currentStreamTag ? <Tag color={currentStreamTag.color}>{currentStreamTag.label}</Tag> : null}
                                 {uploading ? <Tag color="processing">正在上传附件</Tag> : null}
@@ -720,7 +814,8 @@ export function AskPage() {
                         ref={fileInputRef}
                         hidden
                         type="file"
-                        accept=".pdf,.doc,.docx,.txt,.md,.csv,.xls,.xlsx"
+                        multiple
+                        accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.html,.pptx,.png,.jpg,.jpeg"
                         onChange={handleUploadChange}
                     />
                 </div>
@@ -986,6 +1081,24 @@ interface CitationGroupProps {
     citations: AskCitation[];
 }
 
+function FileAttachmentPopover({ attachment }: { attachment: SessionAttachment }) {
+    const detailParts = [
+        attachment.page_count ? `${attachment.page_count} 页` : null,
+        attachment.sheet_count ? `${attachment.sheet_count} 个表` : null,
+        attachment.slide_count ? `${attachment.slide_count} 页幻灯片` : null,
+        attachment.chunk_count ? `${attachment.chunk_count} 个片段` : null,
+    ].filter(Boolean);
+    return (
+        <Space direction="vertical" size={6} className="chat-file-popover">
+            <Typography.Text strong>{attachment.filename}</Typography.Text>
+            <Tag color={fileAttachmentStatusColor(attachment)}>{fileAttachmentStatusLabel(attachment)}</Tag>
+            {detailParts.length ? <Typography.Text type="secondary">{detailParts.join(" · ")}</Typography.Text> : null}
+            {attachment.summary ? <Typography.Paragraph ellipsis={{ rows: 3 }}>{attachment.summary}</Typography.Paragraph> : null}
+            {attachment.error_message ? <Typography.Text type="danger">{attachment.error_message}</Typography.Text> : null}
+        </Space>
+    );
+}
+
 function CitationGroup({ citations }: CitationGroupProps) {
     return (
         <div className="chat-citation-group">
@@ -999,6 +1112,7 @@ function CitationGroup({ citations }: CitationGroupProps) {
                                 <Typography.Text strong>{citation.title}</Typography.Text>
                                 <Tag color={citationSourceColor(citation.source_type)}>{citationSourceLabel(citation.source_type)}</Tag>
                                 <Tag>{citation.source}</Tag>
+                                {citation.source_type === "private_upload" ? <Tag>{formatCitationLocator(citation)}</Tag> : null}
                                 <Typography.Text type="secondary">{citation.chunk_id}</Typography.Text>
                             </Space>
                             <Typography.Paragraph className="chat-citation-card__snippet" ellipsis={{ rows: 3, expandable: "collapsible", symbol: "展开" }}>
@@ -1117,6 +1231,98 @@ function getAttachedPrivateSampleIds(attachedFiles: SessionAttachment[]) {
         )
         .map((item) => item.knowledge_item_id ?? item.file_id)
         .filter((value): value is string => Boolean(value));
+}
+
+function dedupeUploadedAttachments(attachedFiles: SessionAttachment[]) {
+    const deduped = new Map<string, SessionAttachment>();
+    for (const item of attachedFiles) {
+        const existing = deduped.get(item.file_id);
+        if (!existing || (!existing.knowledge_item_id && item.knowledge_item_id)) {
+            deduped.set(item.file_id, item);
+        }
+    }
+    return [...deduped.values()];
+}
+
+function getReadyUploadedFileIds(attachedFiles: SessionAttachment[]) {
+    return dedupeUploadedAttachments(attachedFiles.filter((item) => item.source_type === "uploaded_file"))
+        .filter(isAttachmentReadyForAsk)
+        .map((item) => item.file_id);
+}
+
+function mergeReadyUploadedFileSelection(
+    currentFileIds: string[],
+    attachedFiles: SessionAttachment[],
+    previousReadyFileIds?: Set<string>,
+) {
+    const readyFileIds = getReadyUploadedFileIds(attachedFiles);
+    const readyFileIdSet = new Set(readyFileIds);
+    const nextFileIds = currentFileIds.filter((fileId) => readyFileIdSet.has(fileId));
+
+    for (const fileId of readyFileIds) {
+        const becameReadySinceLastPoll = !previousReadyFileIds || !previousReadyFileIds.has(fileId);
+        if (becameReadySinceLastPoll && !nextFileIds.includes(fileId)) {
+            nextFileIds.push(fileId);
+        }
+    }
+
+    return nextFileIds;
+}
+
+function isAttachmentReadyForAsk(attachment: SessionAttachment) {
+    return attachment.parse_status === "parsed" && attachment.index_status === "indexed";
+}
+
+function getPendingUploadSignature(attachments: SessionAttachment[]) {
+    const pendingUploads = attachments.filter((item) => ["uploaded", "pending", "queued", "running", "parsing"].includes(item.parse_status ?? ""));
+    if (!pendingUploads.length) {
+        return "";
+    }
+    return pendingUploads
+        .map((item) => `${item.file_id}:${item.parse_status ?? ""}:${item.index_status ?? ""}:${item.chunk_count ?? 0}`)
+        .sort()
+        .join("|");
+}
+
+function getReadyUploadSignature(attachments: SessionAttachment[]) {
+    return attachments
+        .filter(isAttachmentReadyForAsk)
+        .map((item) => item.file_id)
+        .sort()
+        .join("|");
+}
+
+function fileAttachmentStatusLabel(attachment: SessionAttachment) {
+    if (isAttachmentReadyForAsk(attachment)) {
+        return "可提问";
+    }
+    if (attachment.parse_status === "parse_failed" || attachment.index_status === "index_failed") {
+        return "解析失败";
+    }
+    if (["uploaded", "pending", "queued", "running", "parsing"].includes(attachment.parse_status ?? "")) {
+        return "解析中";
+    }
+    return "待处理";
+}
+
+function fileAttachmentStatusColor(attachment: SessionAttachment) {
+    if (isAttachmentReadyForAsk(attachment)) {
+        return "green";
+    }
+    if (attachment.parse_status === "parse_failed" || attachment.index_status === "index_failed") {
+        return "red";
+    }
+    return "processing";
+}
+
+function formatCitationLocator(citation: AskCitation) {
+    const parts = [
+        citation.page_number ? `p.${citation.page_number}` : null,
+        citation.sheet_name ? `sheet ${citation.sheet_name}` : null,
+        citation.slide_number ? `slide ${citation.slide_number}` : null,
+        citation.section_title ?? null,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" / ") : "文件片段";
 }
 
 function resolvePreferredCitationMessageId(detail: SessionDetail | null): string | null {

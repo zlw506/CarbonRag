@@ -1,7 +1,7 @@
 # API Boundary Draft
 
-Version: `V1.1.4`  
-Status: `AI chat polish + streaming foundation`
+Version: `V1.5.1`
+Status: `session file reading workbench`
 
 ## Global Rules
 - `GET /healthz` stays public.
@@ -178,6 +178,68 @@ Request:
 
 Notes:
 - ask may automatically compact older `user / assistant` messages into `session_summary`
+- `attached_file_ids` now searches parsed and indexed current-session uploads.
+- selected uploads are independent of `knowledge_scope`, so public ask can still cite explicitly selected files.
+- unparsed, failed, non-indexed, or cross-user files are not injected into context.
+
+`private_upload` citation shape:
+
+```json
+{
+  "source_type": "private_upload",
+  "file_id": "file_xxx",
+  "title": "电费账单.pdf",
+  "chunk_id": "chunk_xxx",
+  "page_number": 2,
+  "sheet_name": null,
+  "slide_number": null,
+  "section_title": "电量明细",
+  "snippet": "..."
+}
+```
+
+## Files
+
+### `POST /api/v1/files`
+
+- requires auth
+- uploads a file to a session owned by the current user
+- validates allowlisted extensions, MIME, size, session quota, and user quota
+- stores file under server-generated `<file_id>.<safe_ext>`
+- creates a personal knowledge item and parse/index task
+
+Response includes:
+
+```json
+{
+  "file_id": "file_xxx",
+  "session_id": "session_xxx",
+  "filename": "电费账单.pdf",
+  "size": 12345,
+  "mime_type": "application/pdf",
+  "stored_at": "string",
+  "stored_filename": "file_xxx.pdf",
+  "file_ext": ".pdf",
+  "sha256": "string",
+  "parse_status": "uploaded | parsing | parsed | parse_failed",
+  "parser_name": "docling | carbonrag-fallback | null",
+  "parser_version": "string | null",
+  "ocr_used": false,
+  "page_count": 12,
+  "sheet_count": null,
+  "slide_count": null,
+  "error_message": null,
+  "summary": "string | null",
+  "chunk_count": 8,
+  "knowledge_item_id": "file_xxx"
+}
+```
+
+### `GET /api/v1/files/{file_id}`
+
+- requires auth
+- returns upload, parse, index, summary, and error state for files owned by the current user
+- returns `404` for cross-user or missing files
 - automatic compaction never blocks the answer path; failure degrades to recent-window context
 - `memory_notes` are backend-only user notes read as a controlled context input, not a public memory UI
 
