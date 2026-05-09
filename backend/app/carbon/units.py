@@ -42,6 +42,15 @@ class UnitConverter:
     ) -> tuple[float, CarbonUnitConversionTrace]:
         normalized_from = self._canonical(from_unit)
         normalized_to = self._canonical(to_unit)
+        if normalized_from == normalized_to:
+            return round(float(value), 6), CarbonUnitConversionTrace(
+                activity_name=activity_name,
+                input_value=round(float(value), 6),
+                input_unit=from_unit,
+                normalized_value=round(float(value), 6),
+                normalized_unit=normalized_to,
+                conversion_factor=1.0,
+            )
         key = (normalized_from, normalized_to)
         if key not in self._CONVERSIONS:
             raise ValueError(f"Unsupported unit conversion: {from_unit} -> {to_unit}")
