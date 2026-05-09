@@ -1222,6 +1222,44 @@ body {
     border-radius: 999px;
 }
 
+.chat-session-files {
+    align-self: flex-start;
+    max-width: min(760px, 100%);
+    margin: 4px 0 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--cr-border);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--cr-surface-strong) 86%, transparent);
+    box-shadow: var(--cr-shadow-soft);
+}
+
+.chat-session-files__header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.chat-session-files__chips {
+    max-width: 100%;
+}
+
+.chat-session-files__tag {
+    max-width: min(560px, 80vw);
+    padding: 5px 9px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.chat-session-files__tag .ant-tag-close-icon {
+    margin-left: 6px;
+}
+
+.chat-session-files__tag--selected {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--cr-primary) 14%, transparent);
+}
+
 .chat-file-popover {
     max-width: 320px;
 }

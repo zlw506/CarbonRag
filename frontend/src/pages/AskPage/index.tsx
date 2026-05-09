@@ -105,6 +105,7 @@ export function AskPage() {
     const [privateSampleDrawerOpen, setPrivateSampleDrawerOpen] = useState(false);
     const [draftAttachedDocIds, setDraftAttachedDocIds] = useState<string[]>([]);
     const [draftAttachedFileIds, setDraftAttachedFileIds] = useState<string[]>([]);
+    const [dismissedUploadedFileIds, setDismissedUploadedFileIds] = useState<string[]>([]);
     const [savingAttachedSamples, setSavingAttachedSamples] = useState(false);
     const [loadingPrivateSamples, setLoadingPrivateSamples] = useState(true);
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
@@ -131,7 +132,10 @@ export function AskPage() {
     const selectedCitationMessage = visibleMessages.find((message) => message.message_id === selectedCitationMessageId) ?? null;
     const citationGroups = groupCitationsBySource(selectedCitationMessage?.citations ?? []);
     const uploadedAttachments = dedupeUploadedAttachments(activeSession?.attached_files.filter((item) => item.source_type === "uploaded_file") ?? []);
-    const parsedUploadedAttachments = uploadedAttachments.filter((item) => isAttachmentReadyForAsk(item));
+    const dismissedUploadedFileIdSet = useMemo(() => new Set(dismissedUploadedFileIds), [dismissedUploadedFileIds]);
+    const visibleUploadedAttachments = uploadedAttachments.filter((item) => !dismissedUploadedFileIdSet.has(item.file_id));
+    const parsedUploadedAttachments = visibleUploadedAttachments.filter((item) => isAttachmentReadyForAsk(item));
+    const selectedUploadedAttachments = parsedUploadedAttachments.filter((item) => draftAttachedFileIds.includes(item.file_id));
     const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
     const pendingUploadSignature = getPendingUploadSignature(uploadedAttachments);
     const readyUploadSignature = getReadyUploadSignature(uploadedAttachments);
@@ -161,6 +165,7 @@ export function AskPage() {
         replaceStreamDraft(null);
         replaceStreamMemoryState(null);
         replaceStreamContextSource(null);
+        setDismissedUploadedFileIds([]);
         shouldAutoFollowMessageStreamRef.current = true;
         void loadSessionDetail(activeSessionId);
     }, [activeSessionId]);
@@ -191,7 +196,7 @@ export function AskPage() {
             });
         }, 2500);
         return () => window.clearInterval(timer);
-    }, [activeSessionId, pendingUploadSignature, readyUploadSignature]);
+    }, [activeSessionId, pendingUploadSignature, readyUploadSignature, dismissedUploadedFileIds]);
 
     useEffect(() => {
         const container = messageStreamRef.current;
@@ -229,9 +234,11 @@ export function AskPage() {
             if (!options.preserveDraftSelections) {
                 setKnowledgeScope(detail.knowledge_scope_last_used ?? "public");
                 setDraftAttachedDocIds(getAttachedPrivateSampleIds(detail.attached_files));
-                setDraftAttachedFileIds(getReadyUploadedFileIds(detail.attached_files));
+                setDraftAttachedFileIds([]);
             } else {
-                setDraftAttachedFileIds((current) => mergeReadyUploadedFileSelection(current, detail.attached_files, options.previousReadyFileIds));
+                setDraftAttachedFileIds((current) =>
+                    mergeReadyUploadedFileSelection(current, detail.attached_files, options.previousReadyFileIds, dismissedUploadedFileIdSet),
+                );
             }
             if (!options.silent) {
                 setSelectedCitationMessageId(resolvePreferredCitationMessageId(detail));
@@ -443,6 +450,7 @@ export function AskPage() {
             commitDraftToActiveSession(activeSessionId, knowledgeScope);
             committedLocally = true;
             replaceStreamDraft(null);
+            setDraftAttachedFileIds([]);
 
             const sessionList = await refreshSessions(activeSessionId);
             syncActiveSessionSummaryFromList(sessionList ?? [], activeSessionId);
@@ -468,6 +476,11 @@ export function AskPage() {
                 replaceStreamDraft(null);
             }
         }
+    }
+
+    function dismissUploadedAttachment(fileId: string) {
+        setDismissedUploadedFileIds((current) => (current.includes(fileId) ? current : [...current, fileId]));
+        setDraftAttachedFileIds((current) => current.filter((currentFileId) => currentFileId !== fileId));
     }
 
     async function handleUploadChange(event: ChangeEvent<HTMLInputElement>) {
@@ -671,7 +684,11 @@ export function AskPage() {
         </div>
     );
 
-    const showComposerMeta = uploadedAttachments.length > 0 || privateAttachments.length > 0 || Boolean(currentStreamTag) || uploading;
+    const showComposerMeta =
+        selectedUploadedAttachments.length > 0 ||
+        privateAttachments.length > 0 ||
+        Boolean(currentStreamTag) ||
+        uploading;
     const contextCircleBackground = `conic-gradient(#1677ff 0 ${contextUsagePercent}%, rgba(22, 119, 255, 0.14) ${contextUsagePercent}% 100%)`;
 
     return (
@@ -751,6 +768,23 @@ export function AskPage() {
                                         />
                                     ))
                                 )}
+                                {visibleUploadedAttachments.length > 0 ? (
+                                    <SessionFileShelf
+                                        attachments={visibleUploadedAttachments}
+                                        selectedFileIds={draftAttachedFileIds}
+                                        onToggle={(attachment) => {
+                                            if (!isAttachmentReadyForAsk(attachment)) {
+                                                return;
+                                            }
+                                            setDraftAttachedFileIds((current) =>
+                                                current.includes(attachment.file_id)
+                                                    ? current.filter((fileId) => fileId !== attachment.file_id)
+                                                    : [...current, attachment.file_id],
+                                            );
+                                        }}
+                                        onDismiss={dismissUploadedAttachment}
+                                    />
+                                ) : null}
                             </div>
                         </>
                     ) : (
@@ -780,30 +814,31 @@ export function AskPage() {
                     {showComposerMeta ? (
                         <div className="chat-composer-dock__meta">
                             <Space size={8} wrap className="chat-composer-dock__chips">
-                                {uploadedAttachments.map((attachment) => (
-                                    <Popover key={attachment.file_id} trigger="click" content={<FileAttachmentPopover attachment={attachment} />}>
-                                        <Tag
-                                            closable={draftAttachedFileIds.includes(attachment.file_id)}
-                                            color={fileAttachmentStatusColor(attachment)}
-                                            onClose={(event) => {
-                                                event.preventDefault();
-                                                setDraftAttachedFileIds((current) => current.filter((fileId) => fileId !== attachment.file_id));
-                                            }}
-                                            onClick={() => {
-                                                if (isAttachmentReadyForAsk(attachment)) {
-                                                    setDraftAttachedFileIds((current) =>
-                                                        current.includes(attachment.file_id)
-                                                            ? current.filter((fileId) => fileId !== attachment.file_id)
-                                                            : [...current, attachment.file_id],
-                                                    );
-                                                }
-                                            }}
-                                        >
-                                            {attachment.filename} · {fileAttachmentStatusLabel(attachment)}
-                                        </Tag>
+                                {selectedUploadedAttachments.length > 0 ? (
+                                    <Popover
+                                        trigger="click"
+                                        content={
+                                            <Space direction="vertical" size={6} className="chat-file-popover">
+                                                <Typography.Text strong>本轮将读取这些文件</Typography.Text>
+                                                {selectedUploadedAttachments.map((attachment) => (
+                                                    <Tag
+                                                        key={attachment.file_id}
+                                                        closable
+                                                        color="green"
+                                                        onClose={(event) => {
+                                                            event.preventDefault();
+                                                            setDraftAttachedFileIds((current) => current.filter((fileId) => fileId !== attachment.file_id));
+                                                        }}
+                                                    >
+                                                        {attachment.filename}
+                                                    </Tag>
+                                                ))}
+                                            </Space>
+                                        }
+                                    >
+                                        <Tag color="green">本轮文件 {selectedUploadedAttachments.length}/{parsedUploadedAttachments.length}</Tag>
                                     </Popover>
-                                ))}
-                                {parsedUploadedAttachments.length > 0 ? <Tag color="green">本轮文件 {draftAttachedFileIds.length}/{parsedUploadedAttachments.length}</Tag> : null}
+                                ) : null}
                                 {privateAttachments.length > 0 ? <Tag color="magenta">知识条目 {privateAttachments.length}</Tag> : null}
                                 {currentStreamTag ? <Tag color={currentStreamTag.color}>{currentStreamTag.label}</Tag> : null}
                                 {uploading ? <Tag color="processing">正在上传附件</Tag> : null}
@@ -914,6 +949,51 @@ interface MessageBubbleProps {
     activeCitation: boolean;
     expandThinkingByDefault: boolean;
     onSelectCitations: () => void;
+}
+
+interface SessionFileShelfProps {
+    attachments: SessionAttachment[];
+    selectedFileIds: string[];
+    onToggle: (attachment: SessionAttachment) => void;
+    onDismiss: (fileId: string) => void;
+}
+
+function SessionFileShelf({ attachments, selectedFileIds, onToggle, onDismiss }: SessionFileShelfProps) {
+    return (
+        <div className="chat-session-files">
+            <div className="chat-session-files__header">
+                <Typography.Text strong>会话文件</Typography.Text>
+                <Typography.Text type="secondary">文件留在消息流里；点选后只会加入本轮提问。</Typography.Text>
+            </div>
+            <Space size={8} wrap className="chat-session-files__chips">
+                {attachments.map((attachment) => {
+                    const ready = isAttachmentReadyForAsk(attachment);
+                    const selected = selectedFileIds.includes(attachment.file_id);
+                    return (
+                        <Popover key={attachment.file_id} trigger="click" content={<FileAttachmentPopover attachment={attachment} />}>
+                            <Tag
+                                className={selected ? "chat-session-files__tag chat-session-files__tag--selected" : "chat-session-files__tag"}
+                                closable
+                                color={selected ? "green" : fileAttachmentStatusColor(attachment)}
+                                onClose={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onDismiss(attachment.file_id);
+                                }}
+                                onClick={() => {
+                                    if (ready) {
+                                        onToggle(attachment);
+                                    }
+                                }}
+                            >
+                                {attachment.filename} · {selected ? "本轮读取" : fileAttachmentStatusLabel(attachment)}
+                            </Tag>
+                        </Popover>
+                    );
+                })}
+            </Space>
+        </div>
+    );
 }
 
 function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDefault, onSelectCitations }: MessageBubbleProps) {
@@ -1254,8 +1334,9 @@ function mergeReadyUploadedFileSelection(
     currentFileIds: string[],
     attachedFiles: SessionAttachment[],
     previousReadyFileIds?: Set<string>,
+    dismissedFileIds?: Set<string>,
 ) {
-    const readyFileIds = getReadyUploadedFileIds(attachedFiles);
+    const readyFileIds = getReadyUploadedFileIds(attachedFiles).filter((fileId) => !dismissedFileIds?.has(fileId));
     const readyFileIdSet = new Set(readyFileIds);
     const nextFileIds = currentFileIds.filter((fileId) => readyFileIdSet.has(fileId));
 
