@@ -251,6 +251,16 @@ def run_stream_worker(
         )
         return
 
+    previous_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=stream_session.session_id)
+    previous_title = previous_session.title if previous_session else ""
+    updated_summary = session_service.maybe_generate_title_on_user_turn(
+        owner_user_id=current_user.user_id,
+        session_id=stream_session.session_id,
+        enabled=user_settings.chat.auto_generate_title_for_new_session,
+        chat_provider=chat_provider,
+    )
+    title_updated = bool(updated_summary and updated_summary.title != previous_title)
+
     stream_session.append(
         event="message_start",
         data={
@@ -258,6 +268,8 @@ def run_stream_worker(
             "user_message_id": stream_session.user_message_id,
             "assistant_message_id": stream_session.assistant_message_id,
             "request_group_id": stream_session.request_group_id,
+            "title_updated": title_updated,
+            "session_title": updated_summary.title if updated_summary else previous_title,
         },
     )
 
@@ -381,15 +393,6 @@ def run_stream_worker(
                 source_summary=source_summary,
                 thinking_content=thinking_content,
             )
-            previous_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=stream_session.session_id)
-            previous_title = previous_session.title if previous_session else ""
-            updated_summary = session_service.maybe_promote_title_after_success(
-                owner_user_id=current_user.user_id,
-                session_id=stream_session.session_id,
-                enabled=user_settings.chat.auto_generate_title_for_new_session,
-                chat_provider=chat_provider,
-            )
-            title_updated = bool(updated_summary and updated_summary.title != previous_title)
             refreshed_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=stream_session.session_id)
             memory_state = refreshed_session.memory_state.model_dump(mode="json") if refreshed_session and refreshed_session.memory_state else None
             context_source = {
@@ -411,7 +414,7 @@ def run_stream_worker(
                 "context_source": context_source,
                 "request_group_id": stream_session.request_group_id,
                 "provider_ref": stream_session.provider_ref,
-                "title_updated": title_updated,
+                "title_updated": False,
             }
             stream_session.append(event="metadata", data=metadata_payload)
             stream_session.append(
@@ -486,19 +489,35 @@ def get_session(
 
 
 @router.patch("/{session_id}", response_model=SessionSummary)
-def update_session_title(
+def update_session(
     session_id: str,
     payload: UpdateSessionRequest,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> SessionSummary:
-    session = get_session_service().update_session_title(
+    if payload.title is None and payload.is_pinned is None:
+        raise HTTPException(status_code=422, detail="至少需要提供 title 或 is_pinned。")
+    session = get_session_service().update_session(
         owner_user_id=current_user.user_id,
         session_id=session_id,
         title=payload.title,
+        is_pinned=payload.is_pinned,
     )
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found.")
     return session
+
+
+@router.delete("/{session_id}", status_code=204)
+def delete_session(
+    session_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> None:
+    deleted = get_session_service().delete_session(
+        owner_user_id=current_user.user_id,
+        session_id=session_id,
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found.")
 
 
 @router.post("/{session_id}/ask", response_model=AskResponse)
@@ -518,12 +537,25 @@ def ask_in_session(
     if validation_error is not None:
         return validation_error
 
+    assistant_message_id: str | None = None
     try:
         settings_service = get_settings_service()
         user_settings = settings_service.get_user_settings(owner_user_id=current_user.user_id)
         _, chat_provider = settings_service.build_chat_provider(
             owner_user_id=current_user.user_id,
             provider_override=payload.provider_override,
+        )
+        _, assistant_placeholder = session_service.begin_exchange(
+            owner_user_id=current_user.user_id,
+            session_id=session_id,
+            user_content=chat_request.user_input,
+        )
+        assistant_message_id = assistant_placeholder.message_id
+        session_service.maybe_generate_title_on_user_turn(
+            owner_user_id=current_user.user_id,
+            session_id=session_id,
+            enabled=user_settings.chat.auto_generate_title_for_new_session,
+            chat_provider=chat_provider,
         )
         result = AIRuntimeOrchestrator(chat_provider=chat_provider).run(chat_request)
     except SettingsValidationError as exc:
@@ -535,17 +567,30 @@ def ask_in_session(
         )
     except Exception:
         source_summary = empty_source_summary(requested_scope)
-        session_service.record_exchange(
-            owner_user_id=current_user.user_id,
-            session_id=session_id,
-            user_content=chat_request.user_input,
-            assistant_content="当前问答服务暂不可用，请稍后重试。",
-            assistant_status="provider_error",
-            trace_id=chat_request.trace_id,
-            citations=[],
-            knowledge_scope=requested_scope,
-            source_summary=source_summary,
-        )
+        if assistant_message_id is not None:
+            session_service.finalize_exchange(
+                owner_user_id=current_user.user_id,
+                session_id=session_id,
+                assistant_message_id=assistant_message_id,
+                assistant_content="当前问答服务暂不可用，请稍后重试。",
+                assistant_status="provider_error",
+                trace_id=chat_request.trace_id,
+                citations=[],
+                knowledge_scope=requested_scope,
+                source_summary=source_summary,
+            )
+        else:
+            session_service.record_exchange(
+                owner_user_id=current_user.user_id,
+                session_id=session_id,
+                user_content=chat_request.user_input,
+                assistant_content="当前问答服务暂不可用，请稍后重试。",
+                assistant_status="provider_error",
+                trace_id=chat_request.trace_id,
+                citations=[],
+                knowledge_scope=requested_scope,
+                source_summary=source_summary,
+            )
         return build_error_response(
             status_code=502,
             answer="当前问答服务暂不可用，请稍后重试。",
@@ -555,10 +600,12 @@ def ask_in_session(
 
     citations = [AskCitation.model_validate(citation) for citation in result.citations]
     source_summary = AskSourceSummary.model_validate(result.source_summary)
-    session_service.record_exchange(
+    if assistant_message_id is None:
+        raise HTTPException(status_code=500, detail="Assistant placeholder was not created.")
+    session_service.finalize_exchange(
         owner_user_id=current_user.user_id,
         session_id=session_id,
-        user_content=chat_request.user_input,
+        assistant_message_id=assistant_message_id,
         assistant_content=result.response.answer,
         assistant_status=resolve_final_message_status(result.status),
         trace_id=result.trace_id,
@@ -566,13 +613,6 @@ def ask_in_session(
         knowledge_scope=source_summary.knowledge_scope,
         source_summary=source_summary,
     )
-    if result.status == "ok":
-        session_service.maybe_promote_title_after_success(
-            owner_user_id=current_user.user_id,
-            session_id=session_id,
-            enabled=user_settings.chat.auto_generate_title_for_new_session,
-            chat_provider=chat_provider,
-        )
 
     response = AskResponse(
         answer=result.response.answer,

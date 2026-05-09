@@ -89,6 +89,35 @@ class SessionService:
             updated_at=utcnow().isoformat(),
         )
 
+    def update_session(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        title: str | None = None,
+        is_pinned: bool | None = None,
+    ) -> SessionSummary | None:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
+        updated: SessionSummary | None = self.get_session(owner_user_id=owner_user_id, session_id=session_id)
+        if title is not None:
+            updated = self.store.update_session_title(
+                session_id=session_id,
+                title=title,
+                updated_at=utcnow().isoformat(),
+            )
+        if is_pinned is not None:
+            updated = self.store.update_session_pin(
+                session_id=session_id,
+                is_pinned=is_pinned,
+                pinned_at=utcnow().isoformat() if is_pinned else None,
+                updated_at=utcnow().isoformat(),
+            )
+        return updated
+
+    def delete_session(self, *, owner_user_id: str, session_id: str) -> bool:
+        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
+        return self.store.delete_session(owner_user_id=owner_user_id, session_id=session_id)
+
     def build_session_context(
         self,
         *,
@@ -238,6 +267,59 @@ class SessionService:
             return session
         return self.update_session_title(owner_user_id=owner_user_id, session_id=session_id, title=promoted)
 
+    def maybe_generate_title_on_user_turn(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        enabled: bool = True,
+        chat_provider: BaseChatProvider | None = None,
+    ) -> SessionSummary | None:
+        if not enabled:
+            return self.get_session(owner_user_id=owner_user_id, session_id=session_id)
+
+        session = self.get_session(owner_user_id=owner_user_id, session_id=session_id)
+        if session is None:
+            return None
+
+        user_messages = [
+            message.content.strip()
+            for message in session.messages
+            if message.role == "user" and message.content.strip()
+        ]
+        user_turn_count = len(user_messages)
+        if user_turn_count == 0 or user_turn_count > 2:
+            return session
+
+        if user_turn_count == 1:
+            title_context = f"第 1 次用户发送：{user_messages[0]}"
+            promoted = self._build_auto_title_from_context(
+                title_context,
+                fallback_user_messages=user_messages,
+                chat_provider=chat_provider,
+                phase="first_user_turn",
+            )
+        else:
+            valid_exchanges = self._collect_valid_title_exchanges(session.messages)
+            context_lines: list[str] = []
+            if valid_exchanges:
+                first_question, first_answer = valid_exchanges[0]
+                context_lines.append(f"第 1 轮用户：{first_question}")
+                context_lines.append(f"第 1 轮助手：{first_answer}")
+            else:
+                context_lines.append(f"第 1 次用户发送：{user_messages[0]}")
+            context_lines.append(f"第 2 次用户发送：{user_messages[1]}")
+            promoted = self._build_auto_title_from_context(
+                "\n".join(context_lines),
+                fallback_user_messages=user_messages[:2],
+                chat_provider=chat_provider,
+                phase="second_user_turn_refine",
+            )
+
+        if not promoted or promoted == session.title:
+            return session
+        return self.update_session_title(owner_user_id=owner_user_id, session_id=session_id, title=promoted)
+
     def maybe_promote_title_from_first_question(
         self,
         *,
@@ -307,6 +389,50 @@ class SessionService:
 
         user_messages = [question for question, _ in exchanges]
         return cls._build_auto_title_from_user_messages(user_messages)
+
+    @classmethod
+    def _build_auto_title_from_context(
+        cls,
+        title_context: str,
+        *,
+        fallback_user_messages: list[str],
+        chat_provider: BaseChatProvider | None,
+        phase: str,
+    ) -> str:
+        if chat_provider is not None:
+            title = cls._generate_auto_title_from_context(
+                title_context,
+                chat_provider=chat_provider,
+                phase=phase,
+            )
+            if title:
+                return title
+        return cls._build_auto_title_from_user_messages(fallback_user_messages)
+
+    @staticmethod
+    def _generate_auto_title_from_context(
+        title_context: str,
+        *,
+        chat_provider: BaseChatProvider,
+        phase: str,
+    ) -> str | None:
+        if phase == "first_user_turn":
+            instruction = "请根据新会话的第一次用户发送，先生成一个临时中文短标题。"
+        else:
+            instruction = "请根据第一轮有效问答和第二次用户发送，修正为更准确的中文短标题。"
+        try:
+            result = chat_provider.generate_response(
+                system_prompt=(
+                    "你是 CarbonRag 的会话标题生成器。"
+                    f"{instruction}"
+                    "只输出标题本身，不要解释，不要加引号，不要超过 18 个汉字或 24 个英文字符。"
+                ),
+                user_input=title_context,
+            )
+        except Exception:
+            return None
+
+        return _sanitize_auto_title(result.content)
 
     @staticmethod
     def _generate_auto_title_with_provider(

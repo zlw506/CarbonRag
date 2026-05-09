@@ -65,6 +65,8 @@ export interface AskStreamMessageStartEvent {
     assistant_message_id?: string | null;
     trace_id?: string | null;
     request_group_id?: string | null;
+    title_updated?: boolean | null;
+    session_title?: string | null;
     event_seq?: number | null;
 }
 

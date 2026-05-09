@@ -67,6 +67,8 @@ class SessionSummary(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+    is_pinned: bool = False
+    pinned_at: datetime | None = None
     message_count: int = 0
     file_count: int = 0
     attached_private_sample_count: int = 0
@@ -99,11 +101,14 @@ class CreateSessionRequest(BaseModel):
 class UpdateSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str
+    title: str | None = None
+    is_pinned: bool | None = None
 
     @field_validator("title")
     @classmethod
-    def require_non_empty_title(cls, value: str) -> str:
+    def require_non_empty_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip()
         if not normalized:
             raise ValueError("会话标题不能为空。")

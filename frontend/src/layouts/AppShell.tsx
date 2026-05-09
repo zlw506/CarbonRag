@@ -9,7 +9,7 @@ import {
     SearchOutlined,
     SettingOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Layout, Menu, Popover, Space, Tag, Typography } from "antd";
+import { Avatar, Button, Input, Layout, Menu, Modal, Popover, Space, Tag, Typography, message } from "antd";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
@@ -17,7 +17,7 @@ import { useSettings } from "../app/SettingsContext";
 import { SessionRail, useResponsiveSessionRail } from "../components/SessionRail";
 import env from "../app/env";
 import { ADMIN_NAV_ITEM, getNavigationItems } from "../constants/navigation";
-import { createSession, listSessions } from "../services/sessions";
+import { createSession, deleteSession, listSessions, updateSession } from "../services/sessions";
 import type { SessionSummary } from "../types/session";
 import type { WorkbenchShellContextValue } from "./WorkbenchShellContext";
 
@@ -43,6 +43,9 @@ export function AppShell() {
     const [loadingSessions, setLoadingSessions] = useState(true);
     const [sessionRailError, setSessionRailError] = useState<string | null>(null);
     const [sessionRailCollapsed, setSessionRailCollapsed] = useResponsiveSessionRail();
+    const [renameTarget, setRenameTarget] = useState<SessionSummary | null>(null);
+    const [renameDraft, setRenameDraft] = useState("");
+    const [sessionActionLoading, setSessionActionLoading] = useState(false);
 
     if (!user) {
         return null;
@@ -166,6 +169,66 @@ export function AppShell() {
         setSessionRailCollapsed((current) => !current);
     }
 
+    function handleRequestRenameSession(session: SessionSummary) {
+        setRenameTarget(session);
+        setRenameDraft(session.title);
+    }
+
+    async function handleConfirmRenameSession() {
+        if (!renameTarget) {
+            return;
+        }
+        const nextTitle = renameDraft.trim();
+        if (!nextTitle) {
+            setSessionRailError("会话标题不能为空。");
+            return;
+        }
+        setSessionActionLoading(true);
+        try {
+            const updated = await updateSession(renameTarget.session_id, { title: nextTitle });
+            setRenameTarget(null);
+            setRenameDraft("");
+            await refreshSessions(updated.session_id);
+        } catch {
+            setSessionRailError("当前无法重命名会话。");
+        } finally {
+            setSessionActionLoading(false);
+        }
+    }
+
+    async function handleTogglePinSession(session: SessionSummary) {
+        try {
+            const updated = await updateSession(session.session_id, { is_pinned: !session.is_pinned });
+            await refreshSessions(updated.session_id);
+        } catch {
+            setSessionRailError("当前无法更新会话置顶状态。");
+        }
+    }
+
+    function handleDeleteSession(session: SessionSummary) {
+        Modal.confirm({
+            title: "删除这个会话？",
+            content: `“${session.title}” 删除后不可恢复。`,
+            okText: "删除",
+            okButtonProps: { danger: true },
+            cancelText: "取消",
+            async onOk() {
+                try {
+                    await deleteSession(session.session_id);
+                    const remaining = await refreshSessions(
+                        activeSessionId === session.session_id ? null : activeSessionId,
+                    );
+                    if (!remaining.length) {
+                        message.info("当前没有会话，已准备创建新对话。");
+                    }
+                } catch {
+                    setSessionRailError("当前无法删除会话。");
+                    throw new Error("delete session failed");
+                }
+            },
+        });
+    }
+
     const outletContext: WorkbenchShellContextValue = {
         sessions,
         activeSessionId,
@@ -255,6 +318,9 @@ export function AppShell() {
                         onCreateSession={() => void handleCreateSession()}
                         onSelectSession={handleSelectSession}
                         onToggleCollapsed={handleToggleSessionRail}
+                        onRenameSession={handleRequestRenameSession}
+                        onTogglePinSession={(session) => void handleTogglePinSession(session)}
+                        onDeleteSession={handleDeleteSession}
                     />
                 </div>
                 <div className="app-shell__sider-footer">
@@ -307,6 +373,29 @@ export function AppShell() {
                     <Outlet context={outletContext} />
                 </Content>
             </Layout>
+            <Modal
+                title="重命名会话"
+                open={Boolean(renameTarget)}
+                okText="保存"
+                cancelText="取消"
+                confirmLoading={sessionActionLoading}
+                onOk={() => void handleConfirmRenameSession()}
+                onCancel={() => {
+                    if (!sessionActionLoading) {
+                        setRenameTarget(null);
+                        setRenameDraft("");
+                    }
+                }}
+            >
+                <Input
+                    value={renameDraft}
+                    maxLength={48}
+                    autoFocus
+                    placeholder="输入新的会话标题"
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onPressEnter={() => void handleConfirmRenameSession()}
+                />
+            </Modal>
         </Layout>
     );
 }

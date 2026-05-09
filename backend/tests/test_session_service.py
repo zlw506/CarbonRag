@@ -70,15 +70,28 @@ def test_session_service_creates_default_title_and_builds_context(tmp_path) -> N
     assert session_context["compaction_status"] in {"idle", "compacted"}
 
 
-def test_session_service_generates_title_from_first_two_valid_exchanges(tmp_path) -> None:
+def test_session_service_generates_title_on_first_send_and_refines_on_second_send(tmp_path) -> None:
     service = build_session_service(tmp_path)
     owner_user_id = create_test_user_id(tmp_path / "carbonrag.sqlite3", prefix="session-title")
     session = service.create_session(owner_user_id=owner_user_id)
 
-    service.record_exchange(
+    _, first_assistant = service.begin_exchange(
         owner_user_id=owner_user_id,
         session_id=session.session_id,
         user_content="What is the dual-carbon target and what does it mean for enterprises?",
+    )
+    after_first = service.maybe_generate_title_on_user_turn(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        chat_provider=FakeMemoryChatProvider(),
+    )
+    assert after_first is not None
+    assert after_first.title == "双碳目标与企业转型"
+
+    service.finalize_exchange(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        assistant_message_id=first_assistant.message_id,
         assistant_content="Answer body",
         assistant_status="ok",
         trace_id="trace-001",
@@ -94,24 +107,12 @@ def test_session_service_generates_title_from_first_two_valid_exchanges(tmp_path
             )
         ],
     )
-    after_first = service.maybe_promote_title_after_success(
-        owner_user_id=owner_user_id,
-        session_id=session.session_id,
-        chat_provider=FakeMemoryChatProvider(),
-    )
-    assert after_first is not None
-    assert after_first.title == session.title
-
-    service.record_exchange(
+    service.begin_exchange(
         owner_user_id=owner_user_id,
         session_id=session.session_id,
         user_content="企业应该怎样制定低碳转型计划？",
-        assistant_content="企业应先盘查排放边界，再制定分阶段减排计划。",
-        assistant_status="ok",
-        trace_id="trace-002",
-        citations=[],
     )
-    updated = service.maybe_promote_title_after_success(
+    updated = service.maybe_generate_title_on_user_turn(
         owner_user_id=owner_user_id,
         session_id=session.session_id,
         chat_provider=FakeMemoryChatProvider(),
@@ -127,32 +128,51 @@ def test_session_service_title_ignores_failed_assistant_reply(tmp_path) -> None:
     owner_user_id = create_test_user_id(tmp_path / "carbonrag.sqlite3", prefix="session-title-failed")
     session = service.create_session(owner_user_id=owner_user_id)
 
-    service.record_exchange(
+    _, first_assistant = service.begin_exchange(
         owner_user_id=owner_user_id,
         session_id=session.session_id,
         user_content="第一轮问题",
+    )
+    service.finalize_exchange(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        assistant_message_id=first_assistant.message_id,
         assistant_content="服务暂不可用",
         assistant_status="provider_error",
         trace_id="trace-error",
         citations=[],
     )
-    service.record_exchange(
+    service.begin_exchange(
         owner_user_id=owner_user_id,
         session_id=session.session_id,
         user_content="第二轮问题",
-        assistant_content="这是有效回复。",
-        assistant_status="ok",
-        trace_id="trace-ok",
-        citations=[],
     )
-    updated = service.maybe_promote_title_after_success(
+    updated = service.maybe_generate_title_on_user_turn(
         owner_user_id=owner_user_id,
         session_id=session.session_id,
-        chat_provider=FakeMemoryChatProvider(),
+        chat_provider=None,
     )
 
     assert updated is not None
-    assert updated.title == session.title
+    assert updated.title == "第一轮问题 第二轮问题"
+
+
+def test_session_service_supports_pin_and_delete_controls(tmp_path) -> None:
+    service = build_session_service(tmp_path)
+    owner_user_id = create_test_user_id(tmp_path / "carbonrag.sqlite3", prefix="session-controls")
+    session = service.create_session(owner_user_id=owner_user_id)
+
+    pinned = service.update_session(owner_user_id=owner_user_id, session_id=session.session_id, is_pinned=True)
+    assert pinned is not None
+    assert pinned.is_pinned is True
+    assert pinned.pinned_at is not None
+
+    renamed = service.update_session(owner_user_id=owner_user_id, session_id=session.session_id, title="手动重命名")
+    assert renamed is not None
+    assert renamed.title == "手动重命名"
+
+    assert service.delete_session(owner_user_id=owner_user_id, session_id=session.session_id) is True
+    assert service.get_session(owner_user_id=owner_user_id, session_id=session.session_id) is None
 
 
 def test_session_service_begin_and_finalize_exchange_updates_placeholder(tmp_path) -> None:

@@ -60,6 +60,8 @@ class SQLiteSessionStore(SessionStore):
                     s.title,
                     s.created_at,
                     s.updated_at,
+                    COALESCE(s.is_pinned, 0) AS is_pinned,
+                    s.pinned_at,
                     COALESCE(m.message_count, 0) AS message_count,
                     COALESCE(f.file_count, 0) AS file_count,
                     COALESCE(k.attached_knowledge_item_count, 0) + COALESCE(p.private_sample_count, 0) AS attached_private_sample_count,
@@ -86,7 +88,7 @@ class SQLiteSessionStore(SessionStore):
                     GROUP BY session_id
                 ) p ON p.session_id = s.session_id
                 WHERE s.owner_user_id = ?
-                ORDER BY s.updated_at DESC, s.created_at DESC
+                ORDER BY COALESCE(s.is_pinned, 0) DESC, COALESCE(s.pinned_at, '') DESC, s.updated_at DESC, s.created_at DESC
                 """,
                 (owner_user_id,),
             ).fetchall()
@@ -204,6 +206,39 @@ class SQLiteSessionStore(SessionStore):
             if cursor.rowcount == 0 or owner_row is None:
                 return None
         return self._get_session_summary(owner_user_id=owner_row["owner_user_id"], session_id=session_id)
+
+    def update_session_pin(
+        self,
+        *,
+        session_id: str,
+        is_pinned: bool,
+        pinned_at: str | None,
+        updated_at: str,
+    ) -> SessionSummary | None:
+        with self._connect() as connection:
+            owner_row = connection.execute(
+                "SELECT owner_user_id FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            cursor = connection.execute(
+                """
+                UPDATE sessions
+                SET is_pinned = ?, pinned_at = ?, updated_at = ?
+                WHERE session_id = ?
+                """,
+                (1 if is_pinned else 0, pinned_at, updated_at, session_id),
+            )
+            if cursor.rowcount == 0 or owner_row is None:
+                return None
+        return self._get_session_summary(owner_user_id=owner_row["owner_user_id"], session_id=session_id)
+
+    def delete_session(self, *, owner_user_id: str, session_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM sessions WHERE session_id = ? AND owner_user_id = ?",
+                (session_id, owner_user_id),
+            )
+            return cursor.rowcount > 0
 
     def update_session_runtime_state(
         self,
@@ -487,6 +522,8 @@ class SQLiteSessionStore(SessionStore):
                     s.title,
                     s.created_at,
                     s.updated_at,
+                    COALESCE(s.is_pinned, 0) AS is_pinned,
+                    s.pinned_at,
                     COALESCE(m.message_count, 0) AS message_count,
                     COALESCE(f.file_count, 0) AS file_count,
                     COALESCE(k.attached_knowledge_item_count, 0) + COALESCE(p.private_sample_count, 0) AS attached_private_sample_count,
@@ -522,7 +559,9 @@ class SQLiteSessionStore(SessionStore):
 
     @staticmethod
     def _row_to_session_summary(row: sqlite3.Row) -> SessionSummary:
-        return SessionSummary.model_validate(dict(row))
+        payload = dict(row)
+        payload["is_pinned"] = bool(payload.get("is_pinned", False))
+        return SessionSummary.model_validate(payload)
 
     @staticmethod
     def _row_to_session_message(row: sqlite3.Row) -> SessionMessage:

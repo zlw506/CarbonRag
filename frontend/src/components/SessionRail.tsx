@@ -1,5 +1,13 @@
-import { MenuFoldOutlined, MenuUnfoldOutlined, PlusOutlined } from "@ant-design/icons";
-import { Button, Empty, List, Spin, Tooltip, Typography } from "antd";
+import {
+    DeleteOutlined,
+    EditOutlined,
+    MenuFoldOutlined,
+    MenuUnfoldOutlined,
+    MoreOutlined,
+    PlusOutlined,
+    PushpinOutlined,
+} from "@ant-design/icons";
+import { Button, Dropdown, Empty, List, Spin, Tooltip, Typography } from "antd";
 import { useEffect, useState } from "react";
 import type { SessionSummary } from "../types/session";
 
@@ -12,6 +20,9 @@ interface SessionRailProps {
     onCreateSession: () => void;
     onSelectSession: (sessionId: string) => void;
     onToggleCollapsed: () => void;
+    onRenameSession: (session: SessionSummary) => void;
+    onTogglePinSession: (session: SessionSummary) => void;
+    onDeleteSession: (session: SessionSummary) => void;
 }
 
 export function SessionRail({
@@ -23,6 +34,9 @@ export function SessionRail({
     onCreateSession,
     onSelectSession,
     onToggleCollapsed,
+    onRenameSession,
+    onTogglePinSession,
+    onDeleteSession,
 }: SessionRailProps) {
     return (
         <div className={collapsed ? "chat-session-rail chat-session-rail--collapsed" : "chat-session-rail"}>
@@ -74,8 +88,68 @@ export function SessionRail({
                                             : "chat-session-list__item"}
                                         onClick={() => onSelectSession(session.session_id)}
                                     >
-                                        <div className="chat-session-list__content">
-                                            <Typography.Text strong>{session.title}</Typography.Text>
+                                        <div className="chat-session-list__row">
+                                            <div className="chat-session-list__content">
+                                                <Typography.Text strong ellipsis title={session.title}>
+                                                    {session.title}
+                                                </Typography.Text>
+                                                {session.is_pinned ? (
+                                                    <Typography.Text className="chat-session-list__pin" type="secondary">
+                                                        <PushpinOutlined /> 已置顶
+                                                    </Typography.Text>
+                                                ) : null}
+                                            </div>
+                                            <div className="chat-session-list__actions" onClick={(event) => event.stopPropagation()}>
+                                                <Dropdown
+                                                    trigger={["click"]}
+                                                    placement="bottomRight"
+                                                    menu={{
+                                                        items: [
+                                                            {
+                                                                key: "rename",
+                                                                icon: <EditOutlined />,
+                                                                label: "重命名",
+                                                            },
+                                                            {
+                                                                key: "pin",
+                                                                icon: <PushpinOutlined />,
+                                                                label: session.is_pinned ? "取消置顶" : "置顶",
+                                                            },
+                                                            {
+                                                                type: "divider",
+                                                            },
+                                                            {
+                                                                key: "delete",
+                                                                icon: <DeleteOutlined />,
+                                                                label: "删除",
+                                                                danger: true,
+                                                            },
+                                                        ],
+                                                        onClick: ({ key, domEvent }) => {
+                                                            domEvent.stopPropagation();
+                                                            if (key === "rename") {
+                                                                onRenameSession(session);
+                                                                return;
+                                                            }
+                                                            if (key === "pin") {
+                                                                onTogglePinSession(session);
+                                                                return;
+                                                            }
+                                                            if (key === "delete") {
+                                                                onDeleteSession(session);
+                                                            }
+                                                        },
+                                                    }}
+                                                >
+                                                    <Button
+                                                        type="text"
+                                                        size="small"
+                                                        className="chat-session-list__more"
+                                                        icon={<MoreOutlined />}
+                                                        aria-label={`打开 ${session.title} 的会话菜单`}
+                                                    />
+                                                </Dropdown>
+                                            </div>
                                         </div>
                                     </List.Item>
                                 )}

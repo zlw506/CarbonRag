@@ -56,6 +56,8 @@ export interface SessionSummary {
     title: string;
     created_at: string;
     updated_at: string;
+    is_pinned?: boolean;
+    pinned_at?: string | null;
     message_count: number;
     file_count: number;
     attached_private_sample_count: number;
@@ -88,7 +90,8 @@ export interface CreateSessionRequest {
 }
 
 export interface UpdateSessionRequest {
-    title: string;
+    title?: string;
+    is_pinned?: boolean;
 }
 
 export interface ReplaceAttachedPrivateSamplesRequest {

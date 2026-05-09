@@ -62,6 +62,15 @@ export async function updateSessionTitle(sessionId: string, payload: UpdateSessi
     return response.data;
 }
 
+export async function updateSession(sessionId: string, payload: UpdateSessionRequest) {
+    const response = await httpClient.patch<SessionSummary>(`/v1/sessions/${sessionId}`, payload);
+    return response.data;
+}
+
+export async function deleteSession(sessionId: string) {
+    await httpClient.delete(`/v1/sessions/${sessionId}`);
+}
+
 export async function replaceAttachedPrivateSamples(
     sessionId: string,
     payload: ReplaceAttachedPrivateSamplesRequest,

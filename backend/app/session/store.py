@@ -29,6 +29,21 @@ class SessionStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def update_session_pin(
+        self,
+        *,
+        session_id: str,
+        is_pinned: bool,
+        pinned_at: str | None,
+        updated_at: str,
+    ) -> SessionSummary | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete_session(self, *, owner_user_id: str, session_id: str) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
     def update_session_runtime_state(
         self,
         *,
