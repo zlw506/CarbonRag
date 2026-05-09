@@ -840,10 +840,19 @@ body {
     flex-direction: column;
     gap: 0;
     min-width: 0;
+    flex: 1;
 }
 
 .chat-session-list__content .ant-typography {
     color: var(--cr-sider-text);
+}
+
+.chat-session-list__row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
 }
 
 .chat-session-list__title {
@@ -854,6 +863,36 @@ body {
     font-size: 14px;
     font-weight: 500;
     line-height: 22px;
+}
+
+.chat-session-list__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0;
+    transform: translateX(4px);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.chat-session-list__item:hover .chat-session-list__actions,
+.chat-session-list__item--active .chat-session-list__actions {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.chat-session-list__more {
+    color: var(--cr-sider-muted);
+}
+
+.chat-session-list__more:hover {
+    color: var(--cr-sider-text);
+}
+
+.chat-session-list__pin-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--cr-sider-muted);
+    font-size: 13px;
 }
 
 .chat-session-list__mini {

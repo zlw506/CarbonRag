@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     title TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    is_pinned INTEGER NOT NULL DEFAULT 0,
+    pinned_at TEXT,
     knowledge_scope_last_used TEXT,
     source_summary_json TEXT,
     session_summary TEXT,
@@ -788,6 +790,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
         title TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+        pinned_at TEXT,
         knowledge_scope_last_used TEXT,
         source_summary_json TEXT,
         session_summary TEXT,
@@ -1375,6 +1379,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
     )
     """,
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pinned_at TEXT",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS stored_filename TEXT",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS file_ext TEXT",
@@ -1471,6 +1477,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
 def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(SQLITE_SCHEMA_SCRIPT)
     _ensure_sqlite_column(connection, "sessions", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "sessions", "is_pinned", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_sqlite_column(connection, "sessions", "pinned_at", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "knowledge_scope_last_used", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "source_summary_json", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "session_summary", "TEXT")

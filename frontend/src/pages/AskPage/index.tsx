@@ -335,6 +335,9 @@ export function AskPage() {
                 {
                 onMessageStart: (event) => {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
+                    if (event.title_updated) {
+                        void refreshSessions(activeSessionId);
+                    }
                     updateStreamDraftState((draft) => ({
                         ...draft,
                         userMessage: {
@@ -347,7 +350,7 @@ export function AskPage() {
                             trace_id: event.trace_id ?? draft.assistantMessage.trace_id ?? null,
                             status: "connecting",
                             client_state: "connecting",
-                            status_note: "正在连接模型…",
+                            status_note: event.title_updated ? "标题已自动更新，正在连接模型…" : "正在连接模型…",
                         },
                     }));
                 },

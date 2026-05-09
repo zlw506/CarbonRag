@@ -53,6 +53,8 @@ class PostgreSQLSessionStore(SessionStore):
                         s.title,
                         s.created_at,
                         s.updated_at,
+                        COALESCE(s.is_pinned, FALSE) AS is_pinned,
+                        s.pinned_at,
                         COALESCE(m.message_count, 0) AS message_count,
                         COALESCE(f.file_count, 0) AS file_count,
                         COALESCE(k.attached_knowledge_item_count, 0) + COALESCE(p.private_sample_count, 0) AS attached_private_sample_count,
@@ -79,7 +81,7 @@ class PostgreSQLSessionStore(SessionStore):
                         GROUP BY session_id
                     ) p ON p.session_id = s.session_id
                     WHERE s.owner_user_id = %s
-                    ORDER BY s.updated_at DESC, s.created_at DESC
+                    ORDER BY COALESCE(s.is_pinned, FALSE) DESC, s.pinned_at DESC NULLS LAST, s.updated_at DESC, s.created_at DESC
                     """
                 , (owner_user_id,))
                 rows = cursor.fetchall()
@@ -210,6 +212,42 @@ class PostgreSQLSessionStore(SessionStore):
                 if cursor.rowcount == 0 or owner_row is None:
                     return None
         return self._get_session_summary(owner_user_id=owner_row["owner_user_id"], session_id=session_id)
+
+    def update_session_pin(
+        self,
+        *,
+        session_id: str,
+        is_pinned: bool,
+        pinned_at: str | None,
+        updated_at: str,
+    ) -> SessionSummary | None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT owner_user_id FROM sessions WHERE session_id = %s",
+                    (session_id,),
+                )
+                owner_row = cursor.fetchone()
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET is_pinned = %s, pinned_at = %s, updated_at = %s
+                    WHERE session_id = %s
+                    """,
+                    (is_pinned, pinned_at, updated_at, session_id),
+                )
+                if cursor.rowcount == 0 or owner_row is None:
+                    return None
+        return self._get_session_summary(owner_user_id=owner_row["owner_user_id"], session_id=session_id)
+
+    def delete_session(self, *, owner_user_id: str, session_id: str) -> bool:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM sessions WHERE session_id = %s AND owner_user_id = %s",
+                    (session_id, owner_user_id),
+                )
+                return cursor.rowcount > 0
 
     def update_session_runtime_state(
         self,
@@ -503,6 +541,8 @@ class PostgreSQLSessionStore(SessionStore):
                         s.title,
                         s.created_at,
                         s.updated_at,
+                        COALESCE(s.is_pinned, FALSE) AS is_pinned,
+                        s.pinned_at,
                         COALESCE(m.message_count, 0) AS message_count,
                         COALESCE(f.file_count, 0) AS file_count,
                         COALESCE(k.attached_knowledge_item_count, 0) + COALESCE(p.private_sample_count, 0) AS attached_private_sample_count,
