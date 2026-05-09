@@ -1606,7 +1606,26 @@ function renderMessageContent(message: ChatMessageView, isAssistant: boolean) {
         return <Typography.Paragraph>{content}</Typography.Paragraph>;
     }
 
-    return <ReactMarkdown>{content}</ReactMarkdown>;
+    return <ReactMarkdown>{normalizeAssistantMarkdown(content)}</ReactMarkdown>;
+}
+
+function normalizeAssistantMarkdown(content: string) {
+    return content
+        .split(/(```[\s\S]*?```)/g)
+        .map((segment) => (segment.startsWith("```") ? segment : normalizeMarkdownTextSegment(segment)))
+        .join("");
+}
+
+function normalizeMarkdownTextSegment(segment: string) {
+    return segment
+        .replace(/([^\n])(\s*)(#{1,6})(?=\S)/g, "$1\n\n$3 ")
+        .replace(/(^|\n)(#{1,6})(?=\S)/g, "$1$2 ")
+        .replace(/([^\n])(\s+)-(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1\n- ")
+        .replace(/(^|\n)-(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1- ")
+        .replace(/([^\n])(\s+)(\d+)\.(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1\n$3. ")
+        .replace(/(^|\n)(\d+)\.(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1$2. ")
+        .replace(/([。！？:：])(\s*)([-*]\s)/g, "$1\n$3")
+        .replace(/([。！？:：])(\s*)(\d+\.\s)/g, "$1\n$3");
 }
 
 function normalizeAskStreamMemoryState(memoryState: AskStreamMetadataEvent["memory_state"]): SessionDetail["memory_state"] {

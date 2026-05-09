@@ -1063,7 +1063,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    max-width: min(360px, 72vw);
+    width: min(300px, 72vw);
     padding: 7px 10px;
     border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
     border-radius: 13px;
@@ -1074,6 +1074,8 @@ body {
 }
 
 .chat-message-attachment__name {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1288,7 +1290,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    max-width: min(420px, 74vw);
+    width: min(300px, 74vw);
     min-height: 32px;
     padding: 6px 10px;
     border-radius: 13px;
@@ -1296,6 +1298,8 @@ body {
 }
 
 .chat-composer-attachment__name {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
