@@ -723,6 +723,127 @@ class KnowledgeStore:
         where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return [dict(row) for row in self._select(f"SELECT * FROM files{where_sql} ORDER BY file_seq DESC", params)]
 
+    def get_uploaded_file_detail(self, *, owner_user_id: str, file_id: str) -> dict[str, Any] | None:
+        rows = self._select(
+            """
+            SELECT
+                f.*,
+                i.knowledge_item_id,
+                i.index_status,
+                r.summary,
+                COALESCE(r.chunk_count, 0) AS chunk_count
+            FROM files f
+            LEFT JOIN knowledge_items i ON i.file_id = f.file_id
+            LEFT JOIN file_parse_results r ON r.file_id = f.file_id
+            WHERE f.file_id = {p} AND f.owner_user_id = {p}
+            """,
+            [file_id, owner_user_id],
+        )
+        if not rows:
+            return None
+        payload = dict(rows[0])
+        payload["ocr_used"] = bool(payload.get("ocr_used", False))
+        return payload
+
+    def update_file_parse_state(
+        self,
+        *,
+        file_id: str,
+        parse_status: str,
+        parser_name: str | None = None,
+        parser_version: str | None = None,
+        ocr_used: bool | None = None,
+        page_count: int | None = None,
+        sheet_count: int | None = None,
+        slide_count: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        self._execute(
+            """
+            UPDATE files
+            SET parse_status = {p}, parser_name = {p}, parser_version = {p}, ocr_used = {p},
+                page_count = {p}, sheet_count = {p}, slide_count = {p}, error_message = {p}, updated_at = {p}
+            WHERE file_id = {p}
+            """,
+            [
+                parse_status,
+                parser_name,
+                parser_version,
+                bool(ocr_used) if ocr_used is not None else False,
+                page_count,
+                sheet_count,
+                slide_count,
+                error_message,
+                self.utcnow().isoformat(),
+                file_id,
+            ],
+        )
+
+    def upsert_file_parse_result(
+        self,
+        *,
+        file_id: str,
+        extracted_markdown: str | None,
+        extracted_text: str | None,
+        extracted_json_path: str | None = None,
+        extracted_json: str | None = None,
+        summary: str | None = None,
+        chunk_count: int = 0,
+        parser_name: str | None = None,
+        parser_version: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        now = self.utcnow().isoformat()
+        existing = self._select("SELECT file_id FROM file_parse_results WHERE file_id = {p}", [file_id])
+        payload = [
+            file_id,
+            extracted_markdown,
+            extracted_text,
+            extracted_json_path,
+            extracted_json,
+            summary,
+            chunk_count,
+            parser_name,
+            parser_version,
+            json.dumps(metadata or {}, ensure_ascii=False),
+            now,
+            now,
+        ]
+        if not existing:
+            self._execute(
+                """
+                INSERT INTO file_parse_results (
+                    file_id, extracted_markdown, extracted_text, extracted_json_path, extracted_json,
+                    summary, chunk_count, parser_name, parser_version, metadata_json, created_at, updated_at
+                )
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                """,
+                payload,
+            )
+            return
+        self._execute(
+            """
+            UPDATE file_parse_results
+            SET extracted_markdown = {p}, extracted_text = {p}, extracted_json_path = {p}, extracted_json = {p},
+                summary = {p}, chunk_count = {p}, parser_name = {p}, parser_version = {p},
+                metadata_json = {p}, updated_at = {p}
+            WHERE file_id = {p}
+            """,
+            [
+                extracted_markdown,
+                extracted_text,
+                extracted_json_path,
+                extracted_json,
+                summary,
+                chunk_count,
+                parser_name,
+                parser_version,
+                json.dumps(metadata or {}, ensure_ascii=False),
+                now,
+                file_id,
+            ],
+        )
+
     def replace_session_knowledge_items(
         self,
         *,
@@ -774,6 +895,19 @@ class KnowledgeStore:
                 f.mime_type,
                 f.stored_at,
                 f.storage_path,
+                f.stored_filename,
+                f.file_ext,
+                f.sha256,
+                f.parse_status AS file_parse_status,
+                f.parser_name,
+                f.parser_version,
+                f.ocr_used,
+                f.page_count,
+                f.sheet_count,
+                f.slide_count,
+                f.error_message,
+                r.summary,
+                COALESCE(r.chunk_count, 0) AS chunk_count,
                 i.knowledge_item_id,
                 i.parse_status,
                 i.ingest_status,
@@ -781,6 +915,7 @@ class KnowledgeStore:
                 t.status AS latest_task_status
             FROM files f
             LEFT JOIN knowledge_items i ON i.file_id = f.file_id
+            LEFT JOIN file_parse_results r ON r.file_id = f.file_id
             LEFT JOIN knowledge_tasks t ON t.task_id = (
                 SELECT task_id
                 FROM knowledge_tasks

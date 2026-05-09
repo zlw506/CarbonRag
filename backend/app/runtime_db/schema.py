@@ -9,6 +9,7 @@ CORE_TABLES = (
     "user_provider_profiles",
     "memory_notes",
     "files",
+    "file_parse_results",
     "session_knowledge_items",
     "session_private_samples",
     "knowledge_items",
@@ -144,12 +145,40 @@ CREATE TABLE IF NOT EXISTS files (
     owner_user_id TEXT,
     session_id TEXT NOT NULL,
     filename TEXT NOT NULL,
+    stored_filename TEXT,
+    file_ext TEXT,
     size INTEGER NOT NULL,
     mime_type TEXT NOT NULL,
     stored_at TEXT NOT NULL,
     storage_path TEXT NOT NULL,
+    sha256 TEXT,
+    parse_status TEXT NOT NULL DEFAULT 'uploaded',
+    parser_name TEXT,
+    parser_version TEXT,
+    ocr_used INTEGER NOT NULL DEFAULT 0,
+    page_count INTEGER,
+    sheet_count INTEGER,
+    slide_count INTEGER,
+    error_message TEXT,
+    updated_at TEXT,
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
     FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS file_parse_results (
+    file_id TEXT PRIMARY KEY,
+    extracted_markdown TEXT,
+    extracted_text TEXT,
+    extracted_json_path TEXT,
+    extracted_json TEXT,
+    summary TEXT,
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    parser_name TEXT,
+    parser_version TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS session_knowledge_items (
@@ -727,10 +756,38 @@ POSTGRES_SCHEMA_STATEMENTS = (
         owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
         session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
         filename TEXT NOT NULL,
+        stored_filename TEXT,
+        file_ext TEXT,
         size BIGINT NOT NULL,
         mime_type TEXT NOT NULL,
         stored_at TEXT NOT NULL,
-        storage_path TEXT NOT NULL
+        storage_path TEXT NOT NULL,
+        sha256 TEXT,
+        parse_status TEXT NOT NULL DEFAULT 'uploaded',
+        parser_name TEXT,
+        parser_version TEXT,
+        ocr_used BOOLEAN NOT NULL DEFAULT FALSE,
+        page_count INTEGER,
+        sheet_count INTEGER,
+        slide_count INTEGER,
+        error_message TEXT,
+        updated_at TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS file_parse_results (
+        file_id TEXT PRIMARY KEY REFERENCES files(file_id) ON DELETE CASCADE,
+        extracted_markdown TEXT,
+        extracted_text TEXT,
+        extracted_json_path TEXT,
+        extracted_json TEXT,
+        summary TEXT,
+        chunk_count INTEGER NOT NULL DEFAULT 0,
+        parser_name TEXT,
+        parser_version TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     )
     """,
     """
@@ -1132,6 +1189,18 @@ POSTGRES_SCHEMA_STATEMENTS = (
     """,
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS stored_filename TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS file_ext TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS sha256 TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS parse_status TEXT NOT NULL DEFAULT 'uploaded'",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS parser_name TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS parser_version TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS ocr_used BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS page_count INTEGER",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS sheet_count INTEGER",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS slide_count INTEGER",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS error_message TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS updated_at TEXT",
     "ALTER TABLE messages ADD COLUMN IF NOT EXISTS thinking_content TEXT",
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_summary TEXT",
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS summary_message_seq_upto BIGINT",
@@ -1216,6 +1285,18 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "sessions", "last_compaction_error", "TEXT")
     _ensure_sqlite_column(connection, "messages", "thinking_content", "TEXT")
     _ensure_sqlite_column(connection, "files", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "files", "stored_filename", "TEXT")
+    _ensure_sqlite_column(connection, "files", "file_ext", "TEXT")
+    _ensure_sqlite_column(connection, "files", "sha256", "TEXT")
+    _ensure_sqlite_column(connection, "files", "parse_status", "TEXT NOT NULL DEFAULT 'uploaded'")
+    _ensure_sqlite_column(connection, "files", "parser_name", "TEXT")
+    _ensure_sqlite_column(connection, "files", "parser_version", "TEXT")
+    _ensure_sqlite_column(connection, "files", "ocr_used", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_sqlite_column(connection, "files", "page_count", "INTEGER")
+    _ensure_sqlite_column(connection, "files", "sheet_count", "INTEGER")
+    _ensure_sqlite_column(connection, "files", "slide_count", "INTEGER")
+    _ensure_sqlite_column(connection, "files", "error_message", "TEXT")
+    _ensure_sqlite_column(connection, "files", "updated_at", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "tenant_id", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_items", "visibility", "TEXT NOT NULL DEFAULT 'private'")

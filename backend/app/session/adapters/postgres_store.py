@@ -112,9 +112,19 @@ class PostgreSQLSessionStore(SessionStore):
                             ki.source_ref,
                             ki.file_id,
                             ki.library_scope,
+                            ki.index_status,
+                            f.parse_status,
+                            f.page_count,
+                            f.sheet_count,
+                            f.slide_count,
+                            f.error_message,
+                            r.summary,
+                            COALESCE(r.chunk_count, 0) AS chunk_count,
                             ski.attached_at
                         FROM session_knowledge_items ski
                         LEFT JOIN knowledge_items ki ON ki.knowledge_item_id = ski.knowledge_item_id
+                        LEFT JOIN files f ON f.file_id = ki.file_id
+                        LEFT JOIN file_parse_results r ON r.file_id = f.file_id
                         WHERE ski.session_id = %s
                         ORDER BY ski.attachment_seq DESC
                         """,
@@ -136,10 +146,17 @@ class PostgreSQLSessionStore(SessionStore):
                 message_rows = cursor.fetchall()
                 cursor.execute(
                     """
-                    SELECT file_id, session_id, filename, size, mime_type, stored_at
-                    FROM files
-                    WHERE session_id = %s AND owner_user_id = %s
-                    ORDER BY file_seq DESC
+                    SELECT
+                        f.*,
+                        i.knowledge_item_id,
+                        i.index_status,
+                        r.summary,
+                        COALESCE(r.chunk_count, 0) AS chunk_count
+                    FROM files f
+                    LEFT JOIN knowledge_items i ON i.file_id = f.file_id
+                    LEFT JOIN file_parse_results r ON r.file_id = f.file_id
+                    WHERE f.session_id = %s AND f.owner_user_id = %s
+                    ORDER BY f.file_seq DESC
                     """,
                     (session_id, owner_user_id),
                 )
@@ -352,6 +369,9 @@ class PostgreSQLSessionStore(SessionStore):
         mime_type: str,
         stored_at: str,
         storage_path: str,
+        stored_filename: str | None = None,
+        file_ext: str | None = None,
+        sha256: str | None = None,
     ) -> UploadedFile:
         with self._connect() as connection:
             with connection.cursor() as cursor:
@@ -360,10 +380,27 @@ class PostgreSQLSessionStore(SessionStore):
                 owner_user_id = owner_row["owner_user_id"] if owner_row else None
                 cursor.execute(
                     """
-                    INSERT INTO files (file_id, owner_user_id, session_id, filename, size, mime_type, stored_at, storage_path)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO files (
+                        file_id, owner_user_id, session_id, filename, stored_filename, file_ext,
+                        size, mime_type, stored_at, storage_path, sha256, parse_status, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (file_id, owner_user_id, session_id, filename, size, mime_type, stored_at, storage_path),
+                    (
+                        file_id,
+                        owner_user_id,
+                        session_id,
+                        filename,
+                        stored_filename,
+                        file_ext,
+                        size,
+                        mime_type,
+                        stored_at,
+                        storage_path,
+                        sha256,
+                        "uploaded",
+                        stored_at,
+                    ),
                 )
                 cursor.execute(
                     "UPDATE sessions SET updated_at = %s WHERE session_id = %s",
@@ -371,9 +408,9 @@ class PostgreSQLSessionStore(SessionStore):
                 )
                 cursor.execute(
                     """
-                    SELECT file_id, session_id, filename, size, mime_type, stored_at
-                    FROM files
-                    WHERE file_id = %s
+                    SELECT f.*, NULL AS knowledge_item_id, NULL AS index_status, NULL AS summary, 0 AS chunk_count
+                    FROM files f
+                    WHERE f.file_id = %s
                     """,
                     (file_id,),
                 )
@@ -512,16 +549,26 @@ class PostgreSQLSessionStore(SessionStore):
 
     @staticmethod
     def _row_to_uploaded_file(row) -> UploadedFile:
-        return UploadedFile.model_validate(dict(row))
+        payload = dict(row)
+        payload["ocr_used"] = bool(payload.get("ocr_used", False))
+        return UploadedFile.model_validate(payload)
 
     @staticmethod
     def _uploaded_file_to_attachment(file: UploadedFile) -> SessionAttachment:
         return SessionAttachment(
             file_id=file.file_id,
-            knowledge_item_id=None,
+            knowledge_item_id=file.knowledge_item_id,
             filename=file.filename,
             source_type="uploaded_file",
             attached_at=file.stored_at,
+            parse_status=file.parse_status,
+            index_status=None,
+            summary=file.summary,
+            page_count=file.page_count,
+            sheet_count=file.sheet_count,
+            slide_count=file.slide_count,
+            chunk_count=file.chunk_count,
+            error_message=file.error_message,
         )
 
     @staticmethod
@@ -534,6 +581,14 @@ class PostgreSQLSessionStore(SessionStore):
             filename=title,
             source_type=source_type,
             attached_at=row["attached_at"],
+            index_status=row.get("index_status"),
+            parse_status=row.get("parse_status"),
+            summary=row.get("summary"),
+            page_count=row.get("page_count"),
+            sheet_count=row.get("sheet_count"),
+            slide_count=row.get("slide_count"),
+            chunk_count=row.get("chunk_count"),
+            error_message=row.get("error_message"),
         )
 
     @staticmethod

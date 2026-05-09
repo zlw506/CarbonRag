@@ -89,6 +89,9 @@ class SessionStore(ABC):
         mime_type: str,
         stored_at: str,
         storage_path: str,
+        stored_filename: str | None = None,
+        file_ext: str | None = None,
+        sha256: str | None = None,
     ) -> UploadedFile:
         raise NotImplementedError
 

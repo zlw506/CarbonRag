@@ -61,11 +61,16 @@ class AIRuntimeOrchestrator:
     @staticmethod
     def _resolve_ask_tool_sequence(request: ChatRequest) -> tuple[str, ...]:
         effective_scope = request.payload.get("knowledge_scope_effective", "public")
+        tool_sequence: list[str]
         if effective_scope == "private_sample":
-            return ("enterprise_retrieve",)
-        if effective_scope == "mixed":
-            return ("mixed_retrieve",)
-        return ("policy_retrieve",)
+            tool_sequence = ["enterprise_retrieve"]
+        elif effective_scope == "mixed":
+            tool_sequence = ["mixed_retrieve"]
+        else:
+            tool_sequence = ["policy_retrieve"]
+        if request.payload.get("attached_file_knowledge_item_ids"):
+            tool_sequence.append("session_file_search")
+        return tuple(tool_sequence)
 
     def _prepare_runtime(self, request: ChatRequest) -> PreparedRuntimeContext:
         mode = resolve_mode(request.mode)

@@ -42,6 +42,11 @@ class RetrievedChunk(BaseModel):
     chunk_id: str
     snippet: str
     score: float
+    file_id: str | None = None
+    page_number: int | None = None
+    sheet_name: str | None = None
+    slide_number: int | None = None
+    section_title: str | None = None
 
 
 class RetrievalResult(BaseModel):

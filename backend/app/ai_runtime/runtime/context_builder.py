@@ -15,6 +15,19 @@ def _extract_hits(tool_results: list[ToolResult] | None) -> list[dict]:
     return hits
 
 
+def _format_file_locator(hit: dict) -> str | None:
+    parts: list[str] = []
+    if hit.get("page_number"):
+        parts.append(f"p.{hit['page_number']}")
+    if hit.get("sheet_name"):
+        parts.append(f"sheet {hit['sheet_name']}")
+    if hit.get("slide_number"):
+        parts.append(f"slide {hit['slide_number']}")
+    if hit.get("section_title"):
+        parts.append(str(hit["section_title"]))
+    return " / ".join(parts) or None
+
+
 def build_context_bundle(
     request: ChatRequest,
     mode: ModeSpec,
@@ -33,6 +46,7 @@ def build_context_bundle(
         compaction_status = request.payload.get("compaction_status", "idle")
         summary_updated_at = request.payload.get("summary_updated_at")
         attached_knowledge_item_ids = request.payload.get("attached_knowledge_item_ids", [])
+        attached_file_knowledge_item_ids = request.payload.get("attached_file_knowledge_item_ids", [])
         retrieval_hits = _extract_hits(tool_results)
         public_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy"]
         demo_policy_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy_demo"]
@@ -71,6 +85,11 @@ def build_context_bundle(
             )
         else:
             session_context_lines.append("当前 session 尚未挂接可检索知识条目。")
+        if attached_file_knowledge_item_ids:
+            session_context_lines.append(
+                "本轮用户显式选择了已解析上传文件："
+                + ", ".join(str(item_id) for item_id in attached_file_knowledge_item_ids)
+            )
 
         if memory_notes:
             memory_note_lines = ["以下是用户级长期记忆预留条目，只用于补充稳定偏好或长期上下文："]
@@ -110,14 +129,16 @@ def build_context_bundle(
                     ]
                 )
         if private_hits:
-            evidence_lines.append("当前已检索到以下脱敏企业样例片段：")
+            evidence_lines.append("当前已检索到以下私有知识或上传文件片段：")
             for index, hit in enumerate(private_hits, start=1):
+                file_locator = _format_file_locator(hit)
                 evidence_lines.extend(
                     [
                         f"[private-{index}] 标题：{hit['title']}",
                         f"来源类型：{hit['source_type']}",
                         f"来源：{hit['source']}",
                         f"片段标识：{hit['chunk_id']}",
+                        f"文件定位：{file_locator}" if file_locator else "文件定位：无",
                         f"片段内容：{hit['snippet']}",
                     ]
                 )
@@ -129,8 +150,8 @@ def build_context_bundle(
 
         if knowledge_scope_effective == "public":
             scope_strategy_lines = [
-                "当前策略：仅检索本地公共政策样本，再基于命中的政策片段回答。",
-                "不得声称使用了企业样例或上传附件。",
+                "当前策略：检索本地公共政策样本；若本轮用户显式选择了已解析上传文件，也可以同时引用该文件片段。",
+                "不得声称使用了未选中、未解析或未命中的企业样例/上传附件。",
             ]
         elif knowledge_scope_effective == "private_sample":
             scope_strategy_lines = [
@@ -192,6 +213,7 @@ def build_context_bundle(
                 "trace_id": request.trace_id,
                 "mode": mode.name,
                 "attached_knowledge_item_ids": attached_knowledge_item_ids,
+                "attached_file_knowledge_item_ids": attached_file_knowledge_item_ids,
                 "compaction_status": compaction_status,
                 "context_usage_estimate": context_usage_estimate,
                 "context_budget_estimate": context_budget_estimate,

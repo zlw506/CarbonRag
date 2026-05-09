@@ -699,6 +699,15 @@ def _optional_str(value: Any) -> str | None:
     return normalized or None
 
 
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _count_retriever_chunks(retriever: object) -> int | None:
     chunks = getattr(retriever, "chunks", None)
     if chunks is None:
@@ -723,6 +732,11 @@ def _retrieved_chunk_from_chunk_record(chunk: ChunkRecord) -> RetrievedChunk:
         chunk_id=chunk.chunk_id,
         snippet=chunk.text,
         score=float(chunk.metadata.get("score") or 1.0),
+        file_id=_optional_str(chunk.metadata.get("file_id")),
+        page_number=_optional_int(chunk.metadata.get("page_number")),
+        sheet_name=_optional_str(chunk.metadata.get("sheet_name")),
+        slide_number=_optional_int(chunk.metadata.get("slide_number")),
+        section_title=_optional_str(chunk.metadata.get("section_title")),
     )
 
 
@@ -746,6 +760,11 @@ def _retrieved_chunk_from_pgvector_row(row: dict[str, Any]) -> RetrievedChunk:
         chunk_id=str(row.get("chunk_id") or ""),
         snippet=str(row.get("text") or ""),
         score=float(row.get("score") or metadata.get("score") or 0.0),
+        file_id=_optional_str(metadata.get("file_id")),
+        page_number=_optional_int(metadata.get("page_number")),
+        sheet_name=_optional_str(metadata.get("sheet_name")),
+        slide_number=_optional_int(metadata.get("slide_number")),
+        section_title=_optional_str(metadata.get("section_title")),
     )
 
 

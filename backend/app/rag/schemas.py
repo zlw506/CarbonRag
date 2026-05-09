@@ -58,6 +58,11 @@ class RagEvidenceChunk(BaseModel):
     sample_type: str | None = None
     business_topic: str | None = None
     library_scope: Literal["personal", "shared"] | None = None
+    file_id: str | None = None
+    page_number: int | None = None
+    sheet_name: str | None = None
+    slide_number: int | None = None
+    section_title: str | None = None
     chunk_id: str
     snippet: str
     score: float

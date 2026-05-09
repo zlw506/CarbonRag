@@ -34,6 +34,11 @@ def chunk_record_from_evidence_chunk(chunk: RagEvidenceChunk) -> ChunkRecord:
             "sample_type": chunk.sample_type,
             "business_topic": chunk.business_topic,
             "library_scope": chunk.library_scope,
+            "file_id": chunk.file_id,
+            "page_number": chunk.page_number,
+            "sheet_name": chunk.sheet_name,
+            "slide_number": chunk.slide_number,
+            "section_title": chunk.section_title,
             "retrieval_layer": chunk.retrieval_layer,
         },
     )

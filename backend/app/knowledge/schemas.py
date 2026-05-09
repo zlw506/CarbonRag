@@ -230,6 +230,19 @@ class MyUploadEntry(BaseModel):
     mime_type: str
     stored_at: datetime
     storage_path: str
+    stored_filename: str | None = None
+    file_ext: str | None = None
+    sha256: str | None = None
+    file_parse_status: str | None = None
+    parser_name: str | None = None
+    parser_version: str | None = None
+    ocr_used: bool | None = None
+    page_count: int | None = None
+    sheet_count: int | None = None
+    slide_count: int | None = None
+    error_message: str | None = None
+    summary: str | None = None
+    chunk_count: int = 0
     knowledge_item_id: str | None = None
     parse_status: KnowledgeParseStatus | None = None
     ingest_status: KnowledgeIngestStatus | None = None

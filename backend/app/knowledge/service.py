@@ -7,6 +7,8 @@ from typing import Iterable, TYPE_CHECKING
 from uuid import uuid4
 
 from app.files.schemas import UploadedFileResponse
+from app.files.parser import get_file_parser_registry
+from app.files.parser.chunker import build_file_chunks
 from app.knowledge.chunker import chunk_knowledge_text
 from app.knowledge.parsers import KnowledgeParseError, parse_document
 from app.knowledge.schemas import (
@@ -493,22 +495,38 @@ class KnowledgeService:
         current_node = "parse_document"
         try:
             recorder.start_node("parse_document", input_ref=item.storage_path, state={"mime_type": item.mime_type})
-            parsed = parse_document(path=Path(item.storage_path), mime_type=item.mime_type)
+            if item.source_type == "uploaded_file":
+                self.store.update_file_parse_state(
+                    file_id=item.file_id or item.source_ref or item.knowledge_item_id,
+                    parse_status="parsing",
+                    error_message=None,
+                )
+                parsed_file = get_file_parser_registry().parse(path=Path(item.storage_path), mime_type=item.mime_type)
+                parsed_text = parsed_file.text
+                parser_name = parsed_file.parser_name
+            else:
+                parsed = parse_document(path=Path(item.storage_path), mime_type=item.mime_type)
+                parsed_file = None
+                parsed_text = parsed.text
+                parser_name = "knowledge.parsers.parse_document"
             recorder.complete_node(
                 "parse_document",
                 output_ref=item.storage_path,
-                state={"text_length": len(parsed.text), "parser_name": "knowledge.parsers.parse_document"},
+                state={"text_length": len(parsed_text), "parser_name": parser_name},
             )
             current_node = "build_blocks"
             recorder.start_node("build_blocks", input_ref=item.storage_path)
             recorder.complete_node(
                 "build_blocks",
                 output_ref=item.storage_path,
-                state={"block_count": 1 if parsed.text else 0, "block_builder": "lightweight_text_block"},
+                state={"block_count": 1 if parsed_text else 0, "block_builder": "lightweight_text_block"},
             )
             current_node = "build_chunks"
             recorder.start_node("build_chunks", input_ref=item.storage_path)
-            chunks = chunk_knowledge_text(item=item, text=parsed.text, created_at=self.store.utcnow())
+            if parsed_file is not None:
+                chunks = build_file_chunks(item=item, parsed=parsed_file, created_at=self.store.utcnow())
+            else:
+                chunks = chunk_knowledge_text(item=item, text=parsed_text, created_at=self.store.utcnow())
             recorder.complete_node(
                 "build_chunks",
                 output_ref=item.knowledge_item_id,
@@ -524,6 +542,29 @@ class KnowledgeService:
             current_node = "upsert_vector_index"
             recorder.start_node("upsert_vector_index", input_ref=item.knowledge_item_id)
             self.store.replace_chunks(knowledge_item_id=item.knowledge_item_id, chunks=chunks, indexed_at=self.store.utcnow())
+            if parsed_file is not None:
+                file_id = item.file_id or item.source_ref or item.knowledge_item_id
+                self.store.upsert_file_parse_result(
+                    file_id=file_id,
+                    extracted_markdown=parsed_file.markdown,
+                    extracted_text=parsed_file.text,
+                    summary=parsed_file.summary,
+                    chunk_count=len(chunks),
+                    parser_name=parsed_file.parser_name,
+                    parser_version=parsed_file.parser_version,
+                    metadata=parsed_file.metadata,
+                )
+                self.store.update_file_parse_state(
+                    file_id=file_id,
+                    parse_status="parsed",
+                    parser_name=parsed_file.parser_name,
+                    parser_version=parsed_file.parser_version,
+                    ocr_used=parsed_file.ocr_used,
+                    page_count=parsed_file.page_count,
+                    sheet_count=parsed_file.sheet_count,
+                    slide_count=parsed_file.slide_count,
+                    error_message=None,
+                )
             recorder.complete_node(
                 "upsert_vector_index",
                 output_ref=item.knowledge_item_id,
@@ -553,6 +594,12 @@ class KnowledgeService:
             )
             self._clear_private_retrieval_caches()
         except KnowledgeParseError as exc:
+            if item.source_type == "uploaded_file":
+                self.store.update_file_parse_state(
+                    file_id=item.file_id or item.source_ref or item.knowledge_item_id,
+                    parse_status="parse_failed",
+                    error_message=str(exc),
+                )
             recorder.fail_node(current_node, error_message=str(exc), state={"error_type": type(exc).__name__})
             self.store.save_workflow_run(workflow)
             self.store.mark_item_stage(
@@ -564,6 +611,12 @@ class KnowledgeService:
             )
             self.store.finish_task(task_id=task_id, status="failed", summary="解析失败。", error_detail=str(exc))
         except Exception as exc:  # noqa: BLE001
+            if item.source_type == "uploaded_file":
+                self.store.update_file_parse_state(
+                    file_id=item.file_id or item.source_ref or item.knowledge_item_id,
+                    parse_status="parse_failed",
+                    error_message=str(exc),
+                )
             recorder.fail_node(current_node, error_message=str(exc), state={"error_type": type(exc).__name__})
             self.store.save_workflow_run(workflow)
             self.store.mark_item_stage(

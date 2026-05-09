@@ -7,6 +7,22 @@ export interface UploadedFile {
     size: number;
     mime_type: string;
     stored_at: string;
+    storage_path?: string | null;
+    stored_filename?: string | null;
+    file_ext?: string | null;
+    sha256?: string | null;
+    parse_status?: string | null;
+    parser_name?: string | null;
+    parser_version?: string | null;
+    ocr_used?: boolean;
+    page_count?: number | null;
+    sheet_count?: number | null;
+    slide_count?: number | null;
+    error_message?: string | null;
+    updated_at?: string | null;
+    summary?: string | null;
+    chunk_count?: number;
+    knowledge_item_id?: string | null;
 }
 
 export interface SessionAttachment {
@@ -15,6 +31,14 @@ export interface SessionAttachment {
     source_type: "uploaded_file" | "private_sample" | "private_sample_repo" | "knowledge_item";
     knowledge_item_id?: string | null;
     attached_at: string;
+    parse_status?: string | null;
+    index_status?: string | null;
+    summary?: string | null;
+    page_count?: number | null;
+    sheet_count?: number | null;
+    slide_count?: number | null;
+    chunk_count?: number | null;
+    error_message?: string | null;
 }
 
 export interface SessionMemoryState {

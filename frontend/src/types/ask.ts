@@ -24,6 +24,11 @@ export interface AskCitation {
     snippet: string;
     chunk_id: string;
     library_scope?: "personal" | "shared" | null;
+    file_id?: string | null;
+    page_number?: number | null;
+    sheet_name?: string | null;
+    slide_number?: number | null;
+    section_title?: string | null;
 }
 
 export interface AskSourceSummary {

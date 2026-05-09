@@ -47,14 +47,31 @@ def build_chat_request(
     current_user: AuthenticatedUser,
 ) -> tuple[ChatRequest, list[str]]:
     session_service = get_session_service()
-    attached_knowledge_item_ids = session_service.list_attached_knowledge_item_ids(
+    attached_knowledge_items = session_service.list_session_knowledge_items(
         owner_user_id=current_user.user_id,
         session_id=session_id,
     )
+    attached_knowledge_item_ids = [item.knowledge_item_id for item in attached_knowledge_items]
     attached_knowledge_item_set = set(attached_knowledge_item_ids)
-    requested_ids = payload.attached_knowledge_item_ids or payload.attached_file_ids
-    filtered_knowledge_item_ids = [item for item in requested_ids if item in attached_knowledge_item_set]
-    effective_knowledge_item_ids = filtered_knowledge_item_ids if requested_ids else attached_knowledge_item_ids
+    private_knowledge_item_ids = [
+        item.knowledge_item_id for item in attached_knowledge_items if item.source_type != "uploaded_file"
+    ]
+    requested_knowledge_ids = payload.attached_knowledge_item_ids
+    filtered_knowledge_item_ids = [item for item in requested_knowledge_ids if item in attached_knowledge_item_set]
+    effective_knowledge_item_ids = filtered_knowledge_item_ids if requested_knowledge_ids else private_knowledge_item_ids
+
+    requested_file_ids = {str(item).strip() for item in payload.attached_file_ids if str(item).strip()}
+    attached_file_knowledge_item_ids = [
+        item.knowledge_item_id
+        for item in attached_knowledge_items
+        if item.source_type == "uploaded_file"
+        and item.index_status == "indexed"
+        and (
+            item.knowledge_item_id in requested_file_ids
+            or (item.file_id is not None and item.file_id in requested_file_ids)
+            or item.source_ref in requested_file_ids
+        )
+    ]
 
     chat_request = ChatRequest(
         mode="ask",
@@ -73,6 +90,7 @@ def build_chat_request(
             "top_k": payload.top_k,
             "attached_file_ids": payload.attached_file_ids,
             "attached_knowledge_item_ids": effective_knowledge_item_ids,
+            "attached_file_knowledge_item_ids": attached_file_knowledge_item_ids,
             "request_group_id": payload.request_group_id,
         },
     )

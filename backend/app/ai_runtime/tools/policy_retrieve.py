@@ -39,7 +39,7 @@ class PolicyRetrieveTool(BaseTool):
             region=region,
             doc_type=doc_type,
         ))
-        hits = rag_result.hits
+        hits = [chunk.to_retrieved_hit() for chunk in rag_result.chunks]
 
         return ToolResult(
             name=self.definition.name,
