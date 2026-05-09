@@ -50,6 +50,7 @@ export interface ThemeSemanticTokens {
     siderTextSecondary: string;
     siderTriggerBorder: string;
     sessionItemBg: string;
+    sessionItemHoverBg: string;
     sessionItemHoverBorder: string;
     sessionActiveBg: string;
     sessionMiniBg: string;
@@ -162,12 +163,10 @@ export function buildThemeVariant(options: BuildThemeVariantOptions): ThemeSeman
         siderText: "#f8fafc",
         siderTextSecondary: withAlpha("#f8fafc", 0.82),
         siderTriggerBorder: withAlpha(primaryHover, appearance === "dark" ? 0.26 : 0.18),
-        sessionItemBg: appearance === "dark" ? withAlpha(bg3, 0.42) : withAlpha(text, 0.05),
-        sessionItemHoverBorder: withAlpha(primary, 0.34),
-        sessionActiveBg: `linear-gradient(180deg, ${withAlpha(bg1, appearance === "dark" ? 0.98 : 0.96)}, ${withAlpha(
-            getScale(accent, accentPrefix, appearance === "dark" ? 3 : 2),
-            appearance === "dark" ? 0.22 : 0.18,
-        )})`,
+        sessionItemBg: "transparent",
+        sessionItemHoverBg: appearance === "dark" ? withAlpha("#f8fafc", 0.08) : withAlpha(text, 0.07),
+        sessionItemHoverBorder: "transparent",
+        sessionActiveBg: appearance === "dark" ? withAlpha("#f8fafc", 0.13) : withAlpha(text, 0.1),
         sessionMiniBg: `linear-gradient(180deg, ${withAlpha(getScale(accent, accentPrefix, appearance === "dark" ? 9 : 4), appearance === "dark" ? 0.42 : 0.16)}, ${withAlpha(
             getScale(accent, accentPrefix, appearance === "dark" ? 11 : 6),
             appearance === "dark" ? 0.9 : 0.24,
@@ -221,6 +220,7 @@ export function buildCssVariables(tokens: ThemeSemanticTokens) {
         "--cr-primary-soft": tokens.primarySoft,
         "--cr-primary-glow": tokens.primaryGlow,
         "--cr-session-item-bg": tokens.sessionItemBg,
+        "--cr-session-item-hover-bg": tokens.sessionItemHoverBg,
         "--cr-session-item-hover-border": tokens.sessionItemHoverBorder,
         "--cr-session-mini-bg": tokens.sessionMiniBg,
         "--cr-session-mini-text": tokens.sessionMiniText,

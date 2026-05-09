@@ -1,4 +1,4 @@
-import { MenuFoldOutlined, MenuUnfoldOutlined, PlusOutlined } from "@ant-design/icons";
+import { DownOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PlusOutlined } from "@ant-design/icons";
 import { Button, Empty, List, Spin, Tooltip, Typography } from "antd";
 import { useEffect, useState } from "react";
 import type { SessionSummary } from "../types/session";
@@ -63,6 +63,10 @@ export function SessionRail({
                         <div className="chat-workbench__loading"><Spin /></div>
                     ) : sessions.length ? (
                         <div className="chat-session-rail__scroll">
+                            <div className="chat-session-rail__section-title" aria-label="最近会话">
+                                <span>最近</span>
+                                <DownOutlined />
+                            </div>
                             <List
                                 className="chat-session-list"
                                 dataSource={sessions}
@@ -75,7 +79,12 @@ export function SessionRail({
                                         onClick={() => onSelectSession(session.session_id)}
                                     >
                                         <div className="chat-session-list__content">
-                                            <Typography.Text strong>{session.title}</Typography.Text>
+                                            <Typography.Text
+                                                className="chat-session-list__title"
+                                                ellipsis={{ tooltip: session.title }}
+                                            >
+                                                {session.title}
+                                            </Typography.Text>
                                         </div>
                                     </List.Item>
                                 )}
