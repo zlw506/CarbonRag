@@ -618,15 +618,29 @@ body {
     width: 100%;
     min-height: 28px;
     padding: 0 6px 4px;
+    border: 0;
+    background: transparent;
     color: var(--cr-sider-text);
+    cursor: pointer;
     font-size: 13px;
     font-weight: 600;
     line-height: 1.2;
+    text-align: left;
 }
 
 .chat-session-rail__section-title .anticon {
     color: var(--cr-sider-text-secondary);
     font-size: 10px;
+}
+
+.chat-session-rail__section-title:hover {
+    color: var(--cr-sider-text);
+}
+
+.chat-session-rail__section-title:focus-visible {
+    outline: 2px solid var(--cr-primary);
+    outline-offset: 2px;
+    border-radius: 8px;
 }
 
 .chat-session-rail__scroll .ant-list,

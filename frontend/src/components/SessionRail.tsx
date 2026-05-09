@@ -1,4 +1,4 @@
-import { DownOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PlusOutlined } from "@ant-design/icons";
+import { DownOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PlusOutlined, UpOutlined } from "@ant-design/icons";
 import { Button, Empty, List, Spin, Tooltip, Typography } from "antd";
 import { useEffect, useState } from "react";
 import type { SessionSummary } from "../types/session";
@@ -24,6 +24,8 @@ export function SessionRail({
     onSelectSession,
     onToggleCollapsed,
 }: SessionRailProps) {
+    const [recentCollapsed, setRecentCollapsed] = useState(false);
+
     return (
         <div className={collapsed ? "chat-session-rail chat-session-rail--collapsed" : "chat-session-rail"}>
             <div className="chat-session-rail__header">
@@ -63,32 +65,40 @@ export function SessionRail({
                         <div className="chat-workbench__loading"><Spin /></div>
                     ) : sessions.length ? (
                         <div className="chat-session-rail__scroll">
-                            <div className="chat-session-rail__section-title" aria-label="最近会话">
+                            <button
+                                type="button"
+                                className="chat-session-rail__section-title"
+                                aria-expanded={!recentCollapsed}
+                                aria-label={recentCollapsed ? "展开最近会话" : "收起最近会话"}
+                                onClick={() => setRecentCollapsed((current) => !current)}
+                            >
                                 <span>最近</span>
-                                <DownOutlined />
-                            </div>
-                            <List
-                                className="chat-session-list"
-                                dataSource={sessions}
-                                locale={{ emptyText }}
-                                renderItem={(session) => (
-                                    <List.Item
-                                        className={activeSessionId === session.session_id
-                                            ? "chat-session-list__item chat-session-list__item--active"
-                                            : "chat-session-list__item"}
-                                        onClick={() => onSelectSession(session.session_id)}
-                                    >
-                                        <div className="chat-session-list__content">
-                                            <Typography.Text
-                                                className="chat-session-list__title"
-                                                ellipsis={{ tooltip: session.title }}
-                                            >
-                                                {session.title}
-                                            </Typography.Text>
-                                        </div>
-                                    </List.Item>
-                                )}
-                            />
+                                {recentCollapsed ? <UpOutlined /> : <DownOutlined />}
+                            </button>
+                            {!recentCollapsed ? (
+                                <List
+                                    className="chat-session-list"
+                                    dataSource={sessions}
+                                    locale={{ emptyText }}
+                                    renderItem={(session) => (
+                                        <List.Item
+                                            className={activeSessionId === session.session_id
+                                                ? "chat-session-list__item chat-session-list__item--active"
+                                                : "chat-session-list__item"}
+                                            onClick={() => onSelectSession(session.session_id)}
+                                        >
+                                            <div className="chat-session-list__content">
+                                                <Typography.Text
+                                                    className="chat-session-list__title"
+                                                    ellipsis={{ tooltip: session.title }}
+                                                >
+                                                    {session.title}
+                                                </Typography.Text>
+                                            </div>
+                                        </List.Item>
+                                    )}
+                                />
+                            ) : null}
                         </div>
                     ) : (
                         <div className="chat-session-rail__empty">
