@@ -63,6 +63,7 @@ interface ChatMessageView extends SessionMessage {
     client_state?: AssistantLifecycleState;
     thinking_content?: string | null;
     status_note?: string | null;
+    client_attachments?: SessionAttachment[];
 }
 
 interface ChatDraft {
@@ -121,21 +122,21 @@ export function AskPage() {
     const reconnectNoticeMode = settings?.chat.reconnect_notice_mode ?? "message_only";
     const shouldShowContextDebug = settings?.chat.show_context_debug_by_default ?? false;
 
+    const uploadedAttachments = dedupeUploadedAttachments(activeSession?.attached_files.filter((item) => item.source_type === "uploaded_file") ?? []);
+    const dismissedUploadedFileIdSet = useMemo(() => new Set(dismissedUploadedFileIds), [dismissedUploadedFileIds]);
+    const visibleUploadedAttachments = uploadedAttachments.filter((item) => !dismissedUploadedFileIdSet.has(item.file_id));
+    const selectedUploadedAttachments = visibleUploadedAttachments.filter((item) => draftAttachedFileIds.includes(item.file_id));
+    const selectedReadyUploadedAttachments = selectedUploadedAttachments.filter(isAttachmentReadyForAsk);
     const visibleMessages = useMemo<ChatMessageView[]>(() => {
-        const baseMessages = (activeSession?.messages ?? []) as ChatMessageView[];
+        const baseMessages = attachCitedFilesToUserMessages((activeSession?.messages ?? []) as ChatMessageView[], uploadedAttachments);
         if (!streamDraft) {
             return baseMessages;
         }
         return [...baseMessages, streamDraft.userMessage, streamDraft.assistantMessage];
-    }, [activeSession?.messages, streamDraft]);
+    }, [activeSession?.messages, streamDraft, uploadedAttachments]);
 
     const selectedCitationMessage = visibleMessages.find((message) => message.message_id === selectedCitationMessageId) ?? null;
     const citationGroups = groupCitationsBySource(selectedCitationMessage?.citations ?? []);
-    const uploadedAttachments = dedupeUploadedAttachments(activeSession?.attached_files.filter((item) => item.source_type === "uploaded_file") ?? []);
-    const dismissedUploadedFileIdSet = useMemo(() => new Set(dismissedUploadedFileIds), [dismissedUploadedFileIds]);
-    const visibleUploadedAttachments = uploadedAttachments.filter((item) => !dismissedUploadedFileIdSet.has(item.file_id));
-    const parsedUploadedAttachments = visibleUploadedAttachments.filter((item) => isAttachmentReadyForAsk(item));
-    const selectedUploadedAttachments = parsedUploadedAttachments.filter((item) => draftAttachedFileIds.includes(item.file_id));
     const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
     const pendingUploadSignature = getPendingUploadSignature(uploadedAttachments);
     const readyUploadSignature = getReadyUploadSignature(uploadedAttachments);
@@ -307,6 +308,7 @@ export function AskPage() {
                 content: draftQuestion,
                 created_at: now,
                 citations: [],
+                client_attachments: selectedUploadedAttachments,
             },
             assistantMessage: {
                 message_id: draftAssistantMessageId,
@@ -330,7 +332,7 @@ export function AskPage() {
                     question: draftQuestion,
                     knowledge_scope: knowledgeScope,
                     top_k: 5,
-                    attached_file_ids: draftAttachedFileIds,
+                    attached_file_ids: selectedReadyUploadedAttachments.map((attachment) => attachment.file_id),
                     attached_knowledge_item_ids: draftAttachedDocIds,
                     provider_override: providerOverride,
                 },
@@ -497,11 +499,14 @@ export function AskPage() {
         setUploading(true);
         setUploadError(null);
         try {
+            const uploadedFileIds: string[] = [];
             for (const file of files) {
-                await uploadSessionFile(activeSessionId, file);
+                const uploaded = await uploadSessionFile(activeSessionId, file);
+                uploadedFileIds.push(uploaded.file_id);
             }
             await refreshSessions(activeSessionId);
-            await loadSessionDetail(activeSessionId);
+            await loadSessionDetail(activeSessionId, { silent: true, preserveDraftSelections: true });
+            setDraftAttachedFileIds((current) => [...new Set([...current, ...uploadedFileIds])]);
         } catch (error) {
             setUploadError(extractDetailMessage(error) ?? "附件上传失败，请确认文件格式、大小和会话状态。");
         } finally {
@@ -768,23 +773,6 @@ export function AskPage() {
                                         />
                                     ))
                                 )}
-                                {visibleUploadedAttachments.length > 0 ? (
-                                    <SessionFileShelf
-                                        attachments={visibleUploadedAttachments}
-                                        selectedFileIds={draftAttachedFileIds}
-                                        onToggle={(attachment) => {
-                                            if (!isAttachmentReadyForAsk(attachment)) {
-                                                return;
-                                            }
-                                            setDraftAttachedFileIds((current) =>
-                                                current.includes(attachment.file_id)
-                                                    ? current.filter((fileId) => fileId !== attachment.file_id)
-                                                    : [...current, attachment.file_id],
-                                            );
-                                        }}
-                                        onDismiss={dismissUploadedAttachment}
-                                    />
-                                ) : null}
                             </div>
                         </>
                     ) : (
@@ -814,31 +802,13 @@ export function AskPage() {
                     {showComposerMeta ? (
                         <div className="chat-composer-dock__meta">
                             <Space size={8} wrap className="chat-composer-dock__chips">
-                                {selectedUploadedAttachments.length > 0 ? (
-                                    <Popover
-                                        trigger="click"
-                                        content={
-                                            <Space direction="vertical" size={6} className="chat-file-popover">
-                                                <Typography.Text strong>本轮将读取这些文件</Typography.Text>
-                                                {selectedUploadedAttachments.map((attachment) => (
-                                                    <Tag
-                                                        key={attachment.file_id}
-                                                        closable
-                                                        color="green"
-                                                        onClose={(event) => {
-                                                            event.preventDefault();
-                                                            setDraftAttachedFileIds((current) => current.filter((fileId) => fileId !== attachment.file_id));
-                                                        }}
-                                                    >
-                                                        {attachment.filename}
-                                                    </Tag>
-                                                ))}
-                                            </Space>
-                                        }
-                                    >
-                                        <Tag color="green">本轮文件 {selectedUploadedAttachments.length}/{parsedUploadedAttachments.length}</Tag>
-                                    </Popover>
-                                ) : null}
+                                {selectedUploadedAttachments.map((attachment) => (
+                                    <ComposerAttachmentChip
+                                        key={attachment.file_id}
+                                        attachment={attachment}
+                                        onRemove={() => dismissUploadedAttachment(attachment.file_id)}
+                                    />
+                                ))}
                                 {privateAttachments.length > 0 ? <Tag color="magenta">知识条目 {privateAttachments.length}</Tag> : null}
                                 {currentStreamTag ? <Tag color={currentStreamTag.color}>{currentStreamTag.label}</Tag> : null}
                                 {uploading ? <Tag color="processing">正在上传附件</Tag> : null}
@@ -951,47 +921,42 @@ interface MessageBubbleProps {
     onSelectCitations: () => void;
 }
 
-interface SessionFileShelfProps {
-    attachments: SessionAttachment[];
-    selectedFileIds: string[];
-    onToggle: (attachment: SessionAttachment) => void;
-    onDismiss: (fileId: string) => void;
+function ComposerAttachmentChip({ attachment, onRemove }: { attachment: SessionAttachment; onRemove: () => void }) {
+    return (
+        <Popover trigger="click" content={<FileAttachmentPopover attachment={attachment} />}>
+            <Tag
+                className="chat-composer-attachment"
+                closable
+                color={fileAttachmentStatusColor(attachment)}
+                onClose={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onRemove();
+                }}
+            >
+                <FileTextOutlined />
+                <span className="chat-composer-attachment__name">{attachment.filename}</span>
+                <span className="chat-composer-attachment__status">{fileAttachmentStatusLabel(attachment)}</span>
+            </Tag>
+        </Popover>
+    );
 }
 
-function SessionFileShelf({ attachments, selectedFileIds, onToggle, onDismiss }: SessionFileShelfProps) {
+function MessageAttachmentStrip({ attachments }: { attachments: SessionAttachment[] }) {
+    if (!attachments.length) {
+        return null;
+    }
     return (
-        <div className="chat-session-files">
-            <div className="chat-session-files__header">
-                <Typography.Text strong>会话文件</Typography.Text>
-                <Typography.Text type="secondary">文件留在消息流里；点选后只会加入本轮提问。</Typography.Text>
-            </div>
-            <Space size={8} wrap className="chat-session-files__chips">
-                {attachments.map((attachment) => {
-                    const ready = isAttachmentReadyForAsk(attachment);
-                    const selected = selectedFileIds.includes(attachment.file_id);
-                    return (
-                        <Popover key={attachment.file_id} trigger="click" content={<FileAttachmentPopover attachment={attachment} />}>
-                            <Tag
-                                className={selected ? "chat-session-files__tag chat-session-files__tag--selected" : "chat-session-files__tag"}
-                                closable
-                                color={selected ? "green" : fileAttachmentStatusColor(attachment)}
-                                onClose={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    onDismiss(attachment.file_id);
-                                }}
-                                onClick={() => {
-                                    if (ready) {
-                                        onToggle(attachment);
-                                    }
-                                }}
-                            >
-                                {attachment.filename} · {selected ? "本轮读取" : fileAttachmentStatusLabel(attachment)}
-                            </Tag>
-                        </Popover>
-                    );
-                })}
-            </Space>
+        <div className="chat-message-attachments">
+            {attachments.map((attachment) => (
+                <Popover key={attachment.file_id} trigger="click" content={<FileAttachmentPopover attachment={attachment} />}>
+                    <span className="chat-message-attachment">
+                        <FileTextOutlined />
+                        <span className="chat-message-attachment__name">{attachment.filename}</span>
+                        <span className="chat-message-attachment__status">{fileAttachmentStatusLabel(attachment)}</span>
+                    </span>
+                </Popover>
+            ))}
         </div>
     );
 }
@@ -1105,6 +1070,7 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
                     <div className={isAssistant ? "chat-message__content chat-message__content--assistant" : "chat-message__content"}>
                         {renderMessageContent(message, isAssistant)}
                     </div>
+                    {!isAssistant && !isSystem ? <MessageAttachmentStrip attachments={message.client_attachments ?? []} /> : null}
                     {isAssistant ? (
                         <div className="chat-message__meta">
                             <Space size={12} wrap>
@@ -1336,9 +1302,13 @@ function mergeReadyUploadedFileSelection(
     previousReadyFileIds?: Set<string>,
     dismissedFileIds?: Set<string>,
 ) {
+    const availableUploadedFileIds = dedupeUploadedAttachments(attachedFiles.filter((item) => item.source_type === "uploaded_file"))
+        .map((item) => item.file_id)
+        .filter((fileId) => !dismissedFileIds?.has(fileId));
+    const availableUploadedFileIdSet = new Set(availableUploadedFileIds);
     const readyFileIds = getReadyUploadedFileIds(attachedFiles).filter((fileId) => !dismissedFileIds?.has(fileId));
     const readyFileIdSet = new Set(readyFileIds);
-    const nextFileIds = currentFileIds.filter((fileId) => readyFileIdSet.has(fileId));
+    const nextFileIds = currentFileIds.filter((fileId) => availableUploadedFileIdSet.has(fileId));
 
     for (const fileId of readyFileIds) {
         const becameReadySinceLastPoll = !previousReadyFileIds || !previousReadyFileIds.has(fileId);
@@ -1348,6 +1318,46 @@ function mergeReadyUploadedFileSelection(
     }
 
     return nextFileIds;
+}
+
+function attachCitedFilesToUserMessages(messages: ChatMessageView[], uploadedAttachments: SessionAttachment[]) {
+    if (!messages.length || !uploadedAttachments.length) {
+        return messages;
+    }
+
+    const attachmentsByFileId = new Map(uploadedAttachments.map((attachment) => [attachment.file_id, attachment]));
+    const nextMessages = messages.map((message) => ({ ...message }));
+
+    for (let index = 0; index < nextMessages.length; index += 1) {
+        const message = nextMessages[index];
+        if (message.role !== "assistant" || !message.citations.length) {
+            continue;
+        }
+        const citedAttachments = dedupeUploadedAttachments(
+            message.citations
+                .filter((citation) => citation.source_type === "private_upload" && citation.file_id)
+                .map((citation) => attachmentsByFileId.get(citation.file_id ?? ""))
+                .filter((attachment): attachment is SessionAttachment => Boolean(attachment)),
+        );
+        if (!citedAttachments.length) {
+            continue;
+        }
+        for (let userIndex = index - 1; userIndex >= 0; userIndex -= 1) {
+            if (nextMessages[userIndex].role !== "user") {
+                continue;
+            }
+            nextMessages[userIndex] = {
+                ...nextMessages[userIndex],
+                client_attachments: dedupeUploadedAttachments([
+                    ...(nextMessages[userIndex].client_attachments ?? []),
+                    ...citedAttachments,
+                ]),
+            };
+            break;
+        }
+    }
+
+    return nextMessages;
 }
 
 function isAttachmentReadyForAsk(attachment: SessionAttachment) {

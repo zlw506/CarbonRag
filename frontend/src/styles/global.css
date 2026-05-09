@@ -1052,6 +1052,38 @@ body {
     gap: 10px;
 }
 
+.chat-message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: -2px;
+}
+
+.chat-message-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    max-width: min(360px, 72vw);
+    padding: 7px 10px;
+    border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    border-radius: 13px;
+    background: color-mix(in srgb, currentColor 7%, transparent);
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.15;
+}
+
+.chat-message-attachment__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-message-attachment__status {
+    flex: 0 0 auto;
+    opacity: 0.72;
+}
+
 .chat-message__thinking {
     border: 1px solid var(--cr-primary-soft);
     border-radius: 16px;
@@ -1222,44 +1254,6 @@ body {
     border-radius: 999px;
 }
 
-.chat-session-files {
-    align-self: flex-start;
-    max-width: min(760px, 100%);
-    margin: 4px 0 12px;
-    padding: 12px 14px;
-    border: 1px solid var(--cr-border);
-    border-radius: 18px;
-    background: color-mix(in srgb, var(--cr-surface-strong) 86%, transparent);
-    box-shadow: var(--cr-shadow-soft);
-}
-
-.chat-session-files__header {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-}
-
-.chat-session-files__chips {
-    max-width: 100%;
-}
-
-.chat-session-files__tag {
-    max-width: min(560px, 80vw);
-    padding: 5px 9px;
-    border-radius: 999px;
-    cursor: pointer;
-}
-
-.chat-session-files__tag .ant-tag-close-icon {
-    margin-left: 6px;
-}
-
-.chat-session-files__tag--selected {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--cr-primary) 14%, transparent);
-}
-
 .chat-file-popover {
     max-width: 320px;
 }
@@ -1288,6 +1282,32 @@ body {
 
 .chat-composer-dock__chips {
     justify-content: flex-start;
+}
+
+.chat-composer-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    max-width: min(420px, 74vw);
+    min-height: 32px;
+    padding: 6px 10px;
+    border-radius: 13px;
+    font-weight: 650;
+}
+
+.chat-composer-attachment__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-composer-attachment__status {
+    flex: 0 0 auto;
+    opacity: 0.75;
+}
+
+.chat-composer-attachment .ant-tag-close-icon {
+    margin-left: 4px;
 }
 
 .chat-composer-dock__main {
