@@ -66,6 +66,7 @@ def test_bootstrap_runtime_database_creates_sqlite_schema(tmp_path) -> None:
     assert "carbon_activity_items" in tables
     assert "carbon_factor_sources" in tables
     assert "carbon_factor_records" in tables
+    assert "carbon_factor_catalog_entries" in tables
     assert "carbon_factor_aliases" in tables
     assert "carbon_factor_import_jobs" in tables
     assert "policy_crawl_sources" in tables
@@ -94,6 +95,7 @@ def test_bootstrap_runtime_database_executes_postgres_schema(monkeypatch) -> Non
     assert any("CREATE TABLE IF NOT EXISTS carbon_activity_items" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS carbon_factor_sources" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS carbon_factor_records" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS carbon_factor_catalog_entries" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS carbon_factor_import_jobs" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS reports" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS report_sources" in statement for statement in executed)

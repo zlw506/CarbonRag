@@ -20,12 +20,28 @@ def test_carbonstop_seed_imports_public_calculation_ready_rows(tmp_path) -> None
     result = service.search(q="载货汽车", page_size=10)
     facets = service.facets()
 
+    assert job.summary["catalog_count"] >= job.summary["accepted_count"]
     assert job.summary["accepted_count"] > 200
     assert job.summary["skipped_count"] > 0
     assert result.total >= 1
     assert result.items[0].source is not None
     assert "carbonstop.com/ccdb" in (result.items[0].source.source_url or "")
     assert any(node["label"] == "交通" for node in facets.category_tree)
+
+
+def test_carbonstop_public_catalog_keeps_encrypted_rows_visible(tmp_path) -> None:
+    service = build_service(tmp_path)
+    service.import_carbonstop_seed(owner_user_id="tester")
+
+    catalog = service.search_catalog(industry="交通", category="陆上交通", page_size=30)
+    calculation_ready = service.search(industry="交通", category="陆上交通", page_size=30)
+    encrypted = service.search_catalog(industry="交通", category="陆上交通", value_status="encrypted", page_size=30)
+
+    assert catalog.total == 18
+    assert calculation_ready.total == 12
+    assert encrypted.total == 6
+    assert any(not item.is_calculation_ready for item in catalog.items)
+    assert any(item.raw_value for item in catalog.items)
 
 
 def test_carbonstop_category_tree_matches_parent_and_child_filters(tmp_path) -> None:
@@ -99,9 +115,11 @@ def test_sqlite_factor_tables_are_queryable_after_seed(tmp_path) -> None:
     connection = sqlite3.connect(tmp_path / "runtime.sqlite3")
     try:
         count = connection.execute("SELECT COUNT(*) FROM carbon_factor_records").fetchone()[0]
+        catalog_count = connection.execute("SELECT COUNT(*) FROM carbon_factor_catalog_entries").fetchone()[0]
         source_count = connection.execute("SELECT COUNT(*) FROM carbon_factor_sources").fetchone()[0]
     finally:
         connection.close()
 
     assert count > 200
+    assert catalog_count > count
     assert source_count > 0

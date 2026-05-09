@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.auth.dependencies import require_admin, require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
 from app.carbon_factors.schemas import (
+    CarbonFactorCatalogSearchResponse,
     CarbonFactorDetail,
     CarbonFactorFacets,
     CarbonFactorImportJob,
@@ -49,6 +50,29 @@ def search_carbon_factors(
         source_type=source_type,
         quality=quality,
         unit=unit,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/carbon-factor-catalog", response_model=CarbonFactorCatalogSearchResponse)
+def search_carbon_factor_catalog(
+    q: str | None = None,
+    category: str | None = None,
+    industry: str | None = None,
+    year: int | None = None,
+    value_status: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=8, ge=1, le=100),
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> CarbonFactorCatalogSearchResponse:
+    del current_user
+    return get_carbon_factor_database_service().search_catalog(
+        q=q,
+        category=category,
+        industry=industry,
+        year=year,
+        value_status=value_status,
         page=page,
         page_size=page_size,
     )

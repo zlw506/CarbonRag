@@ -48,6 +48,32 @@ class CarbonFactorSearchResponse(BaseModel):
     page_size: int
 
 
+class CarbonFactorCatalogEntry(BaseModel):
+    entry_id: str
+    name: str
+    category: str
+    industry: str | None = None
+    region: str | None = None
+    year: int | None = None
+    factor_unit: str | None = None
+    activity_unit: str | None = None
+    value_status: str
+    raw_value: str | None = None
+    factor_value: float | None = None
+    is_calculation_ready: bool
+    source_title: str | None = None
+    publisher: str | None = None
+    source_url: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class CarbonFactorCatalogSearchResponse(BaseModel):
+    items: list[CarbonFactorCatalogEntry]
+    total: int
+    page: int
+    page_size: int
+
+
 class CarbonFactorFacets(BaseModel):
     categories: list[str]
     industries: list[str]

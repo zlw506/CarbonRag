@@ -11,7 +11,8 @@ import {
     Drawer,
     Empty,
     Input,
-    List,
+    Pagination,
+    Segmented,
     Select,
     Space,
     Spin,
@@ -22,9 +23,11 @@ import { useEffect, useMemo, useState } from "react";
 import {
     getCarbonFactor,
     getCarbonFactorFacets,
+    searchCarbonFactorCatalog,
     searchCarbonFactors,
 } from "../../services/carbonFactors";
 import type {
+    CarbonFactorCatalogEntry,
     CarbonFactorCategoryNode,
     CarbonFactorDetail,
     CarbonFactorFacets,
@@ -32,6 +35,7 @@ import type {
 } from "../../types/carbonFactor";
 
 const hotKeywords = ["电力", "柴油", "塑料", "交通", "建筑", "天然气"];
+const PAGE_SIZE = 8;
 
 export function CarbonFactorsPage() {
     const [keyword, setKeyword] = useState("");
@@ -40,10 +44,14 @@ export function CarbonFactorsPage() {
     const [year, setYear] = useState<number | undefined>();
     const [facets, setFacets] = useState<CarbonFactorFacets | null>(null);
     const [items, setItems] = useState<CarbonFactorSummary[]>([]);
+    const [catalogItems, setCatalogItems] = useState<CarbonFactorCatalogEntry[]>([]);
     const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(1);
+    const [viewMode, setViewMode] = useState<"catalog" | "calculation">("catalog");
     const [loading, setLoading] = useState(false);
     const [detailLoading, setDetailLoading] = useState(false);
     const [selectedFactor, setSelectedFactor] = useState<CarbonFactorDetail | null>(null);
+    const [selectedCatalogEntry, setSelectedCatalogEntry] = useState<CarbonFactorCatalogEntry | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const selectedGroup = useMemo(
@@ -57,7 +65,7 @@ export function CarbonFactorsPage() {
 
     useEffect(() => {
         void runSearch();
-    }, [category, industry, year]);
+    }, [category, industry, year, page, viewMode]);
 
     async function loadInitialData() {
         setLoading(true);
@@ -65,8 +73,9 @@ export function CarbonFactorsPage() {
         try {
             const nextFacets = await getCarbonFactorFacets();
             setFacets(nextFacets);
-            const result = await searchCarbonFactors({ page_size: 24 });
-            setItems(result.items);
+            const result = await searchCarbonFactorCatalog({ page_size: PAGE_SIZE });
+            setCatalogItems(result.items);
+            setItems([]);
             setTotal(result.total);
         } catch {
             setError("当前无法加载碳因子库，请稍后重试。");
@@ -75,18 +84,34 @@ export function CarbonFactorsPage() {
         }
     }
 
-    async function runSearch(nextKeyword = keyword) {
+    async function runSearch(nextKeyword = keyword, nextPage = page) {
         setLoading(true);
         setError(null);
         try {
+            if (viewMode === "catalog") {
+                const result = await searchCarbonFactorCatalog({
+                    q: nextKeyword.trim() || undefined,
+                    category,
+                    industry,
+                    year,
+                    page: nextPage,
+                    page_size: PAGE_SIZE,
+                });
+                setCatalogItems(result.items);
+                setItems([]);
+                setTotal(result.total);
+                return;
+            }
             const result = await searchCarbonFactors({
                 q: nextKeyword.trim() || undefined,
                 category,
                 industry,
                 year,
-                page_size: 24,
+                page: nextPage,
+                page_size: PAGE_SIZE,
             });
             setItems(result.items);
+            setCatalogItems([]);
             setTotal(result.total);
         } catch {
             setError("搜索失败，请检查网络或稍后重试。");
@@ -107,6 +132,23 @@ export function CarbonFactorsPage() {
     function selectIndustry(node: CarbonFactorCategoryNode) {
         setIndustry(node.label);
         setCategory(undefined);
+        setPage(1);
+    }
+
+    function resetFilters() {
+        setIndustry(undefined);
+        setCategory(undefined);
+        setPage(1);
+    }
+
+    function selectedChildCount(child: { count: number; raw_count?: number }) {
+        return viewMode === "catalog" ? (child.raw_count ?? child.count) : child.count;
+    }
+
+    function selectedGroupCount(node: CarbonFactorCategoryNode) {
+        return viewMode === "catalog"
+            ? node.children.reduce((sum, child) => sum + selectedChildCount(child), 0)
+            : (node.count ?? 0);
     }
 
     return (
@@ -129,7 +171,10 @@ export function CarbonFactorsPage() {
                             prefix={<SearchOutlined />}
                             placeholder="搜索电力、柴油、交通、塑料、建筑材料…"
                             onChange={(event) => setKeyword(event.target.value)}
-                            onSearch={(value) => void runSearch(value)}
+                            onSearch={(value) => {
+                                setPage(1);
+                                void runSearch(value, 1);
+                            }}
                         />
                         <Space wrap size={8}>
                             <Typography.Text type="secondary">热门搜索：</Typography.Text>
@@ -139,7 +184,8 @@ export function CarbonFactorsPage() {
                                     className="carbon-factor-hot-tag"
                                     onClick={() => {
                                         setKeyword(item);
-                                        void runSearch(item);
+                                        setPage(1);
+                                        void runSearch(item, 1);
                                     }}
                                 >
                                     {item}
@@ -165,10 +211,7 @@ export function CarbonFactorsPage() {
                             <Button
                                 block
                                 type={!industry ? "primary" : "default"}
-                                onClick={() => {
-                                    setIndustry(undefined);
-                                    setCategory(undefined);
-                                }}
+                                onClick={resetFilters}
                             >
                                 全部分类
                             </Button>
@@ -180,7 +223,7 @@ export function CarbonFactorsPage() {
                                     onClick={() => selectIndustry(node)}
                                 >
                                     {node.label}
-                                    {typeof node.count === "number" ? `（${node.count}）` : ""}
+                                    {`（${selectedGroupCount(node)}）`}
                                 </Button>
                             ))}
                         </Space>
@@ -198,13 +241,14 @@ export function CarbonFactorsPage() {
                                 placeholder="二级分类"
                                 style={{ minWidth: 180 }}
                                 disabled={!selectedGroup}
-                                onChange={setCategory}
+                                onChange={(value) => {
+                                    setCategory(value);
+                                    setPage(1);
+                                }}
                                 options={(selectedGroup?.children ?? []).map((child) => ({
-                                    label: child.count > 0
-                                        ? `${child.label}（${child.count}）`
-                                        : `${child.label}（暂无可计算公开值）`,
+                                    label: `${child.label}（${selectedChildCount(child)}）`,
                                     value: child.label,
-                                    disabled: child.count <= 0,
+                                    disabled: selectedChildCount(child) <= 0,
                                 }))}
                             />
                             <Select
@@ -212,14 +256,30 @@ export function CarbonFactorsPage() {
                                 value={year}
                                 placeholder="发布年份"
                                 style={{ minWidth: 140 }}
-                                onChange={setYear}
+                                onChange={(value) => {
+                                    setYear(value);
+                                    setPage(1);
+                                }}
                                 options={(facets?.years ?? []).map((item) => ({ label: String(item), value: item }))}
+                            />
+                            <Segmented
+                                value={viewMode}
+                                onChange={(value) => {
+                                    setViewMode(value as "catalog" | "calculation");
+                                    setPage(1);
+                                }}
+                                options={[
+                                    { label: "全部公开目录", value: "catalog" },
+                                    { label: "仅可计算因子", value: "calculation" },
+                                ]}
                             />
                             <Button icon={<ReloadOutlined />} onClick={() => void loadInitialData()}>
                                 刷新
                             </Button>
                             <Typography.Text type="secondary">
-                                共 {total} 条可计算公开因子；加密展示值不会被硬编进计算库。
+                                {viewMode === "catalog"
+                                    ? `共 ${total} 条公开目录项；未公开数值仅展示目录，不进入计算库。`
+                                    : `共 ${total} 条可计算公开因子；加密展示值不会被硬编进计算库。`}
                             </Typography.Text>
                         </Space>
                     </Card>
@@ -227,19 +287,39 @@ export function CarbonFactorsPage() {
                     {error ? <Card><Typography.Text type="danger">{error}</Typography.Text></Card> : null}
 
                     <Spin spinning={loading}>
-                        {items.length ? (
-                            <List
-                                grid={{ gutter: 16, xs: 1, sm: 1, md: 2, xl: 3 }}
-                                dataSource={items}
-                                renderItem={(item) => (
-                                    <List.Item key={item.factor_id}>
-                                        <CarbonFactorCard item={item} onOpen={() => void openDetail(item.factor_id)} />
-                                    </List.Item>
-                                )}
-                            />
+                        {(viewMode === "catalog" ? catalogItems.length : items.length) ? (
+                            <Card className="carbon-factor-results-panel">
+                                <div className="carbon-factor-results-grid">
+                                    {viewMode === "catalog"
+                                        ? catalogItems.map((item) => (
+                                            <CarbonFactorCatalogCard
+                                                key={item.entry_id}
+                                                item={item}
+                                                onOpen={() => setSelectedCatalogEntry(item)}
+                                            />
+                                        ))
+                                        : items.map((item) => (
+                                            <CarbonFactorCard
+                                                key={item.factor_id}
+                                                item={item}
+                                                onOpen={() => void openDetail(item.factor_id)}
+                                            />
+                                        ))}
+                                </div>
+                                <div className="carbon-factor-results-footer">
+                                    <Pagination
+                                        size="small"
+                                        current={page}
+                                        pageSize={PAGE_SIZE}
+                                        total={total}
+                                        showSizeChanger={false}
+                                        onChange={setPage}
+                                    />
+                                </div>
+                            </Card>
                         ) : (
                             <Card>
-                                <Empty description="没有匹配的公开因子" />
+                                <Empty description={viewMode === "catalog" ? "没有匹配的公开目录项" : "没有匹配的可计算公开因子"} />
                             </Card>
                         )}
                     </Spin>
@@ -247,37 +327,97 @@ export function CarbonFactorsPage() {
             </section>
 
             <Drawer
-                title={selectedFactor?.name ?? "因子详情"}
-                open={Boolean(selectedFactor) || detailLoading}
+                title={selectedFactor?.name ?? selectedCatalogEntry?.name ?? "因子详情"}
+                open={Boolean(selectedFactor) || Boolean(selectedCatalogEntry) || detailLoading}
                 width={620}
-                onClose={() => setSelectedFactor(null)}
+                onClose={() => {
+                    setSelectedFactor(null);
+                    setSelectedCatalogEntry(null);
+                }}
             >
                 {detailLoading ? <Spin /> : selectedFactor ? <CarbonFactorDetailView factor={selectedFactor} /> : null}
+                {!detailLoading && selectedCatalogEntry ? <CarbonFactorCatalogDetailView entry={selectedCatalogEntry} /> : null}
             </Drawer>
         </div>
     );
 }
 
+function CarbonFactorCatalogCard({ item, onOpen }: { item: CarbonFactorCatalogEntry; onOpen: () => void }) {
+    return (
+        <Card className="carbon-factor-card carbon-factor-card--compact" onClick={onOpen}>
+            <div className="carbon-factor-card__content">
+                <Typography.Title level={5} className="carbon-factor-card__title" title={item.name}>
+                    {item.name}
+                </Typography.Title>
+                <div className="carbon-factor-card__value carbon-factor-card__value--small">
+                    {item.is_calculation_ready && typeof item.factor_value === "number" ? formatNumber(item.factor_value) : "未公开数值"}
+                    <span>{item.factor_unit ?? "官网加密展示"}</span>
+                </div>
+                <Typography.Text type="secondary" className="carbon-factor-card__meta" title={item.publisher ?? "未知机构"}>
+                    来源：{item.publisher ?? "未知机构"}
+                </Typography.Text>
+            </div>
+        </Card>
+    );
+}
+
 function CarbonFactorCard({ item, onOpen }: { item: CarbonFactorSummary; onOpen: () => void }) {
     return (
-        <Card className="carbon-factor-card" onClick={onOpen}>
-            <Space direction="vertical" size={10} style={{ width: "100%" }}>
-                <Space size={8} wrap>
-                    <Tag color="green">公开</Tag>
-                    <Tag color="blue">{item.category}</Tag>
-                    {item.industry ? <Tag>{item.industry}</Tag> : null}
-                </Space>
-                <Typography.Title level={4}>{item.name}</Typography.Title>
-                <div className="carbon-factor-card__value">
+        <Card className="carbon-factor-card carbon-factor-card--compact" onClick={onOpen}>
+            <div className="carbon-factor-card__content">
+                <Typography.Title level={5} className="carbon-factor-card__title" title={item.name}>
+                    {item.name}
+                </Typography.Title>
+                <div className="carbon-factor-card__value carbon-factor-card__value--small">
                     {formatNumber(item.factor_value)}
                     <span>{item.factor_unit}</span>
                 </div>
-                <Space direction="vertical" size={2}>
-                    <Typography.Text type="secondary">因子来源：{item.source?.publisher ?? "未知机构"}</Typography.Text>
-                    <Typography.Text type="secondary">发布年份：{item.year ?? "未知"}</Typography.Text>
-                </Space>
-            </Space>
+                <Typography.Text type="secondary" className="carbon-factor-card__meta" title={item.source?.publisher ?? "未知机构"}>
+                    来源：{item.source?.publisher ?? "未知机构"}
+                </Typography.Text>
+            </div>
         </Card>
+    );
+}
+
+function CarbonFactorCatalogDetailView({ entry }: { entry: CarbonFactorCatalogEntry }) {
+    const raw = entry.metadata?.raw_row as Record<string, unknown> | undefined;
+    return (
+        <Space direction="vertical" size={16} style={{ width: "100%" }}>
+            <div className="carbon-factor-detail-value">
+                <Typography.Text type="secondary">公开目录状态</Typography.Text>
+                <Typography.Title level={3}>
+                    {entry.is_calculation_ready ? "可直接用于核算" : "官网公开目录，数值加密展示"}
+                </Typography.Title>
+                <Typography.Paragraph type="secondary">
+                    {entry.is_calculation_ready
+                        ? "该条目含公开数值，已经进入 CarbonRag 可计算因子库。"
+                        : "该条目来自 CarbonStop CCDB 公开目录，但官网未公开可计算数值，因此只展示目录与来源，不参与自动核算。"}
+                </Typography.Paragraph>
+            </div>
+            <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label="名称">{entry.name}</Descriptions.Item>
+                <Descriptions.Item label="分类">{entry.industry ? `${entry.industry} / ${entry.category}` : entry.category}</Descriptions.Item>
+                <Descriptions.Item label="公开展示值">{entry.raw_value ?? "未标注"}</Descriptions.Item>
+                <Descriptions.Item label="单位">{entry.factor_unit ?? "未公开"}</Descriptions.Item>
+                <Descriptions.Item label="地区">{entry.region ?? "未标注"}</Descriptions.Item>
+                <Descriptions.Item label="年份">{entry.year ?? "未标注"}</Descriptions.Item>
+                <Descriptions.Item label="来源机构">{entry.publisher ?? "未标注"}</Descriptions.Item>
+                <Descriptions.Item label="原始来源">{entry.source_title ?? "未标注"}</Descriptions.Item>
+                <Descriptions.Item label="来源平台">
+                    <Typography.Link href={entry.source_url ?? "https://www.carbonstop.com/ccdb"} target="_blank">
+                        CarbonStop CCDB 中国碳数据库
+                    </Typography.Link>
+                </Descriptions.Item>
+                <Descriptions.Item label="规格">{String(raw?.specification ?? "未标注")}</Descriptions.Item>
+                <Descriptions.Item label="说明">{String(raw?.description ?? "无")}</Descriptions.Item>
+            </Descriptions>
+            <Card size="small" title="原始字段快照">
+                <Typography.Paragraph copyable className="carbon-factor-raw-json">
+                    {JSON.stringify(raw ?? entry.metadata, null, 2)}
+                </Typography.Paragraph>
+            </Card>
+        </Space>
     );
 }
 
