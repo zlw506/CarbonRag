@@ -76,6 +76,12 @@ interface StreamContextSource {
     citation_count: number;
 }
 
+interface LoadSessionDetailOptions {
+    silent?: boolean;
+    preserveDraftSelections?: boolean;
+    previousReadyFileIds?: Set<string>;
+}
+
 export function AskPage() {
     const { user } = useAuth();
     const { settings, getActiveProviderOverride } = useSettings();
@@ -127,6 +133,8 @@ export function AskPage() {
     const uploadedAttachments = dedupeUploadedAttachments(activeSession?.attached_files.filter((item) => item.source_type === "uploaded_file") ?? []);
     const parsedUploadedAttachments = uploadedAttachments.filter((item) => isAttachmentReadyForAsk(item));
     const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
+    const pendingUploadSignature = getPendingUploadSignature(uploadedAttachments);
+    const readyUploadSignature = getReadyUploadSignature(uploadedAttachments);
     const currentSourceSummary = buildPanelSourceSummary(selectedCitationMessage?.citations ?? [], activeSession?.source_summary);
     const effectiveMemoryState = streamMemoryState ?? activeSession?.memory_state ?? null;
     const currentStreamState = streamDraft?.assistantMessage.client_state ?? null;
@@ -171,14 +179,19 @@ export function AskPage() {
     }, [settings?.chat.show_evidence_panel_by_default]);
 
     useEffect(() => {
-        if (!activeSessionId || !hasPendingUploads(uploadedAttachments)) {
+        if (!activeSessionId || !pendingUploadSignature) {
             return;
         }
         const timer = window.setInterval(() => {
-            void loadSessionDetail(activeSessionId);
+            const previousReadyFileIds = new Set(readyUploadSignature ? readyUploadSignature.split("|") : []);
+            void loadSessionDetail(activeSessionId, {
+                silent: true,
+                preserveDraftSelections: true,
+                previousReadyFileIds,
+            });
         }, 2500);
         return () => window.clearInterval(timer);
-    }, [activeSessionId, uploadedAttachments]);
+    }, [activeSessionId, pendingUploadSignature, readyUploadSignature]);
 
     useEffect(() => {
         const container = messageStreamRef.current;
@@ -204,22 +217,34 @@ export function AskPage() {
         }
     }
 
-    async function loadSessionDetail(sessionId: string) {
-        setLoadingSessionDetail(true);
-        setTransportError(null);
+    async function loadSessionDetail(sessionId: string, options: LoadSessionDetailOptions = {}) {
+        if (!options.silent) {
+            setLoadingSessionDetail(true);
+            setTransportError(null);
+        }
 
         try {
             const detail = await getSession(sessionId);
             setActiveSession(detail);
-            setKnowledgeScope(detail.knowledge_scope_last_used ?? "public");
-            setDraftAttachedDocIds(getAttachedPrivateSampleIds(detail.attached_files));
-            setDraftAttachedFileIds(getReadyUploadedFileIds(detail.attached_files));
-            setSelectedCitationMessageId(resolvePreferredCitationMessageId(detail));
+            if (!options.preserveDraftSelections) {
+                setKnowledgeScope(detail.knowledge_scope_last_used ?? "public");
+                setDraftAttachedDocIds(getAttachedPrivateSampleIds(detail.attached_files));
+                setDraftAttachedFileIds(getReadyUploadedFileIds(detail.attached_files));
+            } else {
+                setDraftAttachedFileIds((current) => mergeReadyUploadedFileSelection(current, detail.attached_files, options.previousReadyFileIds));
+            }
+            if (!options.silent) {
+                setSelectedCitationMessageId(resolvePreferredCitationMessageId(detail));
+            }
         } catch {
-            setActiveSession(null);
-            setTransportError("当前无法读取选中会话，请稍后重试。");
+            if (!options.silent) {
+                setActiveSession(null);
+                setTransportError("当前无法读取选中会话，请稍后重试。");
+            }
         } finally {
-            setLoadingSessionDetail(false);
+            if (!options.silent) {
+                setLoadingSessionDetail(false);
+            }
         }
     }
 
@@ -1225,12 +1250,46 @@ function getReadyUploadedFileIds(attachedFiles: SessionAttachment[]) {
         .map((item) => item.file_id);
 }
 
+function mergeReadyUploadedFileSelection(
+    currentFileIds: string[],
+    attachedFiles: SessionAttachment[],
+    previousReadyFileIds?: Set<string>,
+) {
+    const readyFileIds = getReadyUploadedFileIds(attachedFiles);
+    const readyFileIdSet = new Set(readyFileIds);
+    const nextFileIds = currentFileIds.filter((fileId) => readyFileIdSet.has(fileId));
+
+    for (const fileId of readyFileIds) {
+        const becameReadySinceLastPoll = !previousReadyFileIds || !previousReadyFileIds.has(fileId);
+        if (becameReadySinceLastPoll && !nextFileIds.includes(fileId)) {
+            nextFileIds.push(fileId);
+        }
+    }
+
+    return nextFileIds;
+}
+
 function isAttachmentReadyForAsk(attachment: SessionAttachment) {
     return attachment.parse_status === "parsed" && attachment.index_status === "indexed";
 }
 
-function hasPendingUploads(attachments: SessionAttachment[]) {
-    return attachments.some((item) => ["uploaded", "pending", "queued", "running", "parsing"].includes(item.parse_status ?? ""));
+function getPendingUploadSignature(attachments: SessionAttachment[]) {
+    const pendingUploads = attachments.filter((item) => ["uploaded", "pending", "queued", "running", "parsing"].includes(item.parse_status ?? ""));
+    if (!pendingUploads.length) {
+        return "";
+    }
+    return pendingUploads
+        .map((item) => `${item.file_id}:${item.parse_status ?? ""}:${item.index_status ?? ""}:${item.chunk_count ?? 0}`)
+        .sort()
+        .join("|");
+}
+
+function getReadyUploadSignature(attachments: SessionAttachment[]) {
+    return attachments
+        .filter(isAttachmentReadyForAsk)
+        .map((item) => item.file_id)
+        .sort()
+        .join("|");
 }
 
 function fileAttachmentStatusLabel(attachment: SessionAttachment) {
