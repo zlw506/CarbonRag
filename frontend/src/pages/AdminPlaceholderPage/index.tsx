@@ -61,6 +61,148 @@ import type { KnowledgeItem, KnowledgeTask } from "../../types/knowledge";
 
 type KnowledgeTaskRefreshAction = "scan" | "rebuild" | null;
 
+const approvedPolicyCrawlerSources: PolicyCrawlerSourceSummary[] = [
+    {
+        source_id: "gov-cn-policy-library",
+        title: "中国政府网：2030年前碳达峰行动方案",
+        source_url: "https://www.gov.cn/zhengce/content/2021-10/26/content_5644984.htm",
+        source_label: "中国政府网",
+        allowed_domain: "gov.cn",
+        is_enabled: true,
+        schedule_interval_seconds: null,
+        last_run_id: null,
+        last_run_status: null,
+        last_run_at: null,
+        next_run_at: null,
+        last_error: null,
+        metadata: { scope: "national_policy", topic: "carbon_peak" },
+    },
+    {
+        source_id: "ndrc-policy-releases",
+        title: "国家发展改革委政策发布",
+        source_url: "https://www.ndrc.gov.cn/xxgk/zcfb/",
+        source_label: "国家发展改革委",
+        allowed_domain: "ndrc.gov.cn",
+        is_enabled: true,
+        schedule_interval_seconds: null,
+        last_run_id: null,
+        last_run_status: null,
+        last_run_at: null,
+        next_run_at: null,
+        last_error: null,
+        metadata: { scope: "national_policy" },
+    },
+    {
+        source_id: "mee-policy-releases",
+        title: "生态环境部政策公开",
+        source_url: "https://www.mee.gov.cn/xxgklssj/",
+        source_label: "生态环境部",
+        allowed_domain: "mee.gov.cn",
+        is_enabled: true,
+        schedule_interval_seconds: null,
+        last_run_id: null,
+        last_run_status: null,
+        last_run_at: null,
+        next_run_at: null,
+        last_error: null,
+        metadata: { scope: "environment_policy" },
+    },
+    {
+        source_id: "miit-policy-releases",
+        title: "工业和信息化部政策文件",
+        source_url: "https://www.miit.gov.cn/zwgk/zcwj/",
+        source_label: "工业和信息化部",
+        allowed_domain: "miit.gov.cn",
+        is_enabled: true,
+        schedule_interval_seconds: null,
+        last_run_id: null,
+        last_run_status: null,
+        last_run_at: null,
+        next_run_at: null,
+        last_error: null,
+        metadata: { scope: "industry_policy" },
+    },
+    {
+        source_id: "beijing-policy-library",
+        title: "北京市政策文件",
+        source_url: "https://www.beijing.gov.cn/zhengce/",
+        source_label: "北京市人民政府",
+        allowed_domain: "beijing.gov.cn",
+        is_enabled: true,
+        schedule_interval_seconds: null,
+        last_run_id: null,
+        last_run_status: null,
+        last_run_at: null,
+        next_run_at: null,
+        last_error: null,
+        metadata: { scope: "local_policy", region: "北京" },
+    },
+    {
+        source_id: "beijing-fgw-policy",
+        title: "北京市发展改革委政策文件",
+        source_url: "https://fgw.beijing.gov.cn/fgwzwgk/2024zcwj/",
+        source_label: "北京市发展和改革委员会",
+        allowed_domain: "fgw.beijing.gov.cn",
+        is_enabled: true,
+        schedule_interval_seconds: null,
+        last_run_id: null,
+        last_run_status: null,
+        last_run_at: null,
+        next_run_at: null,
+        last_error: null,
+        metadata: { scope: "local_policy", region: "北京" },
+    },
+];
+
+const normalizedApprovedPolicyCrawlerSources: PolicyCrawlerSourceSummary[] = approvedPolicyCrawlerSources.map((source) => {
+    const normalized: Record<string, Partial<PolicyCrawlerSourceSummary>> = {
+        "gov-cn-policy-library": {
+            title: "中国政府网政策文件入口",
+            source_url: "https://www.gov.cn/zhengce/",
+            source_label: "中国政府网",
+            metadata: { scope: "national_policy", discovery_mode: "policy_listing" },
+        },
+        "ndrc-policy-releases": {
+            title: "国家发展改革委政策发布入口",
+            source_url: "https://www.ndrc.gov.cn/xxgk/zcfb/",
+            source_label: "国家发展改革委",
+            metadata: { scope: "national_policy", discovery_mode: "policy_listing" },
+        },
+        "mee-policy-releases": {
+            title: "生态环境部政策公开入口",
+            source_url: "https://www.mee.gov.cn/xxgklssj/",
+            source_label: "生态环境部",
+            metadata: { scope: "environment_policy", discovery_mode: "policy_listing" },
+        },
+        "miit-policy-releases": {
+            title: "工业和信息化部政策文件入口",
+            source_url: "https://www.miit.gov.cn/zwgk/zcwj/",
+            source_label: "工业和信息化部",
+            metadata: { scope: "industry_policy", discovery_mode: "policy_listing" },
+        },
+        "beijing-policy-library": {
+            title: "北京市政策文件入口",
+            source_url: "https://www.beijing.gov.cn/zhengce/",
+            source_label: "北京市人民政府",
+            metadata: { scope: "local_policy", region: "北京", discovery_mode: "policy_listing" },
+        },
+        "beijing-fgw-policy": {
+            title: "北京市发展改革委政策文件入口",
+            source_url: "https://fgw.beijing.gov.cn/fgwzwgk/2024zcwj/",
+            source_label: "北京市发展和改革委员会",
+            metadata: { scope: "local_policy", region: "北京", discovery_mode: "policy_listing" },
+        },
+    };
+    return {
+        ...source,
+        ...(normalized[source.source_id] ?? {}),
+        metadata: {
+            ...source.metadata,
+            ...(normalized[source.source_id]?.metadata ?? {}),
+        },
+    };
+});
+
 export function AdminPlaceholderPage() {
     const [loading, setLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -330,6 +472,37 @@ export function AdminPlaceholderPage() {
     const policyChunks = policyShowcaseStatus?.chunks ?? [];
     const policyRetrievalHits = policyShowcaseStatus?.retrieval_preview?.hits ?? [];
     const policyCrawlerBackendLabel = formatCrawlerBackend(policyCrawlerStatus?.crawler_backend);
+    const policyCrawlerSourcesForDisplay = useMemo(() => {
+        const sourceById = new Map(policyCrawlerSources.map((source) => [source.source_id, source]));
+        return normalizedApprovedPolicyCrawlerSources.map((fallback) => {
+            const current = sourceById.get(fallback.source_id);
+            if (!current) {
+                return fallback;
+            }
+            return {
+                ...fallback,
+                ...current,
+                metadata: {
+                    ...fallback.metadata,
+                    ...current.metadata,
+                },
+            };
+        });
+    }, [policyCrawlerSources]);
+    const approvedCrawlerDomains = useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    [
+                        ...(Array.isArray(policyCrawlerStatus?.safe_limits.allowed_domains)
+                            ? policyCrawlerStatus.safe_limits.allowed_domains.map(String)
+                            : []),
+                        ...normalizedApprovedPolicyCrawlerSources.map((source) => source.allowed_domain),
+                    ].filter(Boolean),
+                ),
+            ),
+        [policyCrawlerStatus],
+    );
 
     useEffect(() => {
         void loadAdminWorkspace();
@@ -536,8 +709,16 @@ export function AdminPlaceholderPage() {
         setRunningCrawlerSourceId(sourceId);
         setErrorMessage(null);
         try {
-            await runPolicyCrawlerSource(sourceId);
-            message.success("实时政策爬虫运行已记录，抓取结果会先进入待审核候选区。");
+            const run = await runPolicyCrawlerSource(sourceId);
+            if (run.status === "succeeded") {
+                if (run.candidate_count > 0) {
+                    message.success(`真实 Scrapy 抓取完成，新增/刷新 ${run.candidate_count} 个待审核候选。`);
+                } else {
+                    message.warning("真实 Scrapy 已运行，但本次没有生成候选文档。请查看运行记录中的目标站点返回情况。");
+                }
+            } else {
+                setErrorMessage(run.error_detail ?? `实时政策爬虫运行结束，状态：${crawlerRunStatusLabelMap[run.status] ?? run.status}`);
+            }
             await fetchPolicyCrawlerWorkspace();
         } catch (error) {
             setErrorMessage(extractDetailMessage(error) ?? "运行实时政策爬虫失败。");
@@ -859,7 +1040,7 @@ export function AdminPlaceholderPage() {
                                     {policyCrawlerBackendLabel}
                                 </Tag>
                                 <Tag color={policyCrawlerStatus?.provider_available ? "green" : "orange"}>
-                                    {policyCrawlerStatus?.provider_available ? "Scrapy 可用" : "Scrapy 不可用"}
+                                    {policyCrawlerStatus?.provider_available ? "Scrapy 真实可用" : "Scrapy 当前不可用"}
                                 </Tag>
                                 <Tag color={policyCrawlerStatus?.scheduled_enabled ? "blue" : "default"}>
                                     {policyCrawlerStatus?.scheduled_enabled ? "定时已显式启用" : "默认手动触发"}
@@ -873,6 +1054,23 @@ export function AdminPlaceholderPage() {
                                 type="warning"
                                 message="自动抓取不等于正式政策发布"
                                 description="公网政策爬虫默认不自动定时运行。管理员手动抓取后，结果只进入 pending_review 候选区；发布前不会进入 public_policy_web，也不会影响 /ask 默认检索。"
+                            />
+                            <Alert
+                                showIcon
+                                type={policyCrawlerStatus?.provider_available ? "success" : "info"}
+                                message={
+                                    policyCrawlerStatus?.provider_available
+                                        ? "当前后端已能导入 Scrapy，可以执行真实官方源抓取"
+                                        : "当前后端 Python 环境还不能导入 Scrapy"
+                                }
+                                description={
+                                    policyCrawlerStatus?.provider_available
+                                        ? "点击下方任一官方源的“手动抓取”会真实访问该白名单站点，并把结果写入待审核候选。"
+                                        : `请确认正在运行的后端使用 backend/.venv，并执行 ${String(
+                                                  policyCrawlerStatus?.safe_limits.scrapy_install_command ??
+                                                  "backend\\.venv\\Scripts\\python.exe -m pip install scrapy==2.15.2",
+                                          )} 后重启后端服务。`
+                                }
                             />
                             {policyCrawlerStatus ? (
                                 <>
@@ -932,6 +1130,15 @@ export function AdminPlaceholderPage() {
                                         concurrency=
                                         {formatMetadataValue(policyCrawlerStatus.safe_limits.concurrent_requests_per_domain)}
                                     </Descriptions.Item>
+                                    <Descriptions.Item label="官方白名单" span={2}>
+                                        <Space size={6} wrap>
+                                            {approvedCrawlerDomains.map((domain) => (
+                                                <Tag key={domain} color="blue">
+                                                    {domain}
+                                                </Tag>
+                                            ))}
+                                        </Space>
+                                    </Descriptions.Item>
                                     </Descriptions>
                                     {!policyCrawlerStatus.provider_available ? (
                                         <Alert
@@ -954,55 +1161,83 @@ export function AdminPlaceholderPage() {
                                 <Typography.Text type="secondary">暂无爬虫状态。</Typography.Text>
                             )}
 
-                            <List
-                                size="small"
-                                header={<Typography.Text strong>官方白名单源</Typography.Text>}
-                                dataSource={policyCrawlerSources}
-                                locale={{ emptyText: "暂无政策爬虫源。" }}
-                                renderItem={(source) => (
-                                    <List.Item>
-                                        <Space direction="vertical" size={4} style={{ width: "100%" }}>
-                                            <Space size={8} wrap>
-                                                <Typography.Text strong>{source.title}</Typography.Text>
-                                                <Tag>{source.source_label}</Tag>
+                            <div className="admin-crawler-source-grid">
+                                {policyCrawlerSourcesForDisplay.map((source) => {
+                                    const sourceRuns = policyCrawlerRuns.filter((run) => run.source_id === source.source_id);
+                                    const sourceCandidates = policyCrawlerCandidates.filter(
+                                        (candidate) => candidate.source_id === source.source_id,
+                                    );
+                                    const latestRun = sourceRuns[0];
+                                    const disabledReason = !source.is_enabled
+                                        ? "该源已停用"
+                                        : policyCrawlerStatus?.manual_enabled === false
+                                          ? "手动触发已关闭"
+                                          : policyCrawlerStatus?.running
+                                            ? "已有爬虫运行中"
+                                            : null;
+                                    return (
+                                        <Card
+                                            key={source.source_id}
+                                            size="small"
+                                            className="admin-crawler-source-card"
+                                            title={
+                                                <Space size={8} wrap>
+                                                    <Typography.Text strong>{source.title}</Typography.Text>
+                                                    <Tag color="blue">{source.allowed_domain}</Tag>
+                                                </Space>
+                                            }
+                                            extra={
                                                 <Tag color={source.is_enabled ? "green" : "default"}>
                                                     {source.is_enabled ? "启用" : "停用"}
                                                 </Tag>
-                                                {source.last_run_status ? (
-                                                    <Tag color={crawlerRunStatusColorMap[source.last_run_status] ?? "default"}>
-                                                        {crawlerRunStatusLabelMap[source.last_run_status] ?? source.last_run_status}
+                                            }
+                                        >
+                                            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                                                <Typography.Text type="secondary">{source.source_label}</Typography.Text>
+                                                <Typography.Link href={source.source_url} target="_blank" rel="noreferrer">
+                                                    {source.source_url}
+                                                </Typography.Link>
+                                                <Space size={8} wrap>
+                                                    <Tag color={crawlerRunStatusColorMap[source.last_run_status ?? latestRun?.status ?? ""] ?? "default"}>
+                                                        {source.last_run_status || latestRun?.status
+                                                            ? crawlerRunStatusLabelMap[source.last_run_status ?? latestRun?.status ?? ""] ??
+                                                              source.last_run_status ??
+                                                              latestRun?.status
+                                                            : "尚未抓取"}
                                                     </Tag>
-                                                ) : null}
-                                            </Space>
-                                            <Typography.Text type="secondary">{source.source_url}</Typography.Text>
-                                            {source.last_error ? <Typography.Text type="danger">{source.last_error}</Typography.Text> : null}
-                                            <Space size={8} wrap>
-                                                <Tooltip title="只抓取官方白名单源；结果会先进入待审核候选区，发布前不会进入 /ask 检索。">
-                                                    <Button
-                                                        size="small"
-                                                        type="primary"
-                                                        icon={<ReloadOutlined />}
-                                                        disabled={
-                                                            !policyCrawlerStatus?.manual_enabled ||
-                                                            Boolean(policyCrawlerStatus?.running) ||
-                                                            !source.is_enabled
-                                                        }
-                                                        loading={runningCrawlerSourceId === source.source_id}
-                                                        onClick={() => void handleRunPolicyCrawler(source.source_id)}
-                                                    >
-                                                        手动抓取官方源
-                                                    </Button>
-                                                </Tooltip>
-                                                {!policyCrawlerStatus?.provider_available ? (
+                                                    <Tag>{sourceCandidates.length} 个候选</Tag>
+                                                    {latestRun ? <Tag>{latestRun.document_count} 个文档</Tag> : null}
+                                                </Space>
+                                                {source.last_error || latestRun?.error_detail ? (
+                                                    <Typography.Paragraph type="danger" ellipsis={{ rows: 2 }}>
+                                                        {source.last_error ?? latestRun?.error_detail}
+                                                    </Typography.Paragraph>
+                                                ) : (
                                                     <Typography.Text type="secondary">
-                                                        Scrapy 当前不可用，点击后会记录 unavailable 状态。
+                                                        点击后会真实访问该官方白名单源，抓取结果先进入待审核候选。
                                                     </Typography.Text>
-                                                ) : null}
+                                                )}
+                                                <Space size={8} wrap>
+                                                    <Tooltip title={disabledReason ?? "真实运行 Scrapy，并遵守 robots、限速、深度和页数限制。"}>
+                                                        <Button
+                                                            type="primary"
+                                                            icon={<ReloadOutlined />}
+                                                            disabled={Boolean(disabledReason)}
+                                                            loading={runningCrawlerSourceId === source.source_id}
+                                                            onClick={() => void handleRunPolicyCrawler(source.source_id)}
+                                                        >
+                                                            手动抓取
+                                                        </Button>
+                                                    </Tooltip>
+                                                    <Button icon={<SyncOutlined />} onClick={() => void fetchPolicyCrawlerWorkspace()}>
+                                                        刷新
+                                                    </Button>
+                                                </Space>
                                             </Space>
-                                        </Space>
-                                    </List.Item>
-                                )}
-                            />
+                                        </Card>
+                                    );
+                                })}
+                            </div>
 
                             <List
                                 size="small"
@@ -1045,6 +1280,28 @@ export function AdminPlaceholderPage() {
                                                 <Tag>{candidate.content_type}</Tag>
                                             </Space>
                                             <Typography.Text type="secondary">{candidate.url}</Typography.Text>
+                                            <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>
+                                                {formatCandidateSummary(candidate)}
+                                            </Typography.Paragraph>
+                                            <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}>
+                                                <Descriptions.Item label="来源入口">
+                                                    {formatMetadataText(candidate.metadata.seed_url) || candidate.source_id}
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="抓取深度">
+                                                    {formatMetadataText(candidate.metadata.candidate_depth) || "0"}
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="内容大小">
+                                                    {formatBytes(candidate.metadata.candidate_content_length)}
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="发现地址" span={2}>
+                                                    <Typography.Text ellipsis>
+                                                        {formatMetadataText(candidate.metadata.candidate_response_url) || candidate.url}
+                                                    </Typography.Text>
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="入库结果">
+                                                    {candidate.review_note || (candidate.knowledge_item_id ? "已创建知识条目" : "待审核发布")}
+                                                </Descriptions.Item>
+                                            </Descriptions>
                                             <Typography.Text type="secondary">
                                                 hash {candidate.content_hash.slice(0, 12)} / {formatTimestamp(candidate.updated_at)}
                                             </Typography.Text>
@@ -1375,10 +1632,52 @@ function formatMetadataValue(value: unknown) {
     return "暂无";
 }
 
+function formatMetadataText(value: unknown): string | null {
+    if (typeof value === "string" && value.trim()) {
+        return value.trim();
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+    return null;
+}
+
+function formatBytes(value: unknown): string {
+    const bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes < 0) {
+        return "未知";
+    }
+    if (bytes < 1024) {
+        return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+        return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatCandidateSummary(candidate: PolicyCrawlerCandidateSummary): string {
+    const summary = formatMetadataText(candidate.metadata.candidate_summary);
+    if (summary) {
+        return summary;
+    }
+    if (candidate.content_type.includes("pdf") || candidate.content_type.includes("ofd")) {
+        return `${candidate.content_type} 文件，待发布后进入解析链路。`;
+    }
+    return "暂无正文摘要。请查看 URL、内容类型和抓取元数据后再决定是否发布。";
+}
+
 function extractDetailMessage(value: unknown): string | null {
     if (!value || typeof value !== "object") {
         return null;
     }
-    const candidate = value as { detail?: unknown };
-    return typeof candidate.detail === "string" ? candidate.detail : null;
+    const candidate = value as { detail?: unknown; message?: unknown; response?: { data?: { detail?: unknown; message?: unknown } } };
+    const responseDetail = candidate.response?.data?.detail ?? candidate.response?.data?.message;
+    if (typeof responseDetail === "string" && responseDetail.trim()) {
+        return responseDetail;
+    }
+    if (typeof candidate.detail === "string" && candidate.detail.trim()) {
+        return candidate.detail;
+    }
+    return typeof candidate.message === "string" && candidate.message.trim() ? candidate.message : null;
 }

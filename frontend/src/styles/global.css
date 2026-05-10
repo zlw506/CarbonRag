@@ -1947,6 +1947,20 @@ body {
     margin-bottom: 0;
 }
 
+.admin-crawler-source-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.admin-crawler-source-card .ant-card-head {
+    min-height: 44px;
+}
+
+.admin-crawler-source-card .ant-card-body {
+    min-height: 188px;
+}
+
 .admin-table-cell {
     min-width: 0;
 }
@@ -2038,6 +2052,7 @@ body {
 
     .rag-lab,
     .admin-grid,
+    .admin-crawler-source-grid,
     .admin-stats,
     .settings-page,
     .settings-provider-columns,

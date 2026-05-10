@@ -4,6 +4,9 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $FrontendDir = Join-Path $RepoRoot "frontend"
 $BackendDir = Join-Path $RepoRoot "backend"
 $BackendVenvPython = Join-Path $BackendDir ".venv\Scripts\python.exe"
+$BackendVenvDir = Join-Path $BackendDir ".venv"
+$BackendVenvScripts = Join-Path $BackendVenvDir "Scripts"
+$BackendVenvSitePackages = Join-Path $BackendVenvDir "Lib\site-packages"
 $BackendCondaPython = Join-Path $BackendDir ".conda\python.exe"
 $RootEnv = Join-Path $RepoRoot ".env"
 $RootEnvTemplate = Join-Path $RepoRoot ".env.example"
@@ -60,7 +63,7 @@ Assert-PortFree -Port 5173
 
 $BackendPython = Resolve-BackendPython
 
-$BackendCommand = "Set-Location '$BackendDir'; `$env:APP_ENV='development'; `$env:DATABASE_URL=''; & '$BackendPython' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
+$BackendCommand = "Set-Location '$BackendDir'; `$env:APP_ENV='development'; `$env:DATABASE_URL=''; `$env:VIRTUAL_ENV='$BackendVenvDir'; `$env:Path='$BackendVenvScripts;' + `$env:Path; `$env:PYTHONPATH='$BackendVenvSitePackages'; & '$BackendPython' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
 $FrontendCommand = "Set-Location '$FrontendDir'; npm.cmd run dev -- --host 127.0.0.1 --port 5173"
 
 Write-Step "Starting backend in a new window"

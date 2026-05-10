@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import base64
 import json
 import re
 import subprocess
@@ -26,18 +27,12 @@ from app.rag.parser import ParserRegistry
 
 
 DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS: tuple[str, ...] = (
-    "www.gov.cn",
-    "www.ndrc.gov.cn",
+    "gov.cn",
     "ndrc.gov.cn",
-    "www.mee.gov.cn",
     "mee.gov.cn",
-    "www.miit.gov.cn",
     "miit.gov.cn",
-    "www.beijing.gov.cn",
-    "beijing.gov.cn",
     "fgw.beijing.gov.cn",
-    "sthjj.beijing.gov.cn",
-    "jxj.beijing.gov.cn",
+    "beijing.gov.cn",
 )
 
 PolicyCrawlerStatus = Literal["disabled", "unavailable", "succeeded", "failed", "rejected"]
@@ -201,6 +196,7 @@ class ScrapyCrawlerProvider:
             crawler_backend="local_scrapy",
             local_scrapy_available=available,
             scrapyd_available=None,
+            last_error=None if available else "Scrapy is not installed in the current backend Python environment.",
         )
 
     def crawl(self, request: PolicyCrawlRequest) -> CrawlResult:
@@ -214,13 +210,17 @@ class ScrapyCrawlerProvider:
             return CrawlResult(provider_name=self.provider_name, status="unavailable", errors=["Scrapy is not installed."])
         try:
             documents = self.runner(request) if self.runner is not None else _run_scrapy_crawler_subprocess(request)
+            fallback_used = False
+            if not documents and request.max_depth > 0:
+                documents = _discover_policy_documents_with_urllib(request)
+                fallback_used = bool(documents)
         except Exception as exc:  # noqa: BLE001
             return CrawlResult(provider_name=self.provider_name, status="failed", errors=[str(exc)])
         return CrawlResult(
             provider_name=self.provider_name,
             status="succeeded",
             documents=documents,
-            metadata=_scrapy_settings_metadata(request),
+            metadata={**_scrapy_settings_metadata(request), "link_discovery_fallback_used": fallback_used},
         )
 
 
@@ -232,7 +232,7 @@ class ScrapydCrawlerProvider:
         *,
         enabled: bool | None = None,
         settings: Settings | None = None,
-        http_get: Callable[[str, float], dict[str, Any]] | None = None,
+        http_get: Callable[[str, float], Any] | None = None,
         http_post: Callable[[str, dict[str, Any], float], dict[str, Any]] | None = None,
         sleeper: Callable[[float], None] | None = None,
     ) -> None:
@@ -276,7 +276,7 @@ class ScrapydCrawlerProvider:
                 metadata=self._base_metadata(),
             )
         try:
-            schedule_payload = self._schedule_payload(request)
+            schedule_payload, output_path = self._schedule_payload(request)
             schedule_response = self.http_post(f"{self.endpoint}/schedule.json", schedule_payload, request.timeout_seconds)
             if schedule_response.get("status") != "ok":
                 return CrawlResult(
@@ -298,9 +298,10 @@ class ScrapydCrawlerProvider:
                 **self._base_metadata(),
                 "external_job_id": job_id,
                 "schedule_status": schedule_response.get("status"),
+                "documents_output_path": str(output_path) if output_path is not None else None,
             }
             if not documents:
-                documents, poll_metadata = self._poll_documents(job_id=job_id, request=request)
+                documents, poll_metadata = self._poll_documents(job_id=job_id, request=request, output_path=output_path)
                 metadata.update(poll_metadata)
             return CrawlResult(
                 provider_name=self.provider_name,
@@ -318,12 +319,15 @@ class ScrapydCrawlerProvider:
             payload = self.http_get(f"{self.endpoint}/daemonstatus.json", self.settings.rag_policy_scrapyd_health_timeout_seconds)
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)
+        if not isinstance(payload, dict):
+            return False, "Scrapyd daemonstatus response did not contain a JSON object."
         if payload.get("status") == "ok":
             return True, None
         return False, str(payload.get("message") or payload.get("status") or "Scrapyd daemon did not report ok.")
 
-    def _schedule_payload(self, request: PolicyCrawlRequest) -> dict[str, Any]:
-        return {
+    def _schedule_payload(self, request: PolicyCrawlRequest) -> tuple[dict[str, Any], Path | None]:
+        output_path = self._scrapyd_output_path(request)
+        payload = {
             "project": self.project,
             "spider": self.spider,
             "start_urls_json": json.dumps(request.start_urls, ensure_ascii=False),
@@ -336,19 +340,45 @@ class ScrapydCrawlerProvider:
             "timeout_seconds": str(request.timeout_seconds),
             "user_agent": request.user_agent or "",
             "metadata_json": json.dumps(request.metadata, ensure_ascii=False),
+            "setting": [
+                f"ROBOTSTXT_OBEY={'True' if request.obey_robots else 'False'}",
+                f"DOWNLOAD_DELAY={request.download_delay_seconds}",
+                f"CONCURRENT_REQUESTS_PER_DOMAIN={request.concurrent_requests_per_domain}",
+                f"DEPTH_LIMIT={request.max_depth}",
+                f"CLOSESPIDER_PAGECOUNT={request.max_pages}",
+                f"CLOSESPIDER_TIMEOUT={request.timeout_seconds}",
+                f"DOWNLOAD_TIMEOUT={request.timeout_seconds}",
+                f"USER_AGENT={request.user_agent or ''}",
+            ],
         }
+        if output_path is not None:
+            payload["documents_output_path"] = str(output_path)
+        return payload, output_path
 
-    def _poll_documents(self, *, job_id: str, request: PolicyCrawlRequest) -> tuple[list[CrawledDocument], dict[str, Any]]:
+    def _poll_documents(
+        self,
+        *,
+        job_id: str,
+        request: PolicyCrawlRequest,
+        output_path: Path | None,
+    ) -> tuple[list[CrawledDocument], dict[str, Any]]:
         timeout_seconds = min(request.timeout_seconds, self.settings.rag_policy_scrapyd_poll_timeout_seconds)
         deadline = time.monotonic() + max(0.1, timeout_seconds)
         poll_url = f"{self.endpoint}/listjobs.json?{urllib.parse.urlencode({'project': self.project})}"
         last_payload: dict[str, Any] = {}
         while time.monotonic() <= deadline:
             payload = self.http_get(poll_url, request.timeout_seconds)
+            if not isinstance(payload, dict):
+                return [], {
+                    "external_job_id": job_id,
+                    "scrapyd_job_state": "invalid_listjobs_response",
+                }
             last_payload = payload
             finished_job = _find_scrapyd_job(payload.get("finished"), job_id)
             if finished_job is not None:
                 documents = self._documents_from_payload(finished_job)
+                if not documents and output_path is not None:
+                    documents = self._documents_from_output_path(output_path)
                 if not documents:
                     documents = self._fetch_feed_documents(job_id=job_id, request=request)
                 return documents, {
@@ -368,6 +398,21 @@ class ScrapydCrawlerProvider:
             "scrapyd_job_state": "timeout",
             "poll_response": _public_payload(last_payload),
         }
+
+    def _scrapyd_output_path(self, request: PolicyCrawlRequest) -> Path | None:
+        output_dir = Path(self.settings.public_data_dir).parent / "outputs" / "policy_scrapyd"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        source_id = str(request.metadata.get("source_id") or "policy").strip() or "policy"
+        safe_source_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", source_id).strip("-") or "policy"
+        return output_dir / f"{safe_source_id}-{uuid4().hex[:12]}.json"
+
+    def _documents_from_output_path(self, output_path: Path) -> list[CrawledDocument]:
+        if not output_path.exists():
+            return []
+        payload = json.loads(output_path.read_text(encoding="utf-8") or "[]")
+        if isinstance(payload, list):
+            return [CrawledDocument.model_validate(item) for item in payload if isinstance(item, dict)]
+        return []
 
     def _fetch_feed_documents(self, *, job_id: str, request: PolicyCrawlRequest) -> list[CrawledDocument]:
         template = self.settings.rag_policy_scrapyd_feed_url_template
@@ -662,12 +707,22 @@ def is_allowed_policy_url(url: str, *, allowed_domains: list[str] | tuple[str, .
     return any(host == domain or host.endswith(f".{domain}") for domain in (_normalize_domain(item) for item in allowed))
 
 
+def _document_content_bytes(document: CrawledDocument) -> bytes:
+    transfer_encoding = str(document.metadata.get("content_transfer_encoding") or "text").strip().lower()
+    if transfer_encoding == "base64":
+        try:
+            return base64.b64decode(document.content.encode("ascii"), validate=True)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"Invalid base64 crawled document payload for {document.url}") from exc
+    return document.content.encode("utf-8")
+
+
 def stage_crawled_document(document: CrawledDocument, *, staging_dir: Path | str) -> StagedPolicyDocument:
     target_dir = Path(staging_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     suffix = _suffix_for_content_type(document.content_type)
     target_path = target_dir / f"policy-{hash_content(document.url)[:12]}{suffix}"
-    target_path.write_text(document.content, encoding="utf-8")
+    target_path.write_bytes(_document_content_bytes(document))
     document.raw_storage_path = str(target_path)
     return StagedPolicyDocument(crawled=document, storage_path=str(target_path), mime_type=_normalize_content_type(document.content_type, target_path))
 
@@ -837,16 +892,100 @@ def _run_scrapy_crawler_subprocess(request: PolicyCrawlRequest) -> list[CrawledD
         return [CrawledDocument.model_validate(item) for item in payload]
 
 
-def _http_get_json(url: str, timeout_seconds: float) -> dict[str, Any]:
+def _discover_policy_documents_with_urllib(request: PolicyCrawlRequest) -> list[CrawledDocument]:
+    documents: list[CrawledDocument] = []
+    for seed_url in request.start_urls:
+        if len(documents) >= request.max_pages:
+            break
+        try:
+            seed_html = _fetch_text_url(seed_url, timeout_seconds=request.timeout_seconds, user_agent=request.user_agent)
+        except Exception:
+            continue
+        for policy_url in _extract_policy_links(seed_html, base_url=seed_url, allowed_domains=request.allowed_domains):
+            if len(documents) >= request.max_pages:
+                break
+            try:
+                raw_html = _fetch_text_url(policy_url, timeout_seconds=request.timeout_seconds, user_agent=request.user_agent)
+            except Exception:
+                continue
+            documents.append(
+                CrawledDocument(
+                    url=policy_url,
+                    title=_extract_html_title(raw_html),
+                    content=raw_html,
+                    content_type="text/html",
+                    source_name=_infer_authority_from_url(policy_url),
+                    metadata={
+                        **request.metadata,
+                        "crawler_name": "carbonrag_policy_link_discovery",
+                        "seed_url": seed_url,
+                        "response_url": policy_url,
+                        "depth": 1,
+                        "content_length": len(raw_html.encode("utf-8")),
+                        "content_transfer_encoding": "text",
+                    },
+                )
+            )
+    return documents
+
+
+def _fetch_text_url(url: str, *, timeout_seconds: float, user_agent: str | None) -> str:
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": user_agent or "CarbonRagPolicyCrawler/1.0 (+admin-reviewed)"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        body = response.read()
+    for encoding in ("utf-8", "utf-8-sig", "gb18030", "gbk"):
+        try:
+            return body.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return body.decode("utf-8", errors="ignore")
+
+
+def _extract_policy_links(html: str, *, base_url: str, allowed_domains: list[str]) -> list[str]:
+    links: list[str] = []
+    for match in re.finditer(r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", html, re.IGNORECASE | re.DOTALL):
+        href = match.group(1).strip()
+        label = re.sub(r"<[^>]+>", " ", match.group(2))
+        label = re.sub(r"\s+", " ", label).strip()
+        absolute_url = urllib.parse.urljoin(base_url, href)
+        clean_url, _fragment = urllib.parse.urldefrag(absolute_url)
+        if clean_url in links:
+            continue
+        if not is_allowed_policy_url(clean_url, allowed_domains=allowed_domains):
+            continue
+        if _looks_like_policy_link(clean_url, label):
+            links.append(clean_url)
+    return links
+
+
+def _looks_like_policy_link(url: str, label: str) -> bool:
+    lowered = url.lower()
+    url_tokens = ("/zhengce/content/", "/content/", "/zcfb/", "/zcwj/", "policy")
+    title_tokens = ("政策", "通知", "公告", "办法", "方案", "意见", "规划", "规定", "标准", "指南", "决定")
+    return any(token in lowered for token in url_tokens) and (
+        not label or any(token in label for token in title_tokens) or "/content/" in lowered
+    )
+
+
+def _extract_html_title(html: str) -> str | None:
+    match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", match.group(1))).strip()
+    return title or None
+
+
+def _http_get_json(url: str, timeout_seconds: float) -> Any:
     with urllib.request.urlopen(url, timeout=timeout_seconds) as response:
         payload = json.loads(response.read().decode("utf-8") or "{}")
-    if not isinstance(payload, dict):
-        raise RuntimeError("HTTP response did not contain a JSON object.")
     return payload
 
 
 def _http_post_form(url: str, payload: dict[str, Any], timeout_seconds: float) -> dict[str, Any]:
-    encoded = urllib.parse.urlencode(payload).encode("utf-8")
+    encoded = urllib.parse.urlencode(payload, doseq=True).encode("utf-8")
     request = urllib.request.Request(
         url,
         data=encoded,
