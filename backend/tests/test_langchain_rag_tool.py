@@ -1,28 +1,27 @@
-from app.langchain_rag.schemas import LangChainRagHit, LangChainRagSearchResult, LangChainRagTrace
 from app.langchain_rag.tool import LangChainRagSearchTool
+from app.rag.kb.models import RagHit, RagSearchRequest, RagSearchResult, RagTrace
 
 
 class FakeRagService:
-    def search(self, *, owner_user_id: str, query: str, knowledge_scope: str, top_k: int, allowed_knowledge_item_ids: list[str]):
+    def search(self, *, owner_user_id: str, request: RagSearchRequest):
         assert owner_user_id == "user-1"
-        assert query == "双碳"
-        assert knowledge_scope == "mixed"
-        assert allowed_knowledge_item_ids == ["ki-file"]
-        return LangChainRagSearchResult(
-            query=query,
-            hyde_query="假设性双碳回答",
+        assert request.query == "双碳"
+        assert request.knowledge_scope == "mixed"
+        assert request.allowed_knowledge_item_ids == ["ki-file"]
+        return RagSearchResult(
+            query=request.query,
             hits=[
-                LangChainRagHit(
+                RagHit(
                     chunk_id="chunk-1",
                     doc_id="ki-file",
                     title="上传文件",
                     snippet="双碳相关内容",
                     source_type="private_upload",
-                    source="file",
                     file_id="file-1",
+                    sparse_score=1.0,
                 )
             ],
-            trace=LangChainRagTrace(bm25_count=1, vector_count=1, rerank_applied=False),
+            trace=RagTrace(sparse_count=1, dense_count=1, rerank_applied=False),
         )
 
 
@@ -42,4 +41,4 @@ def test_langchain_rag_search_tool_outputs_hits_and_trace() -> None:
 
     assert result.status == "success"
     assert result.output["hits"][0]["source_type"] == "private_upload"
-    assert result.output["retrieval_trace"]["bm25_count"] == 1
+    assert result.output["retrieval_trace"]["sparse_count"] == 1

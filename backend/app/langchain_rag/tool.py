@@ -4,12 +4,13 @@ from typing import Any, Mapping
 
 from app.ai_runtime.schemas.tool import ToolResult
 from app.ai_runtime.tools.base import BaseTool, ToolDefinition
-from app.langchain_rag.service import LangChainRagService, get_langchain_rag_service
+from app.rag.kb.models import RagSearchRequest
+from app.rag.spine import RagSpineService, get_rag_spine_service
 
 
 class LangChainRagSearchTool(BaseTool):
-    def __init__(self, rag_service: LangChainRagService | None = None) -> None:
-        self.rag_service = rag_service or get_langchain_rag_service()
+    def __init__(self, rag_service: RagSpineService | None = None) -> None:
+        self.rag_service = rag_service or get_rag_spine_service()
 
     @property
     def definition(self) -> ToolDefinition:
@@ -34,17 +35,19 @@ class LangChainRagSearchTool(BaseTool):
         allowed_ids = _resolve_allowed_ids(arguments=arguments, payload=payload)
         result = self.rag_service.search(
             owner_user_id=owner_user_id,
-            query=question,
-            knowledge_scope=knowledge_scope,  # type: ignore[arg-type]
-            top_k=top_k,
-            allowed_knowledge_item_ids=allowed_ids,
+            request=RagSearchRequest(
+                query=question,
+                knowledge_scope=knowledge_scope,  # type: ignore[arg-type]
+                top_k=top_k,
+                allowed_knowledge_item_ids=allowed_ids,
+                mode="hybrid_rerank",
+            ),
         )
         return ToolResult(
             name=self.definition.name,
             status="success",
             output={
                 "query": result.query,
-                "hyde_query": result.hyde_query,
                 "knowledge_scope": knowledge_scope,
                 "top_k": top_k,
                 "hits": [hit.to_tool_hit() for hit in result.hits],
@@ -60,8 +63,8 @@ class LangChainRagSearchTool(BaseTool):
 
 
 class LangChainRagAnswerTool(BaseTool):
-    def __init__(self, rag_service: LangChainRagService | None = None) -> None:
-        self.rag_service = rag_service or get_langchain_rag_service()
+    def __init__(self, rag_service: RagSpineService | None = None) -> None:
+        self.rag_service = rag_service or get_rag_spine_service()
 
     @property
     def definition(self) -> ToolDefinition:
@@ -85,10 +88,13 @@ class LangChainRagAnswerTool(BaseTool):
         knowledge_scope = str(arguments.get("knowledge_scope") or payload.get("knowledge_scope_effective") or "public")
         result = self.rag_service.answer(
             owner_user_id=owner_user_id,
-            query=question,
-            knowledge_scope=knowledge_scope,  # type: ignore[arg-type]
-            top_k=top_k,
-            allowed_knowledge_item_ids=_resolve_allowed_ids(arguments=arguments, payload=payload),
+            request=RagSearchRequest(
+                query=question,
+                knowledge_scope=knowledge_scope,  # type: ignore[arg-type]
+                top_k=top_k,
+                allowed_knowledge_item_ids=_resolve_allowed_ids(arguments=arguments, payload=payload),
+                mode="hybrid_rerank",
+            ),
         )
         return ToolResult(
             name=self.definition.name,

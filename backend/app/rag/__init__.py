@@ -44,6 +44,7 @@ from app.rag.parser import (
 )
 from app.rag.schemas import RagQueryParams, RagRetrievalResult
 from app.rag.service import RagEngineService, build_rag_query_params, get_rag_engine_service
+from app.rag.spine import RagSpineService, get_rag_spine_service
 from app.rag.vector_store import (
     CurrentVectorStoreAdapter,
     DisabledVectorStoreAdapter,
@@ -83,6 +84,7 @@ __all__ = [
     "RagEngineService",
     "RagQueryParams",
     "RagRetrievalResult",
+    "RagSpineService",
     "RetrievalTrace",
     "WorkflowNode",
     "WorkflowRecorder",
@@ -100,6 +102,7 @@ __all__ = [
     "DefaultParserProvider",
     "FakeVectorStoreAdapter",
     "get_rag_engine_service",
+    "get_rag_spine_service",
     "get_default_parser_provider",
     "get_parser_registry",
     "DisabledGraphIndexBuilder",

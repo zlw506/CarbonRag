@@ -1568,20 +1568,23 @@ function buildRagTraceTags(trace?: Record<string, unknown> | null) {
     if (!trace) {
         return [];
     }
-    const bm25Count = readTraceNumber(trace, "bm25_count");
-    const vectorCount = readTraceNumber(trace, "vector_count");
+    const bm25Count = readTraceNumber(trace, "bm25_count") ?? readTraceNumber(trace, "sparse_count");
+    const vectorCount = readTraceNumber(trace, "vector_count") ?? readTraceNumber(trace, "dense_count");
     const mergedCount = readTraceNumber(trace, "merged_count");
     const rerankApplied = trace.rerank_applied === true;
-    const vectorStatus = typeof trace.vector_status === "string" ? trace.vector_status : "";
+    const vectorStatus = typeof trace.vector_status === "string" ? trace.vector_status : (trace.degraded === true ? "degraded" : "");
+    const vectorBackend = typeof trace.vector_backend === "string" ? trace.vector_backend : "vector";
     const fallbackReason = typeof trace.fallback_reason === "string" ? trace.fallback_reason : "";
     const hydeQuery = typeof trace.hyde_query === "string" ? trace.hyde_query : "";
+    const degraded = trace.degraded === true;
 
     return [
         hydeQuery ? { key: "hyde", color: "purple", label: "HyDE 已生成" } : null,
-        bm25Count !== null ? { key: "bm25", color: "blue", label: `BM25 ${bm25Count}` } : null,
-        vectorCount !== null ? { key: "vector", color: vectorStatus === "available" ? "geekblue" : "orange", label: `Vector ${vectorCount}` } : null,
+        bm25Count !== null ? { key: "bm25", color: "blue", label: `Sparse/BM25 ${bm25Count}` } : null,
+        vectorCount !== null ? { key: "vector", color: degraded ? "orange" : "geekblue", label: `${vectorBackend} ${vectorCount}` } : null,
         mergedCount !== null ? { key: "merged", color: "cyan", label: `融合 ${mergedCount}` } : null,
         { key: "rerank", color: rerankApplied ? "green" : "default", label: rerankApplied ? "Rerank 已应用" : "Rerank 跳过" },
+        degraded ? { key: "degraded", color: "orange", label: `降级: ${vectorStatus || "vector unavailable"}` } : null,
         fallbackReason ? { key: "fallback", color: "orange", label: `fallback: ${fallbackReason}` } : null,
     ].filter(Boolean) as Array<{ key: string; color: string; label: string }>;
 }

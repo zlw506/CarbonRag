@@ -9,6 +9,7 @@ import { CarbonFactorsPage } from "../pages/CarbonFactorsPage";
 import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { LoginPage } from "../pages/LoginPage";
 import { MyKnowledgePage } from "../pages/MyKnowledgePage";
+import { KnowledgeBaseWorkbench } from "../pages/KnowledgeBaseWorkbench";
 import { RagLabPage } from "../pages/RagLabPage";
 import { ReportPage } from "../pages/ReportPage";
 import { SettingsPage } from "../pages/SettingsPage";
@@ -107,6 +108,7 @@ export const router = createBrowserRouter([
                 children: [
                     { index: true, element: <AskPage /> },
                     { path: "my-knowledge", element: <MyKnowledgePage /> },
+                    { path: "kb", element: <KnowledgeBaseWorkbench /> },
                     { path: "rag-lab", element: <RagLabPage /> },
                     { path: "carbon-factors", element: <CarbonFactorsPage /> },
                     { path: "carbon-calc", element: <CarbonCalcPage /> },
