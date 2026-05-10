@@ -117,6 +117,47 @@ def test_carbonstop_public_factor_can_drive_scope3_calculation(tmp_path) -> None
     assert result.total_emission_kgco2e == 2.4
 
 
+def test_carbonstop_calculator_seed_contains_public_lifestyle_catalog() -> None:
+    records = [
+        record
+        for record in CarbonFactorLoader().load_records()
+        if "carbonstop_calculator" in record.tags
+    ]
+
+    assert len(records) == 42
+    assert {record.activity_name for record in records} >= {"涤纶织物", "纯棉T恤", "用电", "飞机", "城市垃圾"}
+    assert {record.activity_category for record in records} == {
+        "personal_calculator_clothes",
+        "personal_calculator_food",
+        "personal_calculator_home",
+        "personal_calculator_travel",
+        "personal_calculator_daily",
+    }
+
+
+def test_carbonstop_calculator_seed_can_drive_lifestyle_calculation() -> None:
+    registry = CarbonFactorLoader().load_registry()
+
+    result = CarbonCalculationEngine(registry=registry).calculate(
+        CalcCarbonRequest(
+            activity_items=[
+                {
+                    "scope": "scope3",
+                    "activity_category": "personal_calculator_clothes",
+                    "activity_name": "纯棉T恤",
+                    "activity_value": 2,
+                    "activity_unit": "件",
+                    "factor_preference": "public_calculator",
+                    "requested_factor_id": "carbonstop-calculator-02",
+                }
+            ]
+        ).to_activity_batch()
+    )
+
+    assert result.breakdown[0].factor_id == "carbonstop-calculator-02"
+    assert result.total_emission_kgco2e == 14
+
+
 def test_runtime_factor_loader_keeps_seed_fallback_when_db_unavailable(monkeypatch) -> None:
     loader = CarbonFactorLoader()
     monkeypatch.setattr("app.carbon_factors.store.get_carbon_factor_store", lambda: (_ for _ in ()).throw(RuntimeError("db down")))

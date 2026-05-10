@@ -1,4 +1,5 @@
 import type {
+    CarbonCalculatorCatalogResponse,
     CarbonFactorCatalogSearchResponse,
     CarbonFactorDetail,
     CarbonFactorFacets,
@@ -52,5 +53,10 @@ export async function getCarbonFactorFacets() {
 
 export async function listCarbonFactorSources() {
     const response = await httpClient.get<CarbonFactorSource[]>("/v1/carbon-factor-sources");
+    return response.data;
+}
+
+export async function getCarbonCalculatorCatalog() {
+    const response = await httpClient.get<CarbonCalculatorCatalogResponse>("/v1/carbon-calculator/catalog");
     return response.data;
 }

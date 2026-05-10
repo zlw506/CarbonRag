@@ -92,3 +92,35 @@ export interface CarbonFactorFacets {
     qualities: string[];
     category_tree: CarbonFactorCategoryNode[];
 }
+
+export interface CarbonCalculatorCatalogGroup {
+    group_key: string;
+    label: string;
+    hint: string;
+    count: number;
+}
+
+export interface CarbonCalculatorCatalogItem {
+    item_id: string;
+    factor_id: string;
+    group_key: string;
+    group_label: string;
+    name: string;
+    factor_value: number;
+    factor_unit: string;
+    activity_unit: string;
+    result_unit: string;
+    scope: string;
+    activity_category: string;
+    activity_name: string;
+    source_name: string;
+    source_url?: string | null;
+    tip?: string | null;
+    order: number;
+}
+
+export interface CarbonCalculatorCatalogResponse {
+    groups: CarbonCalculatorCatalogGroup[];
+    items: CarbonCalculatorCatalogItem[];
+    total: number;
+}

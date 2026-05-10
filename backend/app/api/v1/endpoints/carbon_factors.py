@@ -3,6 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.auth.dependencies import require_admin, require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
 from app.carbon_factors.schemas import (
+    CarbonCalculatorCatalogGroup,
+    CarbonCalculatorCatalogItem,
+    CarbonCalculatorCatalogResponse,
     CarbonFactorCatalogSearchResponse,
     CarbonFactorDetail,
     CarbonFactorFacets,
@@ -13,9 +16,25 @@ from app.carbon_factors.schemas import (
     CarbonFactorUpdateRequest,
     CarbonStopSyncRequest,
 )
+from app.carbon.factor_loader import CarbonFactorLoader
 from app.carbon_factors.service import get_carbon_factor_database_service
 
 router = APIRouter()
+
+CALCULATOR_GROUP_HINTS = {
+    "clothes": ("衣", "衣物、服装和清洁用品等个人消费条目"),
+    "food": ("食", "食品、烟酒和日常饮食条目"),
+    "home": ("住", "居家能源、水、电、燃气和供暖条目"),
+    "travel": ("行", "出行和通勤相关条目"),
+    "daily": ("用", "纸制品、塑料袋和日用品等生活条目"),
+}
+
+
+def _tag_value(tags: list[str], prefix: str) -> str | None:
+    for tag in tags:
+        if tag.startswith(prefix):
+            return tag.removeprefix(prefix)
+    return None
 
 
 @router.get("/carbon-factors/facets", response_model=CarbonFactorFacets)
@@ -24,6 +43,55 @@ def get_carbon_factor_facets(
 ) -> CarbonFactorFacets:
     del current_user
     return get_carbon_factor_database_service().facets()
+
+
+@router.get("/carbon-calculator/catalog", response_model=CarbonCalculatorCatalogResponse)
+def get_carbon_calculator_catalog(
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> CarbonCalculatorCatalogResponse:
+    del current_user
+    records = [
+        record
+        for record in CarbonFactorLoader().load_records()
+        if "carbonstop_calculator" in record.tags and not record.is_deprecated
+    ]
+    items: list[CarbonCalculatorCatalogItem] = []
+    for record in records:
+        group_key = _tag_value(record.tags, "calculator_group:") or "daily"
+        group_label = _tag_value(record.tags, "calculator_group_label:") or CALCULATOR_GROUP_HINTS.get(group_key, ("其他", ""))[0]
+        order = int(_tag_value(record.tags, "calculator_order:") or "9999")
+        items.append(
+            CarbonCalculatorCatalogItem(
+                item_id=f"calculator-{order:02d}",
+                factor_id=record.factor_id,
+                group_key=group_key,
+                group_label=group_label,
+                name=record.activity_name,
+                factor_value=record.factor_value,
+                factor_unit=record.factor_unit,
+                activity_unit=record.activity_unit,
+                result_unit=record.result_unit,
+                scope=record.scope,
+                activity_category=record.activity_category,
+                activity_name=record.activity_name,
+                source_name=record.source_name,
+                source_url=record.source_url,
+                tip=record.notes,
+                order=order,
+            )
+        )
+    items.sort(key=lambda item: item.order)
+    groups: list[CarbonCalculatorCatalogGroup] = []
+    for group_key, (label, hint) in CALCULATOR_GROUP_HINTS.items():
+        groups.append(
+            CarbonCalculatorCatalogGroup(
+                group_key=group_key,
+                label=label,
+                hint=hint,
+                count=sum(1 for item in items if item.group_key == group_key),
+            )
+        )
+    return CarbonCalculatorCatalogResponse(groups=groups, items=items, total=len(items))
 
 
 @router.get("/carbon-factors", response_model=CarbonFactorSearchResponse)
