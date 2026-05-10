@@ -1,4 +1,12 @@
-import { DatabaseOutlined, EyeOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
+import {
+    CloudServerOutlined,
+    DatabaseOutlined,
+    EyeOutlined,
+    MessageOutlined,
+    ReloadOutlined,
+    SyncOutlined,
+    TeamOutlined,
+} from "@ant-design/icons";
 import {
     Alert,
     Button,
@@ -593,52 +601,91 @@ export function AdminPlaceholderPage() {
     }
 
     return (
-        <Space direction="vertical" size={16} style={{ width: "100%" }}>
-            <Card>
-                <Typography.Title level={2}>管理员控制台</Typography.Title>
-                <Typography.Paragraph>
-                    这里汇总用户、知识条目、更新任务、反馈和系统状态。管理员可以在这里查看知识库条目、触发扫描与重建，并管理用户与反馈概览。
-                </Typography.Paragraph>
-                <Space size={12} wrap>
-                    <Button icon={<ReloadOutlined />} onClick={() => void loadAdminWorkspace()} disabled={loading}>
-                        刷新
-                    </Button>
-                    <Button
-                        icon={<SyncOutlined />}
-                        loading={refreshingKnowledge === "scan"}
-                        onClick={() => void handleTriggerKnowledgeRefresh("scan")}
-                    >
-                        扫描知识变动
-                    </Button>
-                    <Button
-                        type="primary"
-                        icon={<SyncOutlined />}
-                        loading={refreshingKnowledge === "rebuild"}
-                        onClick={() => void handleTriggerKnowledgeRefresh("rebuild")}
-                    >
-                        重建知识索引
-                    </Button>
-                </Space>
+        <Space className="admin-console" direction="vertical" size={18}>
+            <Card className="admin-console__hero">
+                <div className="admin-console__hero-layout">
+                    <div className="admin-console__hero-copy">
+                        <Typography.Text className="admin-console__eyebrow">CarbonRag 管理后台</Typography.Text>
+                        <Typography.Title level={2}>系统治理总览</Typography.Title>
+                        <Typography.Paragraph>
+                            集中查看用户、知识库任务、反馈和系统连接状态；高风险操作保留在对应卡片内处理。
+                        </Typography.Paragraph>
+                    </div>
+                    <Space className="admin-console__actions" size={10} wrap>
+                        <Button icon={<ReloadOutlined />} onClick={() => void loadAdminWorkspace()} disabled={loading}>
+                            刷新
+                        </Button>
+                        <Button
+                            icon={<SyncOutlined />}
+                            loading={refreshingKnowledge === "scan"}
+                            onClick={() => void handleTriggerKnowledgeRefresh("scan")}
+                        >
+                            扫描知识变动
+                        </Button>
+                        <Button
+                            type="primary"
+                            icon={<SyncOutlined />}
+                            loading={refreshingKnowledge === "rebuild"}
+                            onClick={() => void handleTriggerKnowledgeRefresh("rebuild")}
+                        >
+                            重建知识索引
+                        </Button>
+                    </Space>
+                </div>
                 {errorMessage ? (
                     <Alert
                         showIcon
                         type="warning"
                         message="管理员工作台提示"
                         description={errorMessage}
-                        className="auth-card__alert"
+                        className="admin-console__alert"
                     />
                 ) : null}
             </Card>
 
             {loading ? (
-                <Card>
+                <Card className="admin-console__loading-card">
                     <div className="chat-workbench__loading">
                         <Spin size="large" />
                     </div>
                 </Card>
             ) : (
+                <>
+                <div className="admin-console__summary">
+                    <Card className="admin-summary-card">
+                        <div className="admin-summary-card__icon">
+                            <TeamOutlined />
+                        </div>
+                        <Statistic title="用户" value={systemStatus?.total_users ?? users.length} />
+                        <Typography.Text type="secondary">{users.filter((item) => item.is_active).length} 个启用账号</Typography.Text>
+                    </Card>
+                    <Card className="admin-summary-card">
+                        <div className="admin-summary-card__icon">
+                            <DatabaseOutlined />
+                        </div>
+                        <Statistic title="知识条目" value={knowledgeItems.length} />
+                        <Typography.Text type="secondary">{knowledgeTasks.length} 条知识任务</Typography.Text>
+                    </Card>
+                    <Card className="admin-summary-card">
+                        <div className="admin-summary-card__icon">
+                            <MessageOutlined />
+                        </div>
+                        <Statistic title="反馈" value={feedbackOverview?.total_count ?? 0} />
+                        <Typography.Text type="secondary">问答 / 核算反馈汇总</Typography.Text>
+                    </Card>
+                    <Card className="admin-summary-card">
+                        <div className="admin-summary-card__icon">
+                            <CloudServerOutlined />
+                        </div>
+                        <Statistic title="运行环境" value={environmentLabelMap[systemStatus?.env ?? ""] ?? "未知"} />
+                        <Typography.Text type="secondary">
+                            {databaseBackendLabelMap[systemStatus?.database_backend ?? ""] ?? "数据库状态待确认"}
+                        </Typography.Text>
+                    </Card>
+                </div>
+
                 <div className="admin-grid">
-                    <Card title="系统连接状态">
+                    <Card className="admin-panel-card" title="系统连接状态">
                         {systemStatus ? (
                             <Descriptions column={1} size="small" bordered>
                                 <Descriptions.Item label="应用名称">{systemStatus.app_name}</Descriptions.Item>
@@ -669,7 +716,7 @@ export function AdminPlaceholderPage() {
                         )}
                     </Card>
 
-                    <Card title="反馈概览">
+                    <Card className="admin-panel-card" title="反馈概览">
                         {feedbackOverview ? (
                             <Space direction="vertical" size={16} style={{ width: "100%" }}>
                                 <div className="admin-stats">
@@ -705,7 +752,7 @@ export function AdminPlaceholderPage() {
                     </Card>
 
                     <Card
-                        className="admin-grid__table-card admin-grid__wide-card"
+                        className="admin-panel-card admin-grid__table-card admin-grid__wide-card"
                         title="政策知识三段式摄取"
                         extra={
                             <Tag color={policyShowcaseStatus?.indexed ? "green" : "orange"}>
@@ -851,7 +898,7 @@ export function AdminPlaceholderPage() {
                     </Card>
 
                     <Card
-                        className="admin-grid__table-card admin-grid__wide-card"
+                        className="admin-panel-card admin-grid__table-card admin-grid__wide-card"
                         title="实时政策爬虫"
                         extra={
                             <Space size={8} wrap>
@@ -955,6 +1002,7 @@ export function AdminPlaceholderPage() {
                             )}
 
                             <List
+                                className="admin-compact-list"
                                 size="small"
                                 header={<Typography.Text strong>官方白名单源</Typography.Text>}
                                 dataSource={policyCrawlerSources}
@@ -1005,6 +1053,7 @@ export function AdminPlaceholderPage() {
                             />
 
                             <List
+                                className="admin-compact-list"
                                 size="small"
                                 header={<Typography.Text strong>待审核/已处理候选</Typography.Text>}
                                 dataSource={policyCrawlerCandidates.slice(0, 8)}
@@ -1054,6 +1103,7 @@ export function AdminPlaceholderPage() {
                             />
 
                             <List
+                                className="admin-compact-list"
                                 size="small"
                                 header={<Typography.Text strong>最近运行记录</Typography.Text>}
                                 dataSource={policyCrawlerRuns.slice(0, 5)}
@@ -1083,7 +1133,7 @@ export function AdminPlaceholderPage() {
                     </Card>
 
                     <Card
-                        className="admin-grid__table-card"
+                        className="admin-panel-card admin-grid__table-card"
                         title="知识条目 / 文档列表"
                         extra={
                             <Tag color="blue">
@@ -1104,7 +1154,7 @@ export function AdminPlaceholderPage() {
                     </Card>
 
                     <Card
-                        className="admin-grid__table-card"
+                        className="admin-panel-card admin-grid__table-card"
                         title="更新任务列表"
                         extra={<Tag color="purple">{knowledgeTasks.length} 条任务</Tag>}
                     >
@@ -1123,7 +1173,7 @@ export function AdminPlaceholderPage() {
                         />
                     </Card>
 
-                    <Card className="admin-grid__table-card" title="用户列表">
+                    <Card className="admin-panel-card admin-grid__table-card" title="用户列表">
                         <Table
                             rowKey="user_id"
                             columns={userColumns}
@@ -1135,6 +1185,7 @@ export function AdminPlaceholderPage() {
                         />
                     </Card>
                 </div>
+                </>
             )}
 
             <Modal
