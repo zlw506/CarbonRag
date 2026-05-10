@@ -28,6 +28,7 @@ def merge_with_rrf(
 def _record_to_hit(record: dict) -> RagHit:
     chunk: RagChunk = record["chunk"]
     metadata = chunk.metadata
+    source_type = _normalize_source_type(metadata.get("source_type"))
     return RagHit(
         chunk_id=chunk.knowledge_chunk_id or chunk.rag_chunk_id,
         rag_chunk_id=chunk.rag_chunk_id,
@@ -35,7 +36,10 @@ def _record_to_hit(record: dict) -> RagHit:
         doc_id=chunk.doc_id,
         title=str(metadata.get("title") or metadata.get("source") or "RAG 文档"),
         snippet=chunk.text,
-        source_type=str(metadata.get("source_type") or "private_upload"),
+        source_type=source_type,
+        source=_optional_str(metadata.get("source") or metadata.get("title") or "RAG 文档"),
+        source_url=_optional_str(metadata.get("source_url")),
+        library_scope=_normalize_library_scope(metadata.get("library_scope")),
         file_id=_optional_str(metadata.get("file_id")),
         knowledge_item_id=_optional_str(metadata.get("knowledge_item_id")),
         page_number=chunk.page_number,
@@ -53,3 +57,21 @@ def _optional_str(value) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _normalize_source_type(value) -> str:
+    normalized = str(value or "").strip()
+    if normalized == "public_policy_web":
+        return "public_policy"
+    if normalized in {"uploaded_file", "personal_upload", "file_upload"}:
+        return "private_upload"
+    if normalized in {"public_policy", "public_policy_demo", "private_sample", "private_upload"}:
+        return normalized
+    return "private_upload"
+
+
+def _normalize_library_scope(value) -> str | None:
+    normalized = str(value or "").strip()
+    if normalized in {"personal", "shared"}:
+        return normalized
+    return None

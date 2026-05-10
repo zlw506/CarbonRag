@@ -29,6 +29,9 @@ export interface RagDocument {
     chunk_count: number;
     indexed_chunk_count: number;
     error_message?: string | null;
+    vector_backend?: string | null;
+    degraded?: boolean;
+    index_warnings?: string[];
     created_at: string;
     updated_at: string;
     metadata?: Record<string, unknown>;

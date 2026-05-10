@@ -21,8 +21,9 @@ from app.rag.kb.storage import RagKnowledgeStore
 from app.rag.qa.answer import build_grounded_answer
 from app.rag.retrieval.dense import dense_search
 from app.rag.retrieval.hybrid_rrf import merge_with_rrf
-from app.rag.retrieval.rerank import LightweightReranker
+from app.rag.retrieval.rerank import BgeReranker
 from app.rag.retrieval.sparse import sparse_search
+from app.rag.vector_backend.base import VectorSearchResult
 
 
 class RagSpineService:
@@ -30,7 +31,7 @@ class RagSpineService:
 
     def __init__(self, *, store: RagKnowledgeStore | None = None) -> None:
         self.store = store or RagKnowledgeStore()
-        self.reranker = LightweightReranker()
+        self.reranker = BgeReranker()
 
     def list_kbs(self, *, owner_user_id: str) -> list[KnowledgeBase]:
         return self.store.list_kbs(owner_user_id=owner_user_id)
@@ -78,11 +79,13 @@ class RagSpineService:
 
     def search(self, *, owner_user_id: str, request: RagSearchRequest) -> RagSearchResult:
         kb_id = request.kb_id
+        vector_backend = self._effective_vector_backend()
         if kb_id is None:
             kb = self.store.sync_visible_knowledge(
                 owner_user_id=owner_user_id,
                 knowledge_scope=request.knowledge_scope,
                 allowed_knowledge_item_ids=request.allowed_knowledge_item_ids,
+                vector_backend=vector_backend,
             )
             kb_id = kb.kb_id
         chunks = self.store.list_searchable_chunks(
@@ -91,9 +94,12 @@ class RagSpineService:
             knowledge_scope=request.knowledge_scope,
             allowed_knowledge_item_ids=request.allowed_knowledge_item_ids,
         )
-        vector_backend = self._effective_vector_backend()
-        dense_result = dense_search(query=request.query, chunks=chunks, top_k=max(request.top_k * 4, request.top_k), backend=vector_backend)
-        sparse_hits = sparse_search(query=request.query, chunks=chunks, top_k=max(request.top_k * 4, request.top_k))
+        dense_result = (
+            VectorSearchResult(hits=[], backend=vector_backend, available=True)
+            if request.mode == "sparse"
+            else dense_search(query=request.query, chunks=chunks, top_k=max(request.top_k * 4, request.top_k), backend=vector_backend)
+        )
+        sparse_hits = [] if request.mode == "dense" else sparse_search(query=request.query, chunks=chunks, top_k=max(request.top_k * 4, request.top_k))
         merged = merge_with_rrf(sparse_hits=sparse_hits, dense_hits=dense_result.hits)
 
         rerank_applied = False
@@ -111,6 +117,8 @@ class RagSpineService:
             degraded = True
         if warning:
             warnings.append(f"重排序未应用：{warning}")
+            if request.mode == "hybrid_rerank":
+                degraded = True
 
         trace = RagTrace(
             dense_count=len(dense_result.hits),
@@ -149,9 +157,11 @@ class RagSpineService:
         stats = self.store.stats(owner_user_id=owner_user_id)
         backend = self._effective_vector_backend()
         warnings = []
-        degraded = backend != "memory"
-        if degraded:
-            warnings.append(f"{backend} adapter requires external runtime; sparse retrieval remains available.")
+        degraded = backend in {"chroma", "memory"}
+        if backend == "memory":
+            warnings.append("当前使用 memory lexical fallback；比赛验收应使用 milvus_lite + BGE-M3。")
+        elif backend == "chroma":
+            warnings.append("Chroma 仅保留兼容；V1.6.4 默认验收路径为 milvus_lite。")
         return RagHealth(
             vector_backend=backend,
             degraded=degraded,

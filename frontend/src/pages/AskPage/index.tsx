@@ -20,6 +20,7 @@ import {
     List,
     Popover,
     Segmented,
+    Select,
     Space,
     Spin,
     Tag,
@@ -37,6 +38,7 @@ import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { uploadSessionFile } from "../../services/files";
+import { listKnowledgeBases } from "../../services/kb";
 import { listAttachableKnowledgeItems, replaceAttachedKnowledgeItems } from "../../services/knowledge";
 import {
     getSession,
@@ -55,6 +57,7 @@ import type {
     KnowledgeScope,
 } from "../../types/ask";
 import type { KnowledgeItem } from "../../types/knowledge";
+import type { KnowledgeBase, RagRetrievalMode } from "../../types/kb";
 import type { SessionAttachment, SessionDetail, SessionMessage, SessionSummary } from "../../types/session";
 
 type AssistantLifecycleState = "pending" | "connecting" | "thinking" | "reconnecting" | "streaming" | "done" | "error" | "failed";
@@ -101,6 +104,9 @@ export function AskPage() {
     const [streamContextSource, setStreamContextSource] = useState<StreamContextSource | null>(null);
     const [question, setQuestion] = useState("");
     const [knowledgeScope, setKnowledgeScope] = useState<KnowledgeScope>("public");
+    const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+    const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
+    const [ragMode, setRagMode] = useState<RagRetrievalMode>("hybrid_rerank");
     const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
     const [privateSampleDrawerOpen, setPrivateSampleDrawerOpen] = useState(false);
     const [draftAttachedDocIds, setDraftAttachedDocIds] = useState<string[]>([]);
@@ -153,6 +159,7 @@ export function AskPage() {
 
     useEffect(() => {
         void loadKnowledgeCatalog();
+        void loadKnowledgeBases();
     }, []);
 
     useEffect(() => {
@@ -217,6 +224,16 @@ export function AskPage() {
             setTransportError("当前无法初始化对话工作台，请确认后端已启动。");
         } finally {
             setLoadingPrivateSamples(false);
+        }
+    }
+
+    async function loadKnowledgeBases() {
+        try {
+            const items = await listKnowledgeBases();
+            setKnowledgeBases(items);
+            setSelectedKbId((current) => current ?? items.find((item) => item.is_default)?.kb_id ?? items[0]?.kb_id ?? null);
+        } catch {
+            setKnowledgeBases([]);
         }
     }
 
@@ -330,6 +347,8 @@ export function AskPage() {
                     question: draftQuestion,
                     knowledge_scope: knowledgeScope,
                     top_k: 5,
+                    kb_id: selectedKbId,
+                    rag_mode: ragMode,
                     attached_file_ids: selectedReadyUploadedAttachments.map((attachment) => attachment.file_id),
                     attached_knowledge_item_ids: draftAttachedDocIds,
                     provider_override: providerOverride,
@@ -684,8 +703,31 @@ export function AskPage() {
             <Button icon={<TagsOutlined />} onClick={() => setPrivateSampleDrawerOpen(true)} disabled={loadingPrivateSamples}>
                 管理知识条目挂接
             </Button>
+            <Typography.Text strong>RAG 知识库</Typography.Text>
+            <Select
+                className="chat-composer-settings__select"
+                value={selectedKbId ?? undefined}
+                allowClear
+                placeholder="默认自动知识库"
+                onChange={(value) => setSelectedKbId(value ?? null)}
+                options={knowledgeBases.map((item) => ({
+                    label: `${item.name}${item.is_default ? " · 默认" : ""}`,
+                    value: item.kb_id,
+                }))}
+            />
+            <Typography.Text strong>检索模式</Typography.Text>
+            <Segmented<RagRetrievalMode>
+                value={ragMode}
+                onChange={(value) => setRagMode(value)}
+                options={[
+                    { label: "Dense", value: "dense" },
+                    { label: "Sparse", value: "sparse" },
+                    { label: "Hybrid", value: "hybrid" },
+                    { label: "Hybrid+Rerank", value: "hybrid_rerank" },
+                ]}
+            />
             <Typography.Paragraph type="secondary" className="chat-composer-settings__hint">
-                默认优先把输入框留在视觉中心。范围和知识条目挂接放到这里按需调整。
+                默认走 RAG-Pro 主脊柱。选择知识库后，Ask 会带上 kb_id 与检索模式，并在回答里展示 RAG trace。
             </Typography.Paragraph>
         </div>
     );

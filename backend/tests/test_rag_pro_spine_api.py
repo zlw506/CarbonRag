@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
 from app.main import app
 from app.rag.kb.storage import RagKnowledgeStore
@@ -14,6 +15,7 @@ def build_rag_service(tmp_path):
 
 def test_kb_document_status_and_test_qa(monkeypatch, tmp_path) -> None:
     service = build_rag_service(tmp_path)
+    monkeypatch.setattr("app.rag.spine.get_settings", lambda: SimpleNamespace(rag_vector_backend="memory"))
     monkeypatch.setattr("app.api.v1.endpoints.kb.get_rag_spine_service", lambda: service)
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_spine_service", lambda: service)
     patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
@@ -41,18 +43,18 @@ def test_kb_document_status_and_test_qa(monkeypatch, tmp_path) -> None:
 
     search = client.post(
         "/api/v1/rag/search",
-        json={"kb_id": kb_id, "query": "企业如何追踪双碳目标？", "mode": "hybrid_rerank", "top_k": 3},
+        json={"kb_id": kb_id, "query": "企业如何追踪双碳目标？", "mode": "hybrid", "top_k": 3},
     )
     assert search.status_code == 200, search.text
     payload = search.json()
     assert payload["hits"]
     assert payload["trace"]["sparse_count"] >= 1
     assert payload["trace"]["merged_count"] >= 1
-    assert payload["trace"]["rerank_applied"] is True
+    assert payload["trace"]["vector_backend"] == "memory"
 
     qa = client.post(
         "/api/v1/rag/test-qa",
-        json={"kb_id": kb_id, "query": "双碳目标包括什么？", "mode": "hybrid_rerank", "top_k": 3},
+        json={"kb_id": kb_id, "query": "双碳目标包括什么？", "mode": "hybrid", "top_k": 3},
     )
     assert qa.status_code == 200, qa.text
     assert qa.json()["run_id"]

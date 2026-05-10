@@ -126,7 +126,7 @@ export function KnowledgeBaseWorkbench() {
             <Space direction="vertical" size={16} style={{ width: "100%" }}>
                 <Card
                     title={<Space><DatabaseOutlined />RAG-Pro 知识库工作台</Space>}
-                    extra={<Tag color="green">V1.6.3 spine</Tag>}
+                    extra={<Tag color="green">V1.6.4 real-vector spine</Tag>}
                 >
                     <Typography.Paragraph type="secondary">
                         这里是新的 RAG 主脊柱入口：知识库、文档状态、chunk 预览、hybrid/RRF、rerank trace 和 test QA。
@@ -172,7 +172,7 @@ export function KnowledgeBaseWorkbench() {
                                     <List.Item.Meta
                                         avatar={<FileSearchOutlined />}
                                         title={<Space>{doc.title}<StatusTag status={doc.status} /></Space>}
-                                        description={`parse=${doc.parse_status} · chunk=${doc.chunk_status} · index=${doc.index_status} · chunks=${doc.chunk_count}/${doc.indexed_chunk_count}`}
+                                        description={`parse=${doc.parse_status} · chunk=${doc.chunk_status} · index=${doc.index_status} · backend=${doc.vector_backend ?? "-"} · chunks=${doc.chunk_count}/${doc.indexed_chunk_count}${doc.index_warnings?.length ? ` · ${doc.index_warnings.join("；")}` : ""}`}
                                     />
                                 </List.Item>
                             )}

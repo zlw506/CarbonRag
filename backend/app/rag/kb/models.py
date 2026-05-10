@@ -39,6 +39,9 @@ class RagDocument(BaseModel):
     chunk_count: int = 0
     indexed_chunk_count: int = 0
     error_message: str | None = None
+    vector_backend: str | None = None
+    degraded: bool = False
+    index_warnings: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -130,6 +133,9 @@ class RagHit(BaseModel):
     title: str
     snippet: str
     source_type: str
+    source: str | None = None
+    source_url: str | None = None
+    library_scope: Literal["personal", "shared"] | None = None
     file_id: str | None = None
     knowledge_item_id: str | None = None
     page_number: int | None = None
