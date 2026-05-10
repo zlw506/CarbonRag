@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
 
+from app.ai_runtime.providers.base import BaseChatProvider, ChatCompletionResult, ProviderDescriptor
 from app.main import app
 from app.rag.kb.storage import RagKnowledgeStore
 from app.rag.spine import RagSpineService
@@ -9,8 +10,28 @@ from tests.test_helpers import patch_test_auth_service, register_and_login
 client = TestClient(app)
 
 
+class FakeChatProvider(BaseChatProvider):
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+
+    def describe(self) -> ProviderDescriptor:
+        return ProviderDescriptor(
+            name="fake-chat",
+            provider_type="test",
+            mode="chat",
+            default_model="fake-grounded-model",
+        )
+
+    def generate_response(self, *, system_prompt: str, user_input: str) -> ChatCompletionResult:
+        self.calls.append({"system_prompt": system_prompt, "user_input": user_input})
+        return ChatCompletionResult(content="双碳目标包括碳达峰和碳中和。", metadata={"fake": True})
+
+
 def build_rag_service(tmp_path):
-    return RagSpineService(store=RagKnowledgeStore(sqlite_db_path=tmp_path / "carbonrag.sqlite3"))
+    return RagSpineService(
+        store=RagKnowledgeStore(sqlite_db_path=tmp_path / "carbonrag.sqlite3"),
+        chat_provider=FakeChatProvider(),
+    )
 
 
 def test_kb_document_status_and_test_qa(monkeypatch, tmp_path) -> None:
@@ -57,8 +78,12 @@ def test_kb_document_status_and_test_qa(monkeypatch, tmp_path) -> None:
         json={"kb_id": kb_id, "query": "双碳目标包括什么？", "mode": "hybrid", "top_k": 3},
     )
     assert qa.status_code == 200, qa.text
-    assert qa.json()["run_id"]
-    assert "双碳" in qa.json()["answer"]
+    qa_payload = qa.json()
+    assert qa_payload["run_id"]
+    assert qa_payload["answer_mode"] == "llm_grounded"
+    assert qa_payload["provider_name"] == "fake-chat"
+    assert qa_payload["selected_chunks"]
+    assert "双碳" in qa_payload["answer"]
 
 
 def test_kb_user_isolation(monkeypatch, tmp_path) -> None:

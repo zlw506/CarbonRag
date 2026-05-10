@@ -238,7 +238,7 @@ export function KnowledgeBaseWorkbench() {
             <Space direction="vertical" size={16} style={{ width: "100%" }}>
                 <Card
                     title={<Space><DatabaseOutlined />RAG-Pro 知识库工作台</Space>}
-                    extra={<Tag color="green">V1.6.9 可读性修复</Tag>}
+                    extra={<Tag color="green">V1.6.10 Test QA 加固</Tag>}
                 >
                     <Typography.Paragraph type="secondary">
                         这里不是普通聊天页，而是 RAG 验收台：先把资料导入知识库，再按“解析文档 → 生成片段 → 写入向量库”处理，最后用检索测试和检索问答确认能不能命中原文。
@@ -366,12 +366,24 @@ export function KnowledgeBaseWorkbench() {
                     <Space.Compact style={{ width: "100%" }}>
                         <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入一个能在文档中找到依据的问题" />
                         <Button icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>只测检索</Button>
-                        <Button icon={<PlayCircleOutlined />} type="primary" onClick={handleTestQA} loading={loading}>生成依据回答</Button>
+                        <Button icon={<PlayCircleOutlined />} type="primary" onClick={handleTestQA} loading={loading}>生成测试回答</Button>
                         <Button onClick={openAskPageWithCurrentKb}>去 AskPage 用大模型问</Button>
                     </Space.Compact>
                     {searchResult ? <TracePanel mode="search" hits={searchResult.hits} trace={searchResult.trace} /> : null}
                     {qaResult ? (
-                        <Card size="small" title="依据回答" style={{ marginTop: 12 }}>
+                        <Card size="small" title="测试回答" style={{ marginTop: 12 }}>
+                            <Space wrap style={{ marginBottom: 10 }}>
+                                <Tag color={qaModeColor(qaResult.answer_mode)}>{qaModeLabel(qaResult.answer_mode)}</Tag>
+                                <Tag color={qaResult.provider_name ? "green" : "default"}>
+                                    {qaResult.provider_name ? `大模型：${qaResult.provider_name}` : "未调用大模型"}
+                                </Tag>
+                                {qaResult.model_name ? <Tag>{qaResult.model_name}</Tag> : null}
+                                <Tag color={evidenceQualityColor(qaResult.evidence_quality)}>
+                                    证据质量：{evidenceQualityLabel(qaResult.evidence_quality)}
+                                </Tag>
+                                {typeof qaResult.confidence === "number" ? <Tag>可信度 {Math.round(qaResult.confidence * 100)}%</Tag> : null}
+                                {qaResult.selected_chunks?.length ? <Tag color="blue">已选引用片段 {qaResult.selected_chunks.length}</Tag> : null}
+                            </Space>
                             <Typography.Paragraph>{qaResult.answer}</Typography.Paragraph>
                             <TracePanel mode="qa" hits={qaResult.hits} trace={qaResult.retrieval_trace} />
                         </Card>
@@ -519,6 +531,64 @@ function vectorBackendLabel(value?: string | null) {
         return "Chroma 兼容模式";
     }
     return value;
+}
+
+function qaModeLabel(value?: string | null) {
+    if (value === "llm_grounded") {
+        return "已调用大模型生成";
+    }
+    if (value === "retrieval_only") {
+        return "仅检索，生成失败";
+    }
+    if (value === "no_hits") {
+        return "无命中，未调用模型";
+    }
+    return "Test QA";
+}
+
+function qaModeColor(value?: string | null) {
+    if (value === "llm_grounded") {
+        return "green";
+    }
+    if (value === "retrieval_only") {
+        return "orange";
+    }
+    if (value === "no_hits") {
+        return "red";
+    }
+    return "default";
+}
+
+function evidenceQualityLabel(value?: string | null) {
+    if (value === "strong") {
+        return "强";
+    }
+    if (value === "usable") {
+        return "可用";
+    }
+    if (value === "weak") {
+        return "弱";
+    }
+    if (value === "none") {
+        return "无";
+    }
+    return value || "未知";
+}
+
+function evidenceQualityColor(value?: string | null) {
+    if (value === "strong") {
+        return "green";
+    }
+    if (value === "usable") {
+        return "blue";
+    }
+    if (value === "weak") {
+        return "orange";
+    }
+    if (value === "none") {
+        return "red";
+    }
+    return "default";
 }
 
 function humanizeWarning(value: string) {

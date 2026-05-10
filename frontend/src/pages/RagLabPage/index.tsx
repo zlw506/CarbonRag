@@ -172,10 +172,16 @@ export function RagLabPage() {
         <div className="rag-lab">
             <div className="rag-lab__controls">
                 <Card
-                    title="RAG 检索实验台"
-                    extra={<Tag color="blue">V1.3</Tag>}
+                    title="Legacy RAG 实验台"
+                    extra={<Tag color="orange">Admin only · legacy</Tag>}
                 >
                     <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                        <Alert
+                            type="warning"
+                            showIcon
+                            message="这是旧 RAG 实验入口，不是 V1.6.x RAG-Pro 验收入口。"
+                            description="正式验收请使用“知识库工作台”和 AskPage。这里保留给管理员排查旧 /rag/retrieve、BM25、graph_mode 等实验参数。"
+                        />
                         <div className="rag-lab__endpoint">
                             <Typography.Text type="secondary">backendBaseUrl</Typography.Text>
                             <Typography.Text code copyable>{backendBaseUrl}</Typography.Text>

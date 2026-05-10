@@ -109,14 +109,16 @@ export const router = createBrowserRouter([
                     { index: true, element: <AskPage /> },
                     { path: "my-knowledge", element: <MyKnowledgePage /> },
                     { path: "kb", element: <KnowledgeBaseWorkbench /> },
-                    { path: "rag-lab", element: <RagLabPage /> },
                     { path: "carbon-factors", element: <CarbonFactorsPage /> },
                     { path: "carbon-calc", element: <CarbonCalcPage /> },
                     { path: "report", element: <ReportPage /> },
                     { path: "settings", element: <SettingsPage /> },
                     {
                         element: <AdminRoute />,
-                        children: [{ path: "admin", element: <AdminPlaceholderPage /> }],
+                        children: [
+                            { path: "admin", element: <AdminPlaceholderPage /> },
+                            { path: "rag-lab", element: <RagLabPage /> },
+                        ],
                     },
                 ],
             },

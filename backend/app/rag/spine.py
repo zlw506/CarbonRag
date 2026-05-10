@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from app.ai_runtime.providers.base import BaseChatProvider
+from app.ai_runtime.providers.factory import get_chat_provider
 from app.core.config import get_settings
 from app.rag.kb.models import (
     KnowledgeBase,
@@ -19,6 +21,7 @@ from app.rag.kb.models import (
 )
 from app.rag.kb.storage import RagKnowledgeStore
 from app.rag.qa.answer import build_grounded_answer
+from app.rag.qa.test_qa import build_test_qa_answer
 from app.rag.retrieval.dense import dense_search
 from app.rag.retrieval.hybrid_rrf import merge_with_rrf
 from app.rag.retrieval.rerank import BgeReranker
@@ -30,8 +33,14 @@ from app.rag.vector_backend.runtime import resolve_vector_runtime
 class RagSpineService:
     """RAG-Pro style primary RAG spine for CarbonRag V1.6.x."""
 
-    def __init__(self, *, store: RagKnowledgeStore | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        store: RagKnowledgeStore | None = None,
+        chat_provider: BaseChatProvider | None = None,
+    ) -> None:
         self.store = store or RagKnowledgeStore()
+        self.chat_provider = chat_provider or get_chat_provider()
         self.reranker = BgeReranker()
 
     def list_kbs(self, *, owner_user_id: str) -> list[KnowledgeBase]:
@@ -143,19 +152,27 @@ class RagSpineService:
         return build_grounded_answer(query=request.query, hits=result.hits, trace=result.trace)
 
     def test_qa(self, *, owner_user_id: str, request: RagSearchRequest) -> dict:
-        result = self.answer(owner_user_id=owner_user_id, request=request)
-        kb_id = request.kb_id or result.retrieval_trace.kb_id
+        search_result = self.search(owner_user_id=owner_user_id, request=request)
+        result = build_test_qa_answer(
+            query=request.query,
+            search_result=search_result,
+            chat_provider=self.chat_provider,
+        )
+        kb_id = request.kb_id or result["retrieval_trace"].kb_id
         run_id = None
         if kb_id:
             run_id = self.store.record_test_qa(
                 owner_user_id=owner_user_id,
                 kb_id=kb_id,
                 query=request.query,
-                answer=result.answer,
-                trace=result.retrieval_trace.model_dump(),
-                citations=result.citations,
+                answer=result["answer"],
+                trace=result["retrieval_trace"].model_dump(),
+                citations=result["citations"],
             )
-        return {"run_id": run_id, **result.model_dump()}
+        payload = dict(result)
+        payload["retrieval_trace"] = payload["retrieval_trace"].model_dump()
+        payload["hits"] = [hit.model_dump() for hit in payload["hits"]]
+        return {"run_id": run_id, **payload}
 
     def health(self, *, owner_user_id: str | None = None) -> RagHealth:
         stats = self.store.stats(owner_user_id=owner_user_id)

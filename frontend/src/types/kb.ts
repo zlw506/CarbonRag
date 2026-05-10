@@ -91,6 +91,12 @@ export interface RagSearchResult {
 export interface RagTestQAResult {
     run_id?: string | null;
     answer: string;
+    answer_mode?: "llm_grounded" | "retrieval_only" | "no_hits";
+    provider_name?: string | null;
+    model_name?: string | null;
+    selected_chunks?: RagHit[];
+    evidence_quality?: "none" | "weak" | "usable" | "strong" | string | null;
+    confidence?: number | null;
     citations: Record<string, unknown>[];
     hits: RagHit[];
     retrieval_trace: RagTrace;
