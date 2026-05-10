@@ -49,6 +49,8 @@ coordination.local.json
 data/outputs/*
 !data/outputs/.gitkeep
 backend/backend/
+backend/data/outputs/*
+backend/data/public/policy_crawl_candidates/
 data/public/policy_staging/
 backend/data/public/policy_staging/
 uploads/
