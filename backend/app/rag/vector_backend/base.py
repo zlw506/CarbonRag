@@ -21,8 +21,24 @@ class VectorSearchResult:
     warning: str | None = None
 
 
+@dataclass(slots=True)
+class VectorIndexResult:
+    indexed_count: int
+    backend: str
+    available: bool
+    degraded: bool = False
+    warning: str | None = None
+
+
 class BaseVectorStore(ABC):
     backend_name: str
+
+    def index_chunks(self, *, chunks: list[RagChunk], embeddings=None) -> VectorIndexResult:
+        return VectorIndexResult(
+            indexed_count=len(chunks),
+            backend=self.backend_name,
+            available=True,
+        )
 
     @abstractmethod
     def search(self, *, query: str, chunks: list[RagChunk], top_k: int) -> VectorSearchResult:

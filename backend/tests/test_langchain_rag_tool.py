@@ -8,6 +8,8 @@ class FakeRagService:
         assert request.query == "双碳"
         assert request.knowledge_scope == "mixed"
         assert request.allowed_knowledge_item_ids == ["ki-file"]
+        assert request.kb_id == "kb-test"
+        assert request.mode == "sparse"
         return RagSearchResult(
             query=request.query,
             hits=[
@@ -32,6 +34,8 @@ def test_langchain_rag_search_tool_outputs_hits_and_trace() -> None:
             "knowledge_scope": "mixed",
             "payload": {
                 "owner_user_id": "user-1",
+                "kb_id": "kb-test",
+                "rag_mode": "sparse",
                 "attached_file_knowledge_item_ids": ["ki-file"],
             },
         },

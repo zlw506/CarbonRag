@@ -1459,6 +1459,10 @@ body {
     margin-bottom: 0;
 }
 
+.chat-composer-settings__select {
+    min-width: 280px;
+}
+
 .chat-citation-card {
     display: flex;
     flex-direction: column;

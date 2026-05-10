@@ -12,7 +12,11 @@ from app.knowledge import get_knowledge_service
 from app.knowledge.schemas import KnowledgeItemListFilters
 from app.rag.documents.chunking import recursive_chunk_text
 from app.rag.documents.status import resolve_document_status
+from app.rag.embeddings import RagEmbeddingUnavailable, embed_documents
 from app.rag.kb.models import KnowledgeBase, KnowledgeBaseCreate, KnowledgeBaseUpdate, RagChunk, RagDocument
+from app.rag.retrieval.dense import get_vector_store
+from app.retrieval.public_chunker import chunk_public_policy_document
+from app.retrieval.public_corpus_loader import load_public_policy_documents
 from app.runtime_db.bootstrap import bootstrap_runtime_database, get_runtime_backend_kind
 from app.runtime_db.compat import connect_postgres
 from app.session.store import DEFAULT_SESSION_DB_PATH
@@ -44,6 +48,7 @@ class RagKnowledgeStore:
     def create_kb(self, *, owner_user_id: str, payload: KnowledgeBaseCreate, is_default: bool = False) -> KnowledgeBase:
         now = self.utcnow().isoformat()
         kb_id = f"kb-{uuid4().hex[:12]}"
+        self._ensure_user_reference(owner_user_id=owner_user_id)
         self._execute(
             """
             INSERT INTO rag_knowledge_bases (
@@ -160,6 +165,7 @@ class RagKnowledgeStore:
             metadata.update(
                 {
                     "knowledge_item_id": item.knowledge_item_id,
+                    "file_id": item.file_id,
                     "library_scope": item.library_scope,
                     "source_url": item.source_url,
                     "source": item.source,
@@ -167,6 +173,9 @@ class RagKnowledgeStore:
             )
         elif payload.get("text"):
             metadata["text"] = str(payload["text"])
+            for key in ("source", "source_url", "library_scope", "region", "doc_type"):
+                if payload.get(key) is not None:
+                    metadata[key] = payload[key]
 
         if not title:
             title = "未命名文档"
@@ -254,13 +263,28 @@ class RagKnowledgeStore:
                             "source": chunk.source,
                             "source_url": chunk.source_url,
                             "knowledge_item_id": chunk.knowledge_item_id,
+                            "file_id": doc.file_id,
                         },
                         chunk.chunk_id,
                     )
                 )
         elif doc.metadata.get("text"):
             for chunk in recursive_chunk_text(str(doc.metadata["text"])):
-                texts.append((chunk.text, {"source_type": doc.source_type}, None))
+                texts.append(
+                    (
+                        chunk.text,
+                        {
+                            "title": doc.title,
+                            "source_type": doc.source_type,
+                            "library_scope": doc.metadata.get("library_scope"),
+                            "source": doc.metadata.get("source"),
+                            "source_url": doc.metadata.get("source_url"),
+                            "region": doc.metadata.get("region"),
+                            "doc_type": doc.metadata.get("doc_type"),
+                        },
+                        None,
+                    )
+                )
 
         if not texts:
             return self._mark_document(
@@ -332,13 +356,82 @@ class RagKnowledgeStore:
                 error_message="no chunks to index",
             )
         now = self.utcnow().isoformat()
-        self._execute("UPDATE rag_chunks SET vector_status = {p}, updated_at = {p} WHERE doc_id = {p}", [f"indexed:{vector_backend}", now, doc_id])
+        try:
+            embeddings = embed_documents([chunk.text for chunk in chunks]) if vector_backend == "milvus_lite" else None
+            vector_result = get_vector_store(vector_backend).index_chunks(chunks=chunks, embeddings=embeddings)
+        except RagEmbeddingUnavailable as exc:
+            vector_result = get_vector_store(vector_backend).index_chunks(chunks=[], embeddings=None)
+            vector_result.warning = str(exc)
+            vector_result.available = False
+            vector_result.degraded = True
+        except Exception as exc:  # noqa: BLE001
+            vector_result = get_vector_store(vector_backend).index_chunks(chunks=[], embeddings=None)
+            vector_result.warning = str(exc)
+            vector_result.available = False
+            vector_result.degraded = True
+
+        if not vector_result.available or vector_result.indexed_count <= 0:
+            self._update_document_metadata(
+                doc_id=doc_id,
+                metadata={
+                    **doc.metadata,
+                    "last_index_result": {
+                        "vector_backend": vector_result.backend,
+                        "degraded": True,
+                        "warnings": [vector_result.warning or f"{vector_backend} index unavailable"],
+                    },
+                },
+            )
+            self._execute(
+                "UPDATE rag_chunks SET vector_status = {p}, updated_at = {p} WHERE doc_id = {p}",
+                [f"failed:{vector_backend}", now, doc_id],
+            )
+            return self._mark_document(
+                doc=doc,
+                parse_status=doc.parse_status,
+                chunk_status="chunked",
+                index_status="failed",
+                indexed_chunk_count=0,
+                error_message=vector_result.warning or f"{vector_backend} index unavailable",
+            )
+
+        if embeddings is not None:
+            for index, chunk in enumerate(chunks):
+                dense_vector = embeddings.dense[index] if index < len(embeddings.dense) else None
+                sparse_vector = embeddings.sparse[index] if index < len(embeddings.sparse) else None
+                self._execute(
+                    """
+                    UPDATE rag_chunks
+                    SET vector_status = {p}, dense_vector_json = {p}, sparse_vector_json = {p}, updated_at = {p}
+                    WHERE rag_chunk_id = {p}
+                    """,
+                    [
+                        f"indexed:{vector_result.backend}",
+                        json.dumps(dense_vector, ensure_ascii=False) if dense_vector is not None else None,
+                        json.dumps(sparse_vector, ensure_ascii=False) if sparse_vector is not None else None,
+                        now,
+                        chunk.rag_chunk_id,
+                    ],
+                )
+        else:
+            self._execute("UPDATE rag_chunks SET vector_status = {p}, updated_at = {p} WHERE doc_id = {p}", [f"indexed:{vector_result.backend}", now, doc_id])
+        self._update_document_metadata(
+            doc_id=doc_id,
+            metadata={
+                **doc.metadata,
+                "last_index_result": {
+                    "vector_backend": vector_result.backend,
+                    "degraded": bool(vector_result.degraded),
+                    "warnings": [vector_result.warning] if vector_result.warning else [],
+                },
+            },
+        )
         return self._mark_document(
             doc=doc,
             parse_status="parsed",
             chunk_status="chunked",
             index_status="indexed",
-            indexed_chunk_count=len(chunks),
+            indexed_chunk_count=vector_result.indexed_count,
             error_message=None,
         )
 
@@ -361,7 +454,7 @@ class RagKnowledgeStore:
         allowed_knowledge_item_ids: list[str] | None = None,
     ) -> list[RagChunk]:
         params: list[object] = []
-        clauses = ["c.vector_status LIKE 'indexed:%'"]
+        clauses = ["c.status = 'chunked'"]
         if kb_id:
             kb = self.get_kb(owner_user_id=owner_user_id, kb_id=kb_id)
             if kb is None:
@@ -409,8 +502,11 @@ class RagKnowledgeStore:
         owner_user_id: str,
         knowledge_scope: str,
         allowed_knowledge_item_ids: list[str] | None = None,
+        vector_backend: str = "memory",
     ) -> KnowledgeBase:
         kb = self.ensure_default_kb(owner_user_id=owner_user_id)
+        if knowledge_scope in {"public", "mixed"}:
+            self._sync_public_policy_corpus(owner_user_id=owner_user_id, kb=kb, vector_backend=vector_backend)
         filters = KnowledgeItemListFilters(
             knowledge_item_ids=allowed_knowledge_item_ids or [],
             is_enabled=True,
@@ -433,8 +529,119 @@ class RagKnowledgeStore:
             )
             self.parse_document(owner_user_id=owner_user_id, kb_id=kb.kb_id, doc_id=doc.doc_id)
             self.chunk_document(owner_user_id=owner_user_id, kb_id=kb.kb_id, doc_id=doc.doc_id)
-            self.index_document(owner_user_id=owner_user_id, kb_id=kb.kb_id, doc_id=doc.doc_id)
+            self.index_document(owner_user_id=owner_user_id, kb_id=kb.kb_id, doc_id=doc.doc_id, vector_backend=vector_backend)
         return kb
+
+    def _sync_public_policy_corpus(
+        self,
+        *,
+        owner_user_id: str,
+        kb: KnowledgeBase,
+        vector_backend: str,
+    ) -> None:
+        try:
+            documents = load_public_policy_documents()
+        except Exception:
+            return
+        for public_doc in documents:
+            metadata = public_doc.metadata
+            existing = self._select(
+                """
+                SELECT * FROM rag_documents
+                WHERE kb_id = {p} AND source_type = {p} AND title = {p}
+                """,
+                [kb.kb_id, "public_policy_web", metadata.title],
+            )
+            if existing:
+                continue
+            doc = self.create_document(
+                owner_user_id=owner_user_id,
+                kb_id=kb.kb_id,
+                payload={
+                    "title": metadata.title,
+                    "text": public_doc.body,
+                    "source_type": "public_policy_web",
+                    "source": metadata.source,
+                    "source_url": metadata.source_url,
+                    "library_scope": "shared",
+                    "region": metadata.region,
+                    "doc_type": metadata.doc_type,
+                },
+            )
+            self.parse_document(owner_user_id=owner_user_id, kb_id=kb.kb_id, doc_id=doc.doc_id)
+            self._insert_public_policy_chunks(
+                owner_user_id=owner_user_id,
+                kb_id=kb.kb_id,
+                doc_id=doc.doc_id,
+                chunks=chunk_public_policy_document(public_doc),
+            )
+            self.index_document(owner_user_id=owner_user_id, kb_id=kb.kb_id, doc_id=doc.doc_id, vector_backend=vector_backend)
+
+    def _insert_public_policy_chunks(
+        self,
+        *,
+        owner_user_id: str,
+        kb_id: str,
+        doc_id: str,
+        chunks,
+    ) -> None:
+        self._execute("DELETE FROM rag_chunks WHERE doc_id = {p}", [doc_id])
+        now = self.utcnow().isoformat()
+        for index, chunk in enumerate(chunks):
+            payload = _chunk_metadata(
+                {
+                    "title": chunk.title,
+                    "source_type": "public_policy_web",
+                    "library_scope": "shared",
+                    "source": chunk.source,
+                    "source_url": chunk.source_url,
+                    "region": chunk.region,
+                    "doc_type": chunk.doc_type,
+                    "section_title": chunk.section_title,
+                }
+            )
+            self._execute(
+                """
+                INSERT INTO rag_chunks (
+                    rag_chunk_id, kb_id, doc_id, owner_user_id, knowledge_chunk_id, parent_chunk_id,
+                    chunk_index, text, token_estimate, page_number, sheet_name, slide_number, section_title,
+                    status, vector_status, dense_vector_json, sparse_vector_json, created_at, updated_at, metadata_json
+                )
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                """,
+                [
+                    f"rag-chunk-{uuid4().hex[:12]}",
+                    kb_id,
+                    doc_id,
+                    owner_user_id,
+                    chunk.chunk_id,
+                    None,
+                    index,
+                    chunk.snippet,
+                    max(1, len(chunk.snippet) // 2),
+                    chunk.page_number,
+                    chunk.sheet_name,
+                    chunk.slide_number,
+                    chunk.section_title,
+                    "chunked",
+                    "pending",
+                    None,
+                    None,
+                    now,
+                    now,
+                    json.dumps(payload, ensure_ascii=False),
+                ],
+            )
+        doc = self._row_to_document(self._select("SELECT * FROM rag_documents WHERE doc_id = {p}", [doc_id])[0])
+        self._mark_document(
+            doc=doc,
+            parse_status="parsed",
+            chunk_status="chunked",
+            index_status="pending",
+            chunk_count=len(chunks),
+            indexed_chunk_count=0,
+            error_message=None,
+        )
 
     def record_test_qa(
         self,
@@ -557,6 +764,36 @@ class RagKnowledgeStore:
             connection.execute(sql, params)
             connection.commit()
 
+    def _ensure_user_reference(self, *, owner_user_id: str) -> None:
+        if not owner_user_id:
+            raise ValueError("owner_user_id is required for RAG knowledge base persistence")
+        rows = self._select("SELECT user_id FROM users WHERE user_id = {p}", [owner_user_id])
+        if rows:
+            return
+        now = self.utcnow().isoformat()
+        self._execute(
+            """
+            INSERT INTO users (user_id, username, password_hash, role, is_active, password_must_change, created_at, updated_at)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+            """,
+            [
+                owner_user_id,
+                owner_user_id,
+                "rag-kb-shadow-user",
+                "user",
+                True,
+                False,
+                now,
+                now,
+            ],
+        )
+
+    def _update_document_metadata(self, *, doc_id: str, metadata: dict[str, Any]) -> None:
+        self._execute(
+            "UPDATE rag_documents SET metadata_json = {p} WHERE doc_id = {p}",
+            [json.dumps(metadata, ensure_ascii=False), doc_id],
+        )
+
     def _format_query(self, query: str) -> str:
         return query.replace("{p}", self._placeholder())
 
@@ -573,7 +810,14 @@ class RagKnowledgeStore:
     @staticmethod
     def _row_to_document(row: dict[str, Any]) -> RagDocument:
         payload = dict(row)
-        payload["metadata"] = _parse_json_object(payload.pop("metadata_json", None))
+        metadata = _parse_json_object(payload.pop("metadata_json", None))
+        payload["metadata"] = metadata
+        last_index = metadata.get("last_index_result") if isinstance(metadata, dict) else None
+        if isinstance(last_index, dict):
+            payload["vector_backend"] = last_index.get("vector_backend")
+            payload["degraded"] = bool(last_index.get("degraded"))
+            warnings = last_index.get("warnings")
+            payload["index_warnings"] = warnings if isinstance(warnings, list) else []
         return RagDocument.model_validate(payload)
 
     @staticmethod

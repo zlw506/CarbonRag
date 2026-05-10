@@ -31,13 +31,22 @@ class Settings(BaseSettings):
 
     rag_engine_enabled: bool = True
     rag_vector_enabled: bool = True
-    rag_vector_backend: str = "chroma"
+    rag_vector_backend: str = "milvus_lite"
+    rag_require_real_vector: bool = True
+    rag_milvus_uri: str = "./data/outputs/milvus_lite/carbonrag.db"
+    rag_milvus_collection_prefix: str = "carbonrag"
+    rag_embedding_provider: str = "openai_compatible"
+    rag_embedding_model: str = "BAAI/bge-m3"
+    rag_embedding_device: str = "cpu"
+    rag_model_cache_dir: str = "./data/outputs/models"
+    rag_model_auto_download: bool = False
+    rag_hf_endpoint: str = "https://hf-mirror.com"
     rag_langchain_enabled: bool = True
     rag_bm25_enabled: bool = True
     rag_hyde_enabled: bool = True
     rag_rerank_enabled: bool = True
-    rag_rerank_provider: str = "cross_encoder"
-    rag_rerank_model: str = "BAAI/bge-reranker-base"
+    rag_rerank_provider: str = "bge_reranker"
+    rag_rerank_model: str = "BAAI/bge-reranker-v2-m3"
     rag_default_mode: str = "mix"
     rag_chroma_persist_dir: str = "./data/outputs/chroma"
     rag_chroma_collection: str = "carbonrag_langchain"

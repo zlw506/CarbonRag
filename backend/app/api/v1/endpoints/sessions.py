@@ -89,6 +89,8 @@ def build_chat_request(
             "knowledge_scope_effective": payload.knowledge_scope,
             "owner_user_id": current_user.user_id,
             "top_k": payload.top_k,
+            "kb_id": payload.kb_id,
+            "rag_mode": payload.rag_mode,
             "attached_file_ids": payload.attached_file_ids,
             "attached_knowledge_item_ids": effective_knowledge_item_ids,
             "attached_file_knowledge_item_ids": attached_file_knowledge_item_ids,

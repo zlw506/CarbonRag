@@ -5,6 +5,7 @@ from app.settings.schemas import LocalProviderOverride
 
 
 KnowledgeScope = Literal["public", "private_sample", "mixed"]
+RagRetrievalMode = Literal["dense", "sparse", "hybrid", "hybrid_rerank"]
 AskStatus = Literal["ok", "provider_error", "invalid_input"]
 MessageStatus = Literal["pending", "thinking", "streaming", "done", "error", "ok", "provider_error", "invalid_input"]
 CitationSourceType = Literal["public_policy", "public_policy_demo", "private_sample", "private_upload"]
@@ -44,6 +45,8 @@ class AskRequest(BaseModel):
     top_k: int = Field(default=5, ge=1)
     attached_file_ids: list[str] = Field(default_factory=list)
     attached_knowledge_item_ids: list[str] = Field(default_factory=list)
+    kb_id: str | None = None
+    rag_mode: RagRetrievalMode = "hybrid_rerank"
     request_group_id: str | None = None
     resume_cursor: int | None = Field(default=None, ge=0)
     provider_override: LocalProviderOverride | None = None
@@ -56,6 +59,14 @@ class AskRequest(BaseModel):
     @field_validator("request_group_id")
     @classmethod
     def normalize_request_group_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("kb_id")
+    @classmethod
+    def normalize_kb_id(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = value.strip()

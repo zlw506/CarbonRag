@@ -1,5 +1,6 @@
 export type AskStatus = "ok" | "provider_error" | "invalid_input";
 export type KnowledgeScope = "public" | "private_sample" | "mixed";
+export type RagRetrievalMode = "dense" | "sparse" | "hybrid" | "hybrid_rerank";
 export type CitationSourceType = "public_policy" | "public_policy_demo" | "private_sample" | "private_upload";
 import type { LocalProviderOverride } from "./settings";
 
@@ -46,6 +47,8 @@ export interface AskRequest {
     top_k: number;
     attached_file_ids?: string[];
     attached_knowledge_item_ids?: string[];
+    kb_id?: string | null;
+    rag_mode?: RagRetrievalMode;
     request_group_id?: string;
     resume_cursor?: number;
     provider_override?: LocalProviderOverride;

@@ -48,6 +48,7 @@ coordination.local.json
 # Runtime outputs
 data/outputs/*
 !data/outputs/.gitkeep
+backend/backend/
 data/public/policy_staging/
 backend/data/public/policy_staging/
 uploads/
