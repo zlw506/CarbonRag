@@ -1,7 +1,7 @@
-# Optional parser providers. These are not required for local development or CI.
+# Optional parser providers. Scrapy is installed by the normal backend requirements
+# because the Admin live policy crawler is a real, manually triggered feature.
 docling
 python-pptx
-scrapy
 # Optional daemon for remote Scrapy execution. Local development and CI do not require it.
 scrapyd
 # MinerU is optional and disabled by default. Install the MinerU stack manually

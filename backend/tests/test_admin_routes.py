@@ -256,6 +256,9 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     assert candidates_response.status_code == 200
     candidate = candidates_response.json()[0]
     assert candidate["status"] == "pending_review"
+    assert candidate["metadata"]["candidate_summary"]
+    assert candidate["metadata"]["candidate_content_length"] > 0
+    assert candidate["metadata"]["seed_url"] == "https://www.gov.cn/zhengce/"
 
     runs_response = client.get("/api/v1/admin/policy-crawler/runs")
     assert runs_response.status_code == 200
@@ -265,6 +268,7 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     assert publish_response.status_code == 200
     assert publish_response.json()["status"] == "published"
     assert publish_response.json()["knowledge_item_id"]
+    assert "indexed" in publish_response.json()["review_note"]
 
     second_publish_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/publish")
     assert second_publish_response.status_code == 400
