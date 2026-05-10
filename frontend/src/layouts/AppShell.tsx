@@ -54,6 +54,7 @@ export function AppShell() {
 
     const navigationItems = getNavigationItems(user.role);
     const isAskRoute = location.pathname === "/";
+    const isCarbonFactorsRoute = location.pathname === "/carbon-factors";
     const routeNeedsSession = location.pathname === "/" || location.pathname === "/carbon-calc" || location.pathname === "/report";
     const focusModeEnabled = isAskRoute && new URLSearchParams(location.search).get("focus") !== "0";
     const hideAskHeader = isAskRoute && focusModeEnabled;
@@ -356,9 +357,11 @@ export function AppShell() {
                                 ) : (
                                     <>
                                         <Typography.Title level={3}>CarbonRag 工作台</Typography.Title>
-                                        <Typography.Paragraph>
-                                            当前账号下的问答、知识、核算与报告工作区。
-                                        </Typography.Paragraph>
+                                        {!isCarbonFactorsRoute ? (
+                                            <Typography.Paragraph>
+                                                当前账号下的问答、知识、核算与报告工作区。
+                                            </Typography.Paragraph>
+                                        ) : null}
                                     </>
                                 )}
                             </div>

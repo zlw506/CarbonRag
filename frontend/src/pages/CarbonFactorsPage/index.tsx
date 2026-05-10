@@ -155,7 +155,6 @@ export function CarbonFactorsPage() {
         <div className="carbon-factor-page">
             <section className="carbon-factor-hero">
                 <div>
-                    <Tag color="green">CarbonStop CCDB 公开数据对齐</Tag>
                     <Typography.Title level={2}>碳因子库</Typography.Title>
                     <Typography.Paragraph type="secondary">
                         整合 CarbonStop CCDB 公开展示的分类、因子、机构和来源字段，后端可检索、可维护，并可供后续碳核算优先调用。
