@@ -87,6 +87,7 @@ def build_chat_request(
             ),
             "knowledge_scope_requested": payload.knowledge_scope,
             "knowledge_scope_effective": payload.knowledge_scope,
+            "owner_user_id": current_user.user_id,
             "top_k": payload.top_k,
             "attached_file_ids": payload.attached_file_ids,
             "attached_knowledge_item_ids": effective_knowledge_item_ids,
@@ -405,6 +406,7 @@ def run_stream_worker(
                 "status": result.status,
                 "citations": [citation.model_dump() for citation in citations],
                 "source_summary": source_summary.model_dump(),
+                "retrieval_trace": result.context_summary.get("retrieval_trace"),
                 "trace_id": stream_session.trace_id,
                 "user_message_id": stream_session.user_message_id,
                 "assistant_message_id": stream_session.assistant_message_id,
@@ -621,6 +623,7 @@ def ask_in_session(
         citations=citations,
         source_summary=source_summary,
         trace_id=result.trace_id,
+        retrieval_trace=result.context_summary.get("retrieval_trace"),
     )
     if result.status == "provider_error":
         return JSONResponse(status_code=502, content=response.model_dump())

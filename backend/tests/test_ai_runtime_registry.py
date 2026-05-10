@@ -11,6 +11,8 @@ def test_default_registry_contains_all_stub_tools() -> None:
         "carbon_calc",
         "carbon_factor_lookup",
         "enterprise_retrieve",
+        "langchain_rag_answer",
+        "langchain_rag_search",
         "mixed_retrieve",
         "policy_retrieve",
         "report_draft",

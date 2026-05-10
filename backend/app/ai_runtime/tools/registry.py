@@ -6,6 +6,7 @@ from app.ai_runtime.tools.mixed_retrieve import MixedRetrieveTool
 from app.ai_runtime.tools.policy_retrieve import PolicyRetrieveTool
 from app.ai_runtime.tools.report_draft_stub import ReportDraftStubTool
 from app.ai_runtime.tools.session_file_search import SessionFileSearchTool
+from app.langchain_rag.tool import LangChainRagAnswerTool, LangChainRagSearchTool
 
 
 class ToolRegistry:
@@ -39,6 +40,8 @@ def build_default_registry() -> ToolRegistry:
         EnterpriseRetrieveTool(),
         MixedRetrieveTool(),
         SessionFileSearchTool(),
+        LangChainRagSearchTool(),
+        LangChainRagAnswerTool(),
         CarbonFactorLookupStubTool(),
         CarbonCalcStubTool(),
         ReportDraftStubTool(),

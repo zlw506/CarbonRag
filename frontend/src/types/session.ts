@@ -74,6 +74,7 @@ export interface SessionMessage {
     trace_id?: string | null;
     citations: AskCitation[];
     source_summary?: AskSourceSummary | null;
+    retrieval_trace?: Record<string, unknown> | null;
 }
 
 export interface SessionDetail extends SessionSummary {

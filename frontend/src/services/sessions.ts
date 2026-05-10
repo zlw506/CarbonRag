@@ -30,6 +30,7 @@ interface StreamAccumulatedState {
     thinking: string;
     citations: SessionAskResponse["citations"];
     source_summary: SessionAskResponse["source_summary"] | undefined;
+    retrieval_trace: SessionAskResponse["retrieval_trace"] | undefined;
     trace_id: string;
     mode: SessionAskResponse["mode"];
     status: SessionAskResponse["status"];
@@ -115,6 +116,7 @@ export async function submitSessionAskStreamRequest(
         thinking: "",
         citations: [],
         source_summary: undefined,
+        retrieval_trace: undefined,
         trace_id: "",
         mode: "ask",
         status: "ok",
@@ -455,6 +457,7 @@ function applyStreamEvent(
             state.trace_id = metadata.trace_id ?? state.trace_id;
             state.citations = metadata.citations ?? state.citations;
             state.source_summary = metadata.source_summary ?? state.source_summary;
+            state.retrieval_trace = metadata.retrieval_trace ?? state.retrieval_trace;
             state.status = metadata.status ?? state.status;
             state.provider_ref = metadata.provider_ref ?? state.provider_ref;
             if (typeof metadata.answer === "string" && metadata.answer) {
@@ -474,6 +477,7 @@ function applyStreamEvent(
             state.trace_id = doneEvent.trace_id ?? state.trace_id;
             state.citations = doneEvent.citations ?? state.citations;
             state.source_summary = doneEvent.source_summary ?? state.source_summary;
+            state.retrieval_trace = doneEvent.retrieval_trace ?? state.retrieval_trace;
             state.status = doneEvent.status ?? state.status;
             state.provider_ref = doneEvent.provider_ref ?? state.provider_ref;
             if (typeof doneEvent.answer === "string" && doneEvent.answer) {
@@ -518,6 +522,7 @@ function buildAskResponseFromStreamState(state: StreamAccumulatedState): Session
                 private_upload_count: 0,
                 total_citation_count: 0,
             },
+        retrieval_trace: state.retrieval_trace ?? null,
         trace_id: state.trace_id,
     };
 }

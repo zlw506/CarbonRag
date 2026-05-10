@@ -35,6 +35,15 @@ def _extract_citations(tool_results: list[ToolResult]) -> list[dict]:
     return citations
 
 
+def _extract_retrieval_traces(tool_results: list[ToolResult]) -> list[dict]:
+    traces: list[dict] = []
+    for tool_result in tool_results:
+        trace = tool_result.output.get("retrieval_trace") or tool_result.metadata.get("rag_metadata")
+        if isinstance(trace, dict):
+            traces.append(trace)
+    return traces
+
+
 def _build_source_summary(*, knowledge_scope: str, citations: list[dict]) -> dict:
     public_policy_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy")
     public_policy_demo_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy_demo")
@@ -69,6 +78,7 @@ def format_runtime_result(
         "public",
     )
     source_summary = _build_source_summary(knowledge_scope=knowledge_scope, citations=citations)
+    retrieval_traces = _extract_retrieval_traces(tool_results)
     context_summary = {
         "payload_keys": context_bundle.get("payload_keys", []),
         "memory_reserved": not context_bundle.get("memory_slot", {}).get("implemented", False),
@@ -91,6 +101,7 @@ def format_runtime_result(
                 "grounded_by_demo_showcase": source_summary["public_policy_demo_count"] > 0,
                 "grounded_by_private_sample": source_summary["private_sample_count"] > 0,
                 "retrieval_hit_count": len(citations),
+                "retrieval_trace": retrieval_traces[-1] if retrieval_traces else None,
                 "citation_count": len(citations),
                 "source_summary": source_summary,
             }
@@ -130,5 +141,6 @@ def format_runtime_result(
             "embedding_provider": embedding_descriptor.name,
             "forbidden_capabilities": list(guard_snapshot.forbidden_capabilities),
             "provider_metadata": provider_result.metadata,
+            "retrieval_traces": retrieval_traces,
         },
     )

@@ -73,5 +73,5 @@ def test_mixed_scope_returns_public_and_private_citations(monkeypatch, tmp_path)
     payload = response.json()
     assert response.status_code == 200
     assert payload["status"] == "ok"
-    assert any(item["source_type"] == "public_policy" for item in payload["citations"])
+    assert any(item["source_type"] in {"public_policy", "public_policy_demo"} for item in payload["citations"])
     assert any(item["source_type"] == "private_sample" for item in payload["citations"])

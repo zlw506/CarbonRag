@@ -434,6 +434,8 @@ class RagEngineService:
         hits: list[RetrievedChunk],
         provider_metadata: dict,
     ) -> tuple[list[RetrievedChunk], str]:
+        if not self.settings.rag_engine_enabled:
+            return hits, "disabled"
         if not params.enable_rerank:
             return hits, "disabled"
         if not self.settings.rag_rerank_enabled:

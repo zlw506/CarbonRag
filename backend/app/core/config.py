@@ -29,11 +29,22 @@ class Settings(BaseSettings):
     embedding_api_key: str = "replace-with-embedding-api-key"
     embedding_model: str = "replace-with-embedding-model"
 
-    rag_engine_enabled: bool = False
-    rag_vector_enabled: bool = False
-    rag_vector_backend: str = "current"
-    rag_rerank_enabled: bool = False
+    rag_engine_enabled: bool = True
+    rag_vector_enabled: bool = True
+    rag_vector_backend: str = "chroma"
+    rag_langchain_enabled: bool = True
+    rag_bm25_enabled: bool = True
+    rag_hyde_enabled: bool = True
+    rag_rerank_enabled: bool = True
+    rag_rerank_provider: str = "cross_encoder"
+    rag_rerank_model: str = "BAAI/bge-reranker-base"
     rag_default_mode: str = "mix"
+    rag_chroma_persist_dir: str = "./data/outputs/chroma"
+    rag_chroma_collection: str = "carbonrag_langchain"
+    rag_langchain_chunk_size: int = 800
+    rag_langchain_chunk_overlap: int = 120
+    rag_langchain_default_top_k: int = 5
+    rag_langsmith_tracing: bool = False
     rag_parser_provider: str = "default"
     rag_enable_mineru: bool = False
     rag_parser_fallback_chain: str = "docling,mineru,default"

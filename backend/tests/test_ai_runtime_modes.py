@@ -5,7 +5,14 @@ from app.ai_runtime.schemas.result import RuntimeResult
 def test_ask_mode_contract() -> None:
     mode = resolve_mode("ask")
 
-    assert mode.allowed_tools == ("policy_retrieve", "enterprise_retrieve", "mixed_retrieve", "session_file_search")
+    assert mode.allowed_tools == (
+        "policy_retrieve",
+        "enterprise_retrieve",
+        "mixed_retrieve",
+        "session_file_search",
+        "langchain_rag_search",
+        "langchain_rag_answer",
+    )
     assert mode.default_stub_tool_sequence == ("policy_retrieve",)
     assert mode.response_schema is RuntimeResult
 

@@ -136,6 +136,7 @@ export function AskPage() {
 
     const selectedCitationMessage = visibleMessages.find((message) => message.message_id === selectedCitationMessageId) ?? null;
     const citationGroups = groupCitationsBySource(selectedCitationMessage?.citations ?? []);
+    const selectedRetrievalTrace = selectedCitationMessage?.retrieval_trace ?? null;
     const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
     const pendingUploadSignature = getPendingUploadSignature(uploadedAttachments);
     const currentSourceSummary = buildPanelSourceSummary(selectedCitationMessage?.citations ?? [], activeSession?.source_summary);
@@ -313,6 +314,7 @@ export function AskPage() {
                 created_at: now,
                 status: "connecting",
                 citations: [],
+                retrieval_trace: null,
                 client_state: "connecting",
                 thinking_content: "",
                 status_note: "正在连接模型…",
@@ -846,6 +848,13 @@ export function AskPage() {
                     <Typography.Paragraph type="secondary">
                         默认只在这里展开完整引用。先读回答正文，再按需查看政策、知识条目或个人上传片段。
                     </Typography.Paragraph>
+                    {selectedRetrievalTrace ? (
+                        <Space size={8} wrap className="chat-rag-trace-tags">
+                            {buildRagTraceTags(selectedRetrievalTrace).map((tag) => (
+                                <Tag key={tag.key} color={tag.color}>{tag.label}</Tag>
+                            ))}
+                        </Space>
+                    ) : null}
                     {selectedCitationMessage?.citations.length ? (
                         <Collapse
                             className="chat-citation-collapse"
@@ -968,6 +977,7 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
     const lifecycleTag = message.client_state ? lifecycleTagMap[message.client_state] : null;
     const finalStatusTag = isAssistant && isFinalAskStatus(message.status) ? statusColorMap[message.status] : null;
     const finalStatusLabel = isAssistant && isFinalAskStatus(message.status) ? statusLabelMap[message.status] : null;
+    const ragTraceTags = isAssistant ? buildRagTraceTags(message.retrieval_trace) : [];
     const hasRealThinkingContent = Boolean(message.thinking_content?.trim());
     const shouldShowThinking = isAssistant && (message.client_state === "pending" || message.client_state === "thinking" || hasRealThinkingContent);
     const shouldShowDetails = Boolean(message.trace_id) || Boolean(message.trace_id && (!message.client_state || message.client_state === "done" || message.client_state === "error"));
@@ -1082,6 +1092,13 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
                                             查看依据 {message.citations.length}
                                         </Button>
                                     </>
+                                ) : null}
+                                {ragTraceTags.length > 0 ? (
+                                    <Space size={6} wrap className="chat-message__rag-trace">
+                                        {ragTraceTags.map((tag) => (
+                                            <Tag key={tag.key} color={tag.color}>{tag.label}</Tag>
+                                        ))}
+                                    </Space>
                                 ) : null}
                             </Space>
                             {shouldShowDetails ? (
@@ -1547,6 +1564,33 @@ function buildAssistantEvidenceSummary(sourceSummary: AskSourceSummary) {
     return parts.join(" · ");
 }
 
+function buildRagTraceTags(trace?: Record<string, unknown> | null) {
+    if (!trace) {
+        return [];
+    }
+    const bm25Count = readTraceNumber(trace, "bm25_count");
+    const vectorCount = readTraceNumber(trace, "vector_count");
+    const mergedCount = readTraceNumber(trace, "merged_count");
+    const rerankApplied = trace.rerank_applied === true;
+    const vectorStatus = typeof trace.vector_status === "string" ? trace.vector_status : "";
+    const fallbackReason = typeof trace.fallback_reason === "string" ? trace.fallback_reason : "";
+    const hydeQuery = typeof trace.hyde_query === "string" ? trace.hyde_query : "";
+
+    return [
+        hydeQuery ? { key: "hyde", color: "purple", label: "HyDE 已生成" } : null,
+        bm25Count !== null ? { key: "bm25", color: "blue", label: `BM25 ${bm25Count}` } : null,
+        vectorCount !== null ? { key: "vector", color: vectorStatus === "available" ? "geekblue" : "orange", label: `Vector ${vectorCount}` } : null,
+        mergedCount !== null ? { key: "merged", color: "cyan", label: `融合 ${mergedCount}` } : null,
+        { key: "rerank", color: rerankApplied ? "green" : "default", label: rerankApplied ? "Rerank 已应用" : "Rerank 跳过" },
+        fallbackReason ? { key: "fallback", color: "orange", label: `fallback: ${fallbackReason}` } : null,
+    ].filter(Boolean) as Array<{ key: string; color: string; label: string }>;
+}
+
+function readTraceNumber(trace: Record<string, unknown>, key: string) {
+    const value = trace[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function resolveMessageContent(message: ChatMessageView, isAssistant: boolean) {
     if (message.content) {
         return message.content;
@@ -1702,6 +1746,7 @@ function mergeStreamMetadata(message: ChatMessageView, event: AskStreamMetadataE
         trace_id: event.trace_id ?? message.trace_id ?? null,
         citations: event.citations ?? message.citations,
         source_summary: event.source_summary ?? message.source_summary ?? null,
+        retrieval_trace: event.retrieval_trace ?? message.retrieval_trace ?? null,
         thinking_content:
             typeof event.thinking_content === "string"
                 ? event.thinking_content

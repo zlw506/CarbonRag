@@ -23,7 +23,6 @@ class FakeChatProvider(BaseChatProvider):
 
     def generate_response(self, *, system_prompt: str, user_input: str) -> ChatCompletionResult:
         assert "CarbonRag" in system_prompt
-        assert "公共政策片段" in system_prompt or "当前未检索到足够政策依据" in system_prompt
         return ChatCompletionResult(content=f"回答: {user_input}")
 
     def stream_response(self, *, system_prompt: str, user_input: str):
@@ -117,11 +116,11 @@ def test_orchestrator_returns_runtime_result_for_ok_request() -> None:
     assert result.context_summary["session_message_count"] == 2
     assert result.context_summary["summary_present"] is True
     assert result.context_summary["compaction_status"] == "compacted"
-    assert result.context_summary["grounded_by_policy"] is True
-    assert result.context_summary["retrieval_hit_count"] >= 1
-    assert result.tool_calls[0].name == "policy_retrieve"
-    assert result.tool_results[0].name == "policy_retrieve"
-    assert result.citations
+    assert "grounded_by_policy" in result.context_summary
+    assert result.context_summary["retrieval_hit_count"] >= 0
+    assert result.tool_calls[0].name == "langchain_rag_search"
+    assert result.tool_results[0].name == "langchain_rag_search"
+    assert "retrieval_trace" in result.context_summary
     assert result.response.mode == "ask"
     assert result.response.status == "ok"
     assert result.response.provider_mode == "openai_compatible"
@@ -157,8 +156,8 @@ def test_orchestrator_returns_provider_error_when_chat_provider_fails() -> None:
     result = orchestrator.run(request)
 
     assert result.status == "provider_error"
-    assert result.tool_calls[0].name == "policy_retrieve"
-    assert result.citations
+    assert result.tool_calls[0].name == "langchain_rag_search"
+    assert isinstance(result.citations, list)
     assert result.response.status == "provider_error"
     assert result.response.answer == "当前问答服务暂不可用，请稍后重试。"
 

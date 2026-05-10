@@ -1,7 +1,14 @@
 from app.ai_runtime.schemas.result import RuntimeResult
 
 MODE_NAME = "ask"
-ALLOWED_TOOLS = ("policy_retrieve", "enterprise_retrieve", "mixed_retrieve", "session_file_search")
+ALLOWED_TOOLS = (
+    "policy_retrieve",
+    "enterprise_retrieve",
+    "mixed_retrieve",
+    "session_file_search",
+    "langchain_rag_search",
+    "langchain_rag_answer",
+)
 DEFAULT_STUB_TOOL_SEQUENCE = ("policy_retrieve",)
 PROMPT_POLICY = (
     "You are CarbonRag ask mode. Always ground the answer in retrieved snippets first. "

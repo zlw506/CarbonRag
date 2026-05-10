@@ -58,6 +58,7 @@ export interface AskResponse {
     citations: AskCitation[];
     source_summary: AskSourceSummary;
     trace_id: string;
+    retrieval_trace?: Record<string, unknown> | null;
 }
 
 export interface AskStreamMessageStartEvent {

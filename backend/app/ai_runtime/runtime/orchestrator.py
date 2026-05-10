@@ -16,6 +16,7 @@ from app.ai_runtime.schemas.chat import ChatRequest
 from app.ai_runtime.schemas.result import RuntimeResult
 from app.ai_runtime.schemas.tool import ToolCall
 from app.ai_runtime.tools.registry import ToolRegistry, build_default_registry
+from app.core.config import get_settings
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,8 @@ class AIRuntimeOrchestrator:
 
     @staticmethod
     def _resolve_ask_tool_sequence(request: ChatRequest) -> tuple[str, ...]:
+        if get_settings().rag_langchain_enabled:
+            return ("langchain_rag_search",)
         effective_scope = request.payload.get("knowledge_scope_effective", "public")
         tool_sequence: list[str]
         if effective_scope == "private_sample":

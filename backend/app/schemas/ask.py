@@ -69,3 +69,4 @@ class AskResponse(BaseModel):
     citations: list[AskCitation] = Field(default_factory=list)
     source_summary: AskSourceSummary
     trace_id: str
+    retrieval_trace: dict | None = None
