@@ -197,6 +197,7 @@ class PolicyCrawlerStatusSummary(BaseModel):
     scheduler_started: bool
     scheduled_enabled: bool
     manual_enabled: bool
+    auto_publish_enabled: bool = True
     running: bool
     crawler_backend: str
     provider_name: str

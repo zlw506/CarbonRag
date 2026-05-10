@@ -191,6 +191,7 @@ export interface PolicyCrawlerStatusSummary {
     scheduler_started: boolean;
     scheduled_enabled: boolean;
     manual_enabled: boolean;
+    auto_publish_enabled: boolean;
     running: boolean;
     crawler_backend: string;
     provider_name: string;

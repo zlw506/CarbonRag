@@ -47,6 +47,8 @@ def build_context_bundle(
         summary_updated_at = request.payload.get("summary_updated_at")
         attached_knowledge_item_ids = request.payload.get("attached_knowledge_item_ids", [])
         attached_file_knowledge_item_ids = request.payload.get("attached_file_knowledge_item_ids", [])
+        kb_id = request.payload.get("kb_id")
+        rag_mode = request.payload.get("rag_mode", "hybrid_rerank")
         retrieval_hits = _extract_hits(tool_results)
         public_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy"]
         demo_policy_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy_demo"]
@@ -90,6 +92,8 @@ def build_context_bundle(
                 "本轮用户显式选择了已解析上传文件："
                 + ", ".join(str(item_id) for item_id in attached_file_knowledge_item_ids)
             )
+        if kb_id:
+            session_context_lines.append(f"本轮 AskPage 选择的 RAG 知识库：{kb_id}，检索模式：{rag_mode}。")
 
         if memory_notes:
             memory_note_lines = ["以下是用户级长期记忆预留条目，只用于补充稳定偏好或长期上下文："]
@@ -214,6 +218,8 @@ def build_context_bundle(
                 "mode": mode.name,
                 "attached_knowledge_item_ids": attached_knowledge_item_ids,
                 "attached_file_knowledge_item_ids": attached_file_knowledge_item_ids,
+                "kb_id": kb_id,
+                "rag_mode": rag_mode,
                 "compaction_status": compaction_status,
                 "context_usage_estimate": context_usage_estimate,
                 "context_budget_estimate": context_budget_estimate,

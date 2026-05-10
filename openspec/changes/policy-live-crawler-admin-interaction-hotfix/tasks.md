@@ -30,7 +30,7 @@
 - [x] 5.1 Rebase the hotfix work onto #1 latest `upstream/main`.
 - [x] 5.2 Promote the Scrapy spider into a reusable module shared by local Scrapy and Scrapyd deployment.
 - [x] 5.3 Add a `scrapy.cfg` and Scrapy settings module so the same spider can be deployed to Scrapyd.
-- [x] 5.4 Preserve official allowlist, robots, depth/page, delay, concurrency, timeout, and review gate for both backends.
+- [x] 5.4 Preserve official allowlist, robots, depth/page, delay, concurrency, timeout, and audit trail for both backends.
 - [x] 5.5 Support binary crawled payloads such as PDF/OFD by staging base64 payloads as bytes.
 - [x] 5.6 Ensure `scripts/dev-local.ps1` exposes `.venv` site-packages to Uvicorn reload children on Windows.
 - [x] 5.7 Re-run targeted tests, real official-site Scrapy smoke, frontend checks, OpenSpec, and GitNexus detect changes.
@@ -42,3 +42,11 @@
 - [x] 6.3 Store candidate summary, content length, crawl depth, seed URL, and response URL in review metadata.
 - [x] 6.4 Process `crawl_ingest` immediately after publish and write indexing success/failure into candidate review notes.
 - [x] 6.5 Show candidate policy details in Admin pending-review list before publish/reject decisions.
+
+## 7. Automatic Knowledge Base Refresh
+
+- [x] 7.1 Enable the live policy crawler and scheduled refresh by default while preserving Scrapy unavailable diagnostics.
+- [x] 7.2 Change official sources to six allowed domains with policy search/listing entrypoints and extra same-domain seed URLs.
+- [x] 7.3 Filter crawled results to double-carbon policy or technical-standard topics before indexing.
+- [x] 7.4 Auto-publish matched candidates to `public_policy_web`, run `crawl_ingest` / `policy_ingest`, and record indexing status.
+- [x] 7.5 Update Admin UI copy and controls from review-first candidates to automatic update records.

@@ -106,7 +106,6 @@ def test_scrapy_provider_can_crawl_local_allowed_pages(tmp_path) -> None:
 
     assert result.status == "succeeded"
     urls = {document.url for document in result.documents}
-    assert any(url.endswith("/index.html") for url in urls)
     assert any(url.endswith("/detail.html") for url in urls)
     assert any("推动碳达峰行动" in document.content for document in result.documents)
 

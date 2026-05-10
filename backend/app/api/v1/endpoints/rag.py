@@ -155,6 +155,7 @@ def langchain_rag_rebuild_index(
         owner_user_id=current_user.user_id,
         knowledge_scope="mixed",
         allowed_knowledge_item_ids=[],
+        vector_backend=service._effective_vector_backend(),
     )
     return {"scope": payload.scope, "requested_by": current_user.user_id, "kb_id": kb.kb_id, **service.stats(owner_user_id=current_user.user_id).model_dump()}
 
@@ -175,6 +176,7 @@ def langchain_rag_index_file(
         owner_user_id=current_user.user_id,
         knowledge_scope="private_sample",
         allowed_knowledge_item_ids=[item.knowledge_item_id for item in items],
+        vector_backend=service._effective_vector_backend(),
     )
     return {"file_id": file_id, "kb_id": kb.kb_id, "document_count": len(items)}
 

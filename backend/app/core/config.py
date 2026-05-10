@@ -31,13 +31,22 @@ class Settings(BaseSettings):
 
     rag_engine_enabled: bool = True
     rag_vector_enabled: bool = True
-    rag_vector_backend: str = "chroma"
+    rag_vector_backend: str = "milvus_lite"
+    rag_require_real_vector: bool = True
+    rag_milvus_uri: str = "./data/outputs/milvus_lite/carbonrag.db"
+    rag_milvus_collection_prefix: str = "carbonrag"
+    rag_embedding_provider: str = "bge_m3"
+    rag_embedding_model: str = "BAAI/bge-m3"
+    rag_embedding_device: str = "cpu"
+    rag_model_cache_dir: str = "./data/outputs/models"
+    rag_model_auto_download: bool = False
+    rag_hf_endpoint: str = "https://hf-mirror.com"
     rag_langchain_enabled: bool = True
     rag_bm25_enabled: bool = True
     rag_hyde_enabled: bool = True
     rag_rerank_enabled: bool = True
-    rag_rerank_provider: str = "cross_encoder"
-    rag_rerank_model: str = "BAAI/bge-reranker-base"
+    rag_rerank_provider: str = "bge_reranker"
+    rag_rerank_model: str = "BAAI/bge-reranker-v2-m3"
     rag_default_mode: str = "mix"
     rag_chroma_persist_dir: str = "./data/outputs/chroma"
     rag_chroma_collection: str = "carbonrag_langchain"
@@ -48,7 +57,7 @@ class Settings(BaseSettings):
     rag_parser_provider: str = "default"
     rag_enable_mineru: bool = False
     rag_parser_fallback_chain: str = "docling,mineru,default"
-    rag_enable_policy_crawler: bool = False
+    rag_enable_policy_crawler: bool = True
     rag_policy_crawler_backend: str = "local_scrapy"
     rag_policy_scrapyd_endpoint: str = "http://127.0.0.1:6800"
     rag_policy_scrapyd_project: str = "carbonrag"
@@ -58,8 +67,9 @@ class Settings(BaseSettings):
     rag_policy_scrapyd_poll_timeout_seconds: float = 60.0
     rag_policy_scrapyd_feed_url_template: str | None = None
     rag_policy_live_crawler_manual_enabled: bool = True
-    rag_policy_live_crawler_scheduled_enabled: bool = False
+    rag_policy_live_crawler_scheduled_enabled: bool = True
     rag_policy_live_crawler_startup_seed_sources: bool = True
+    rag_policy_live_crawler_auto_publish: bool = True
     rag_policy_live_crawler_initial_delay_seconds: float = 60.0
     rag_policy_live_crawler_interval_seconds: int = 86_400
     rag_policy_live_crawler_failure_backoff_seconds: int = 3_600
@@ -68,7 +78,7 @@ class Settings(BaseSettings):
     rag_policy_live_crawler_download_delay_seconds: float = 2.0
     rag_policy_live_crawler_concurrent_per_domain: int = 1
     rag_policy_live_crawler_timeout_seconds: float = 60.0
-    rag_policy_live_crawler_user_agent: str = "CarbonRagPolicyCrawler/1.0 (+admin-reviewed)"
+    rag_policy_live_crawler_user_agent: str = "CarbonRagPolicyCrawler/1.0 (+official-policy-knowledge)"
     vector_store_path: str = "./data/outputs/vector_store"
     public_data_dir: str = "./data/public"
     private_sample_dir: str = "./data/private_sample"

@@ -104,6 +104,8 @@ def format_runtime_result(
                 "retrieval_trace": retrieval_traces[-1] if retrieval_traces else None,
                 "citation_count": len(citations),
                 "source_summary": source_summary,
+                "kb_id": context_bundle.get("session_state", {}).get("kb_id"),
+                "rag_mode": context_bundle.get("session_state", {}).get("rag_mode"),
             }
         )
     else:
