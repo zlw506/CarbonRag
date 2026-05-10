@@ -171,6 +171,16 @@ def test_session_service_supports_pin_and_delete_controls(tmp_path) -> None:
     assert renamed is not None
     assert renamed.title == "手动重命名"
 
+    service.record_exchange(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        user_content="删除前的用户消息",
+        assistant_content="删除前的助手消息",
+        assistant_status="ok",
+        trace_id="trace-delete",
+        citations=[],
+    )
+
     assert service.delete_session(owner_user_id=owner_user_id, session_id=session.session_id) is True
     assert service.get_session(owner_user_id=owner_user_id, session_id=session.session_id) is None
 
