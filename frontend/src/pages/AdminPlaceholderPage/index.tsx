@@ -19,6 +19,7 @@ import {
     Spin,
     Statistic,
     Switch,
+    Tabs,
     Table,
     Tag,
     Tooltip,
@@ -684,7 +685,15 @@ export function AdminPlaceholderPage() {
                     </Card>
                 </div>
 
-                <div className="admin-grid">
+                <Tabs
+                    className="admin-console__tabs"
+                    defaultActiveKey="overview"
+                    items={[
+                        {
+                            key: "overview",
+                            label: "系统概览",
+                            children: (
+                                <div className="admin-grid admin-grid--tab">
                     <Card className="admin-panel-card" title="系统连接状态">
                         {systemStatus ? (
                             <Descriptions column={1} size="small" bordered>
@@ -751,6 +760,14 @@ export function AdminPlaceholderPage() {
                         )}
                     </Card>
 
+                                </div>
+                            ),
+                        },
+                        {
+                            key: "policy",
+                            label: "政策摄取",
+                            children: (
+                                <div className="admin-grid admin-grid--tab">
                     <Card
                         className="admin-panel-card admin-grid__table-card admin-grid__wide-card"
                         title="政策知识三段式摄取"
@@ -897,6 +914,14 @@ export function AdminPlaceholderPage() {
                         </Space>
                     </Card>
 
+                                </div>
+                            ),
+                        },
+                        {
+                            key: "crawler",
+                            label: "实时爬虫",
+                            children: (
+                                <div className="admin-grid admin-grid--tab">
                     <Card
                         className="admin-panel-card admin-grid__table-card admin-grid__wide-card"
                         title="实时政策爬虫"
@@ -1132,6 +1157,14 @@ export function AdminPlaceholderPage() {
                         </Space>
                     </Card>
 
+                                </div>
+                            ),
+                        },
+                        {
+                            key: "knowledge",
+                            label: "知识与任务",
+                            children: (
+                                <div className="admin-grid admin-grid--tab">
                     <Card
                         className="admin-panel-card admin-grid__table-card"
                         title="知识条目 / 文档列表"
@@ -1173,7 +1206,15 @@ export function AdminPlaceholderPage() {
                         />
                     </Card>
 
-                    <Card className="admin-panel-card admin-grid__table-card" title="用户列表">
+                                </div>
+                            ),
+                        },
+                        {
+                            key: "users",
+                            label: "用户管理",
+                            children: (
+                                <div className="admin-grid admin-grid--tab">
+                    <Card className="admin-panel-card admin-grid__table-card admin-grid__wide-card" title="用户列表">
                         <Table
                             rowKey="user_id"
                             columns={userColumns}
@@ -1184,7 +1225,11 @@ export function AdminPlaceholderPage() {
                             size="small"
                         />
                     </Card>
-                </div>
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
                 </>
             )}
 
