@@ -1,6 +1,6 @@
 # CarbonRag
 
-当前状态：`V1.5.1 会话文件读取工作台施工中 / V1.4.x 碳核算主线由 #1 负责 / V1.3.x RAG 主线由 #2 负责`
+当前状态：`V1.6.8 RAG-Pro Milvus Docker Runtime 硬化 / RAG-Pro 主脊柱由 #1 负责推进 / #2/#3 继续按 PR 并线`
 
 CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标不是做一个泛用聊天壳，而是把“政策问答、私有知识、碳核算、报告生成、反馈闭环、多人治理”整合成一套可试用、可部署、可协作演进的垂直系统。
 
@@ -11,6 +11,7 @@ CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标
 - OpenSpec + Codex 怎么开工：看 [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)
 - GitNexus + Codex MCP 怎么跑：看 [docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md](docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md)
 - Mattermost + Codex 多 Agent 协同怎么跑：看 [docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md](docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md)
+- RAG-Pro / Milvus / BGE-M3 怎么跑：看 [docs/architecture/RAG_RUNTIME_PROFILES.md](docs/architecture/RAG_RUNTIME_PROFILES.md)
 - PR 怎么审：看 [docs/governance/PR_REVIEW_RUNBOOK.md](docs/governance/PR_REVIEW_RUNBOOK.md)
 - 本地怎么跑：看 [docs/DEVELOPMENT_BOOTSTRAP.md](docs/DEVELOPMENT_BOOTSTRAP.md)
 - 云端怎么部署：看 [docs/deploy/VPS_BACKEND_DEPLOY.md](docs/deploy/VPS_BACKEND_DEPLOY.md) 和 [docs/deploy/NETLIFY_FRONTEND.md](docs/deploy/NETLIFY_FRONTEND.md)
@@ -59,6 +60,8 @@ V1.4.x 初步方向：
 - 支持 parse / ingest / index 状态。
 - 支持失败重试、管理员扫描、重建与任务查看。
 - private / mixed 检索以当前 session 已挂接知识条目为边界。
+- V1.6.x 正在迁移 RAG-Pro 主脊柱：KnowledgeBase、Document、Chunk、RRF hybrid、BGE-M3、bge reranker、Milvus runtime 和 test QA。
+- Windows 默认 RAG 向量库为 Docker Milvus Standalone：`RAG_VECTOR_BACKEND=milvus`、`RAG_MILVUS_URI=http://127.0.0.1:19530`；WSL/Linux/macOS 才使用 `milvus_lite + .db`。
 
 ### 会话文件读取
 

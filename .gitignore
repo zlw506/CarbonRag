@@ -33,6 +33,7 @@ coverage/
 .env
 .env.*
 !.env.example
+!.env.rag.*.example
 !frontend/.env.example
 !frontend/.env.production
 .env.mattermost

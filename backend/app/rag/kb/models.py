@@ -165,6 +165,7 @@ class RagTrace(BaseModel):
     merged_count: int = 0
     rerank_applied: bool = False
     vector_backend: str = "memory"
+    vector_runtime: str = "memory_dev"
     degraded: bool = False
     warnings: list[str] = Field(default_factory=list)
     retrieval_mode: RagRetrievalMode = "hybrid_rerank"
@@ -190,6 +191,9 @@ class RagHealth(BaseModel):
     enabled: bool = True
     spine: str = "rag-pro"
     vector_backend: str = "memory"
+    vector_runtime: str = "memory_dev"
+    milvus_uri: str | None = None
+    require_real_vector: bool = True
     degraded: bool = False
     document_count: int = 0
     chunk_count: int = 0
@@ -202,4 +206,7 @@ class RagStats(BaseModel):
     chunk_count: int = 0
     indexed_chunk_count: int = 0
     vector_backend: str = "memory"
+    vector_runtime: str = "memory_dev"
+    milvus_uri: str | None = None
+    require_real_vector: bool = True
 

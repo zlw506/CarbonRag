@@ -15,6 +15,8 @@ from app.rag.documents.status import resolve_document_status
 from app.rag.embeddings import RagEmbeddingUnavailable, embed_documents
 from app.rag.kb.models import KnowledgeBase, KnowledgeBaseCreate, KnowledgeBaseUpdate, RagChunk, RagDocument
 from app.rag.retrieval.dense import get_vector_store
+from app.rag.vector_backend.base import VectorIndexResult
+from app.rag.vector_backend.runtime import is_milvus_backend, resolve_vector_runtime
 from app.retrieval.public_chunker import chunk_public_policy_document
 from app.retrieval.public_corpus_loader import load_public_policy_documents
 from app.runtime_db.bootstrap import bootstrap_runtime_database, get_runtime_backend_kind
@@ -356,19 +358,26 @@ class RagKnowledgeStore:
                 error_message="no chunks to index",
             )
         now = self.utcnow().isoformat()
+        runtime = resolve_vector_runtime(backend=vector_backend)
         try:
-            embeddings = embed_documents([chunk.text for chunk in chunks]) if vector_backend == "milvus_lite" else None
+            embeddings = embed_documents([chunk.text for chunk in chunks]) if is_milvus_backend(vector_backend) else None
             vector_result = get_vector_store(vector_backend).index_chunks(chunks=chunks, embeddings=embeddings)
         except RagEmbeddingUnavailable as exc:
-            vector_result = get_vector_store(vector_backend).index_chunks(chunks=[], embeddings=None)
-            vector_result.warning = str(exc)
-            vector_result.available = False
-            vector_result.degraded = True
+            vector_result = VectorIndexResult(
+                indexed_count=0,
+                backend=runtime.vector_runtime,
+                available=False,
+                degraded=True,
+                warning=str(exc),
+            )
         except Exception as exc:  # noqa: BLE001
-            vector_result = get_vector_store(vector_backend).index_chunks(chunks=[], embeddings=None)
-            vector_result.warning = str(exc)
-            vector_result.available = False
-            vector_result.degraded = True
+            vector_result = VectorIndexResult(
+                indexed_count=0,
+                backend=runtime.vector_runtime,
+                available=False,
+                degraded=True,
+                warning=str(exc),
+            )
 
         if not vector_result.available or vector_result.indexed_count <= 0:
             self._update_document_metadata(

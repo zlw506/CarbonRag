@@ -24,6 +24,7 @@ from app.rag.retrieval.hybrid_rrf import merge_with_rrf
 from app.rag.retrieval.rerank import BgeReranker
 from app.rag.retrieval.sparse import sparse_search
 from app.rag.vector_backend.base import VectorSearchResult
+from app.rag.vector_backend.runtime import resolve_vector_runtime
 
 
 class RagSpineService:
@@ -111,7 +112,9 @@ class RagSpineService:
             hits = merged[: request.top_k]
 
         warnings: list[str] = []
-        degraded = False
+        runtime = self._runtime_profile(backend=vector_backend)
+        warnings.extend(runtime.warnings)
+        degraded = bool(runtime.degraded)
         if dense_result.warning:
             warnings.append(f"向量后端不可用：{dense_result.warning}")
             degraded = True
@@ -125,7 +128,8 @@ class RagSpineService:
             sparse_count=len(sparse_hits),
             merged_count=len(merged),
             rerank_applied=rerank_applied,
-            vector_backend=dense_result.backend,
+            vector_backend=runtime.vector_backend,
+            vector_runtime=runtime.vector_runtime,
             degraded=degraded,
             warnings=warnings,
             retrieval_mode=request.mode,
@@ -156,14 +160,18 @@ class RagSpineService:
     def health(self, *, owner_user_id: str | None = None) -> RagHealth:
         stats = self.store.stats(owner_user_id=owner_user_id)
         backend = self._effective_vector_backend()
-        warnings = []
-        degraded = backend in {"chroma", "memory"}
-        if backend == "memory":
-            warnings.append("当前使用 memory lexical fallback；比赛验收应使用 milvus_lite + BGE-M3。")
-        elif backend == "chroma":
-            warnings.append("Chroma 仅保留兼容；V1.6.4 默认验收路径为 milvus_lite。")
+        runtime = self._runtime_profile(backend=backend)
+        warnings = list(runtime.warnings)
+        degraded = bool(runtime.degraded)
+        if runtime.vector_runtime == "memory_dev":
+            warnings.append("当前使用 memory lexical fallback；比赛验收应使用 Docker Milvus Standalone + BGE-M3。")
+        elif runtime.vector_runtime == "chroma_dev":
+            warnings.append("Chroma 仅保留兼容；V1.6.8 Windows 默认验收路径为 Docker Milvus Standalone。")
         return RagHealth(
             vector_backend=backend,
+            vector_runtime=runtime.vector_runtime,
+            milvus_uri=runtime.milvus_uri,
+            require_real_vector=runtime.require_real_vector,
             degraded=degraded,
             document_count=stats["document_count"],
             chunk_count=stats["chunk_count"],
@@ -172,16 +180,26 @@ class RagSpineService:
 
     def stats(self, *, owner_user_id: str | None = None) -> RagStats:
         raw = self.store.stats(owner_user_id=owner_user_id)
-        return RagStats(**raw, vector_backend=self._effective_vector_backend())
+        backend = self._effective_vector_backend()
+        runtime = self._runtime_profile(backend=backend)
+        return RagStats(
+            **raw,
+            vector_backend=backend,
+            vector_runtime=runtime.vector_runtime,
+            milvus_uri=runtime.milvus_uri,
+            require_real_vector=runtime.require_real_vector,
+        )
 
     @staticmethod
     def _effective_vector_backend() -> str:
-        backend = str(getattr(get_settings(), "rag_vector_backend", "memory") or "memory").strip().lower()
-        if backend in {"milvus", "milvus_lite", "milvus-lite"}:
-            return "milvus_lite"
-        if backend == "chroma":
-            return "chroma"
-        return "memory"
+        return RagSpineService._runtime_profile().vector_backend
+
+    @staticmethod
+    def _runtime_profile(*, backend: str | None = None):
+        settings = get_settings()
+        selected_backend = backend if backend is not None else getattr(settings, "rag_vector_backend", "memory")
+        selected_uri = getattr(settings, "rag_milvus_uri", None)
+        return resolve_vector_runtime(backend=selected_backend, milvus_uri=selected_uri)
 
 
 @lru_cache(maxsize=1)

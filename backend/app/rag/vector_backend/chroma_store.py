@@ -13,7 +13,7 @@ class ChromaVectorStoreAdapter(BaseVectorStore):
             backend=self.backend_name,
             available=False,
             degraded=True,
-            warning="Chroma adapter is compatibility-only in V1.6.4; use milvus_lite for real vector indexing.",
+            warning="Chroma adapter is compatibility-only; use Docker Milvus Standalone for V1.6.8 Windows RAG-Pro acceptance.",
         )
 
     def search(self, *, query: str, chunks: list[RagChunk], top_k: int) -> VectorSearchResult:

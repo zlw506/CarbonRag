@@ -8,24 +8,26 @@ from app.core.config import get_settings
 from app.rag.embeddings import RagEmbeddingUnavailable, embed_documents, embed_query
 from app.rag.kb.models import RagChunk
 from app.rag.vector_backend.base import BaseVectorStore, VectorIndexResult, VectorSearchHit, VectorSearchResult
+from app.rag.vector_backend.runtime import resolve_vector_runtime
 
 
 class MilvusVectorStoreAdapter(BaseVectorStore):
     """Milvus Lite/Milvus adapter migrated from the RAG-Pro vector-store spine."""
 
-    backend_name = "milvus_lite"
+    backend_name = "milvus"
     dense_dim = 1024
 
     def index_chunks(self, *, chunks: list[RagChunk], embeddings=None) -> VectorIndexResult:
+        runtime = resolve_vector_runtime()
         if not chunks:
-            return VectorIndexResult(indexed_count=0, backend=self.backend_name, available=True)
+            return VectorIndexResult(indexed_count=0, backend=runtime.vector_runtime, available=True, degraded=runtime.degraded, warning=_runtime_warning(runtime))
         try:
             client = _milvus_client()
             embeddings = embeddings or embed_documents([chunk.text for chunk in chunks])
             if not embeddings.dense:
                 return VectorIndexResult(
                     indexed_count=0,
-                    backend=self.backend_name,
+                    backend=runtime.vector_runtime,
                     available=False,
                     degraded=True,
                     warning="BGE-M3 returned no dense vectors.",
@@ -59,22 +61,29 @@ class MilvusVectorStoreAdapter(BaseVectorStore):
                 except Exception:
                     pass
                 client.insert(collection_name=collection_name, data=rows)
+                try:
+                    client.flush(collection_name=collection_name)
+                except Exception:
+                    # Older/embedded Milvus clients may not expose flush. Search can
+                    # still work eventually, but standalone should flush for E2E smoke.
+                    pass
                 indexed_count += len(rows)
-            return VectorIndexResult(indexed_count=indexed_count, backend=self.backend_name, available=True)
+            return VectorIndexResult(indexed_count=indexed_count, backend=runtime.vector_runtime, available=True, degraded=runtime.degraded, warning=_runtime_warning(runtime))
         except RagEmbeddingUnavailable as exc:
-            return VectorIndexResult(indexed_count=0, backend=self.backend_name, available=False, degraded=True, warning=str(exc))
+            return VectorIndexResult(indexed_count=0, backend=runtime.vector_runtime, available=False, degraded=True, warning=str(exc))
         except Exception as exc:  # noqa: BLE001
             return VectorIndexResult(
                 indexed_count=0,
-                backend=self.backend_name,
+                backend=runtime.vector_runtime,
                 available=False,
                 degraded=True,
-                warning=f"Milvus Lite/Milvus runtime unavailable: {exc}",
+                warning=f"Milvus runtime unavailable ({runtime.vector_runtime}): {exc}",
             )
 
     def search(self, *, query: str, chunks: list[RagChunk], top_k: int) -> VectorSearchResult:
+        runtime = resolve_vector_runtime()
         if not chunks:
-            return VectorSearchResult(hits=[], backend=self.backend_name, available=True)
+            return VectorSearchResult(hits=[], backend=runtime.vector_runtime, available=True, degraded=runtime.degraded, warning=_runtime_warning(runtime))
         try:
             client = _milvus_client()
             dense_query, _ = embed_query(query)
@@ -100,16 +109,16 @@ class MilvusVectorStoreAdapter(BaseVectorStore):
                     score = float(row.get("distance") or row.get("score") or 0.0)
                     hits.append(VectorSearchHit(chunk=chunk, score=score))
             hits.sort(key=lambda item: item.score, reverse=True)
-            return VectorSearchResult(hits=hits[:top_k], backend=self.backend_name, available=True)
+            return VectorSearchResult(hits=hits[:top_k], backend=runtime.vector_runtime, available=True, degraded=runtime.degraded, warning=_runtime_warning(runtime))
         except RagEmbeddingUnavailable as exc:
-            return VectorSearchResult(hits=[], backend=self.backend_name, available=False, degraded=True, warning=str(exc))
+            return VectorSearchResult(hits=[], backend=runtime.vector_runtime, available=False, degraded=True, warning=str(exc))
         except Exception as exc:  # noqa: BLE001
             return VectorSearchResult(
                 hits=[],
-                backend=self.backend_name,
+                backend=runtime.vector_runtime,
                 available=False,
                 degraded=True,
-                warning=f"Milvus Lite/Milvus runtime unavailable: {exc}",
+                warning=f"Milvus runtime unavailable ({runtime.vector_runtime}): {exc}",
             )
 
 
@@ -169,3 +178,7 @@ def _group_by_kb(chunks: list[RagChunk]) -> dict[str, list[RagChunk]]:
 
 def _escape_filter_value(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _runtime_warning(runtime) -> str | None:
+    return "; ".join(runtime.warnings) if runtime.warnings else None

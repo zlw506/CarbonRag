@@ -5,6 +5,25 @@ from app.rag.embeddings import RagEmbeddingUnavailable
 from app.rag.kb.models import KnowledgeBaseCreate, RagDocumentCreate, RagSearchRequest
 from app.rag.kb.storage import RagKnowledgeStore
 from app.rag.spine import RagSpineService
+from app.rag.vector_backend.runtime import resolve_vector_runtime
+
+
+def test_vector_runtime_resolves_windows_docker_milvus() -> None:
+    runtime = resolve_vector_runtime(backend="milvus", milvus_uri="http://127.0.0.1:19530")
+
+    assert runtime.vector_backend == "milvus"
+    assert runtime.vector_runtime == "milvus_standalone"
+    assert runtime.milvus_uri == "http://127.0.0.1:19530"
+    assert runtime.uses_real_vector is True
+
+
+def test_vector_runtime_resolves_memory_as_dev_fallback() -> None:
+    runtime = resolve_vector_runtime(backend="memory", milvus_uri=None)
+
+    assert runtime.vector_backend == "memory"
+    assert runtime.vector_runtime == "memory_dev"
+    assert runtime.degraded is True
+    assert runtime.warnings
 
 
 def test_milvus_bge_unavailable_does_not_mark_fake_success(monkeypatch, tmp_path) -> None:
@@ -58,6 +77,28 @@ def test_memory_backend_remains_explicit_dev_fallback(monkeypatch, tmp_path) -> 
     )
     assert result.hits
     assert result.trace.vector_backend == "memory"
+    assert result.trace.vector_runtime == "memory_dev"
+    assert result.trace.degraded is True
+
+
+def test_health_reports_standalone_runtime(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.rag.spine.get_settings",
+        lambda: SimpleNamespace(
+            rag_vector_backend="milvus",
+            rag_milvus_uri="http://127.0.0.1:19530",
+            rag_require_real_vector=True,
+        ),
+    )
+    store = RagKnowledgeStore(sqlite_db_path=tmp_path / "carbonrag.sqlite3")
+    service = RagSpineService(store=store)
+
+    health = service.health(owner_user_id=None)
+
+    assert health.vector_backend == "milvus"
+    assert health.vector_runtime == "milvus_standalone"
+    assert health.milvus_uri == "http://127.0.0.1:19530"
+    assert health.require_real_vector is True
 
 
 def _insert_user(store: RagKnowledgeStore, user_id: str) -> None:

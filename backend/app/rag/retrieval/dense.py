@@ -7,7 +7,7 @@ from app.rag.vector_backend.base import BaseVectorStore, VectorSearchResult
 
 def get_vector_store(backend: str) -> BaseVectorStore:
     normalized = (backend or "memory").strip().lower()
-    if normalized in {"milvus", "milvus_lite", "milvus-lite"}:
+    if normalized in {"milvus", "milvus_standalone", "milvus_lite", "milvus-lite"}:
         return MilvusVectorStoreAdapter()
     if normalized == "chroma":
         return ChromaVectorStoreAdapter()

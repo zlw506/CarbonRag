@@ -31,9 +31,9 @@ class Settings(BaseSettings):
 
     rag_engine_enabled: bool = True
     rag_vector_enabled: bool = True
-    rag_vector_backend: str = "milvus_lite"
+    rag_vector_backend: str = "milvus"
     rag_require_real_vector: bool = True
-    rag_milvus_uri: str = "./data/outputs/milvus_lite/carbonrag.db"
+    rag_milvus_uri: str = "http://127.0.0.1:19530"
     rag_milvus_collection_prefix: str = "carbonrag"
     rag_embedding_provider: str = "bge_m3"
     rag_embedding_model: str = "BAAI/bge-m3"

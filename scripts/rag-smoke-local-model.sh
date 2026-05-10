@@ -14,9 +14,9 @@ export RAG_EMBEDDING_PROVIDER=bge_m3
 export RAG_MODEL_AUTO_DOWNLOAD=false
 export RAG_MODEL_CACHE_DIR="${RAG_MODEL_CACHE_DIR:-$ROOT_DIR/data/outputs/models}"
 export RAG_EMBEDDING_DEVICE=cpu
-export RAG_VECTOR_BACKEND=milvus_lite
+export RAG_VECTOR_BACKEND=milvus
 export RAG_REQUIRE_REAL_VECTOR=true
-export RAG_MILVUS_URI="${RAG_MILVUS_URI:-$ROOT_DIR/data/outputs/milvus_lite/carbonrag-smoke.db}"
+export RAG_MILVUS_URI="${RAG_MILVUS_URI:-http://127.0.0.1:19530}"
 export RAG_RERANK_ENABLED=true
 export RAG_RERANK_PROVIDER=bge_reranker
 export RAG_RERANK_MODEL=BAAI/bge-reranker-v2-m3
@@ -25,7 +25,7 @@ export HF_HOME="${HF_HOME:-$ROOT_DIR/data/outputs/hf-cache}"
 export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$ROOT_DIR/data/outputs/hf-cache/hub}"
 export HF_HUB_DISABLE_SYMLINKS_WARNING=1
 
-mkdir -p "$RAG_MODEL_CACHE_DIR" "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$(dirname "$RAG_MILVUS_URI")"
+mkdir -p "$RAG_MODEL_CACHE_DIR" "$HF_HOME" "$HUGGINGFACE_HUB_CACHE"
 
 cd backend
 "$PYTHON_PATH" - <<'PY'
@@ -57,7 +57,7 @@ assert applied is False and warning == "no_hits"
 local_reranker = Path(settings.rag_model_cache_dir) / "BAAI" / "bge-reranker-v2-m3"
 assert local_reranker.exists(), f"reranker model missing: {local_reranker}"
 
-print("==> Milvus Lite KB smoke")
+print("==> Docker Milvus Standalone KB smoke")
 service = RagSpineService(store=RagKnowledgeStore())
 kb = service.create_kb(owner_user_id="rag-smoke-user", payload=KnowledgeBaseCreate(name="V1.6.5 local model smoke"))
 doc = service.create_document(
@@ -75,7 +75,7 @@ result = service.search(owner_user_id="rag-smoke-user", request=RagSearchRequest
 print("trace", result.trace.model_dump())
 print("hits", len(result.hits))
 assert result.hits
-assert result.trace.vector_backend == "milvus_lite"
+assert result.trace.vector_runtime == "milvus_standalone"
 assert result.trace.degraded is False
 print("==> local RAG-Pro model smoke passed")
 PY

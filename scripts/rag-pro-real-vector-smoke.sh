@@ -2,12 +2,13 @@
 set -euo pipefail
 
 BACKEND_PATH="${1:-backend}"
+MILVUS_URI="${MILVUS_URI:-http://127.0.0.1:19530}"
 PYTHON_PATH="${PYTHON_PATH:-python}"
 if [ -x "$BACKEND_PATH/.conda/python.exe" ]; then
   PYTHON_PATH="$BACKEND_PATH/.conda/python.exe"
 fi
 
-export RAG_VECTOR_BACKEND=milvus_lite
+export RAG_VECTOR_BACKEND=milvus
 export RAG_REQUIRE_REAL_VECTOR=true
 export RAG_EMBEDDING_PROVIDER=bge_m3
 export RAG_EMBEDDING_MODEL=BAAI/bge-m3
@@ -15,7 +16,7 @@ export RAG_MODEL_CACHE_DIR=./data/outputs/models
 export RAG_MODEL_AUTO_DOWNLOAD=true
 export RAG_RERANK_PROVIDER=bge_reranker
 export RAG_RERANK_MODEL=BAAI/bge-reranker-v2-m3
-export RAG_MILVUS_URI=./data/outputs/milvus_lite/carbonrag-smoke.db
+export RAG_MILVUS_URI="$MILVUS_URI"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
 cd "$BACKEND_PATH"
@@ -25,7 +26,7 @@ from app.rag.kb.models import KnowledgeBaseCreate, RagDocumentCreate, RagSearchR
 from app.rag.kb.storage import RagKnowledgeStore
 from app.rag.spine import RagSpineService
 
-print("==> loading BGE-M3 and Milvus Lite")
+print("==> loading BGE-M3 and Docker Milvus Standalone")
 embed_documents(["双碳目标包括碳达峰和碳中和。"])
 embed_query("双碳目标")
 
@@ -50,4 +51,6 @@ print("trace:", result.trace.model_dump())
 print("hits:", len(result.hits))
 if not result.hits:
     raise SystemExit(3)
+if result.trace.vector_runtime != "milvus_standalone":
+    raise SystemExit(f"unexpected vector runtime: {result.trace.vector_runtime}")
 PY

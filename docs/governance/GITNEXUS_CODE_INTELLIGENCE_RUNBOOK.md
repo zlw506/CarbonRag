@@ -90,12 +90,14 @@ V1.4.7 本机完整索引结果：
 ```powershell
 gitnexus status
 gitnexus list
-gitnexus query carbon --limit 5
+gitnexus query --repo CarbonRag carbon --limit 5
 gitnexus context CarbonCalculationEngine
 gitnexus impact CarbonCalculationEngine
 gitnexus detect_changes
 gitnexus serve
 ```
+
+如果本机同时索引了 `CarbonRag`、`RAG-Pro`、`ragPdfSystem` 等多个仓库，`query/impact` 必须显式加 `--repo CarbonRag`。否则 GitNexus 会报 `Multiple repositories indexed`，这是正常保护，不是索引损坏。
 
 Web UI 验证：
 
