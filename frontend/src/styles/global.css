@@ -187,7 +187,10 @@ body {
 
 .app-shell__brand {
     color: var(--cr-sider-text);
-    margin-bottom: 18px;
+    margin-bottom: 14px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
 }
 
 .app-shell__brand--compact {
@@ -202,6 +205,19 @@ body {
 .app-shell__brand .ant-typography,
 .app-shell__header .ant-typography {
     color: inherit;
+}
+
+.app-shell__brand .ant-typography {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+}
+
+.app-shell__brand--compact .ant-typography {
+    font-size: inherit;
+    letter-spacing: 0;
 }
 
 .app-shell__header {
