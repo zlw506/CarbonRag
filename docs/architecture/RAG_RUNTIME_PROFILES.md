@@ -72,6 +72,36 @@ F:\AcademicHub\Docker\wsl\DockerDesktopWSL
 
 Other teams should use an equivalent large local disk before pulling Milvus images. Docker program files may stay under `C:\Program Files\Docker`; the large and growing assets are Docker images, containers, volumes, and WSL VHDX files.
 
+## Docker Desktop Installation Guardrail
+
+Docker Desktop setup can interrupt active development because it may require Windows features, WSL updates, Docker login, disk migration, and reboot.
+
+Before installing, updating, or reconfiguring Docker Desktop:
+
+1. Save all IDE and terminal work.
+2. Run `git status -sb`.
+3. Commit or stash current branch changes.
+4. Stop local services that cannot survive reboot.
+5. Move Docker Desktop disk image / WSL data to a large disk before pulling Milvus images.
+
+Required Windows checks:
+
+```powershell
+wsl --status
+wsl --update
+docker desktop status
+docker info
+docker ps
+```
+
+If Docker Desktop shows `WSL needs updating`, complete `wsl --update` and reboot before running CarbonRag RAG smoke commands.
+
+If `docker info` cannot connect to `dockerDesktopLinuxEngine`, Docker is not ready. Do not run Milvus, RAG smoke, or RAG-Pro E2E validation until Docker Desktop is started and healthy.
+
+Docker Desktop may require a Docker account login for the UI or Docker Hub access. Treat login/network failures as environment blockers, not CarbonRag code failures.
+
+Native Windows should use Docker Desktop + WSL2 + Milvus Standalone. A downloaded Ubuntu ISO or VMware VM is not the V1.6.8 delivery route.
+
 ## Real RAG-Pro Smoke
 
 After Docker Milvus is healthy and offline model packages are in place, run:
