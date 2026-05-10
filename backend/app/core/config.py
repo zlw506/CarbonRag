@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     rag_require_real_vector: bool = True
     rag_milvus_uri: str = "./data/outputs/milvus_lite/carbonrag.db"
     rag_milvus_collection_prefix: str = "carbonrag"
-    rag_embedding_provider: str = "openai_compatible"
+    rag_embedding_provider: str = "bge_m3"
     rag_embedding_model: str = "BAAI/bge-m3"
     rag_embedding_device: str = "cpu"
     rag_model_cache_dir: str = "./data/outputs/models"
