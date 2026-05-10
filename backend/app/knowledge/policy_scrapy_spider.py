@@ -12,7 +12,7 @@ import scrapy
 
 
 SPIDER_NAME = "carbonrag_policy_spider"
-DEFAULT_USER_AGENT = "CarbonRagPolicyCrawler/1.0 (+admin-reviewed)"
+DEFAULT_USER_AGENT = "CarbonRagPolicyCrawler/1.0 (+official-policy-knowledge)"
 TEXTUAL_CONTENT_TYPES = {
     "application/json",
     "application/xml",

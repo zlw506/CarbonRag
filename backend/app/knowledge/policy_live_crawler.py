@@ -98,6 +98,7 @@ class PolicyCrawlerStatus(BaseModel):
     scheduler_started: bool
     scheduled_enabled: bool
     manual_enabled: bool
+    auto_publish_enabled: bool
     running: bool
     crawler_backend: str
     provider_name: str
@@ -172,35 +173,65 @@ LEGACY_MOJIBAKE_POLICY_CRAWL_SOURCES: tuple[dict[str, Any], ...] = (
 DEFAULT_POLICY_CRAWL_SOURCES = (
     {
         "source_id": "gov-cn-policy-library",
-        "title": "中国政府网政策文件入口",
+        "title": "中国政府网政策文件库",
         "source_url": "https://www.gov.cn/zhengce/",
         "source_label": "中国政府网",
         "allowed_domain": "gov.cn",
-        "metadata": {"scope": "national_policy", "discovery_mode": "policy_listing"},
+        "metadata": {
+            "scope": "national_policy",
+            "discovery_mode": "official_policy_search",
+            "extra_start_urls": [
+                "https://sousuo.www.gov.cn/zcwjk/policyDocumentLibrary?q=%E7%A2%B3%E8%BE%BE%E5%B3%B0&t=zhengcelibrary&orpro=",
+                "https://sousuo.www.gov.cn/zcwjk/policyDocumentLibrary?q=%E5%8F%8C%E7%A2%B3&t=zhengcelibrary&orpro=",
+            ],
+        },
     },
     {
         "source_id": "ndrc-policy-releases",
-        "title": "国家发展改革委政策发布入口",
-        "source_url": "https://www.ndrc.gov.cn/xxgk/zcfb/",
+        "title": "国家发展改革委碳达峰碳中和",
+        "source_url": "https://www.ndrc.gov.cn/fggz/hjyzy/tdftzh/",
         "source_label": "国家发展改革委",
         "allowed_domain": "ndrc.gov.cn",
-        "metadata": {"scope": "national_policy", "discovery_mode": "policy_listing"},
+        "metadata": {
+            "scope": "national_policy",
+            "discovery_mode": "policy_listing",
+            "extra_start_urls": [
+                "https://www.ndrc.gov.cn/xxgk/zcfb/ghxwj/",
+                "https://www.ndrc.gov.cn/xxgk/zcfb/fzggwl/",
+                "https://www.ndrc.gov.cn/xxgk/zcfb/gg/",
+            ],
+        },
     },
     {
         "source_id": "mee-policy-releases",
-        "title": "生态环境部政策公开入口",
-        "source_url": "https://www.mee.gov.cn/xxgklssj/",
+        "title": "生态环境部应对气候变化",
+        "source_url": "https://www.mee.gov.cn/ywgz/ydqhbh/",
         "source_label": "生态环境部",
         "allowed_domain": "mee.gov.cn",
-        "metadata": {"scope": "environment_policy", "discovery_mode": "policy_listing"},
+        "metadata": {
+            "scope": "environment_policy",
+            "discovery_mode": "policy_listing",
+            "extra_start_urls": [
+                "https://www.mee.gov.cn/xxgk2018/xxgk/xxgk03/",
+                "https://www.mee.gov.cn/xxgk2018/xxgk/xxgk06/",
+                "https://www.mee.gov.cn/zcwj/zcjd/",
+            ],
+        },
     },
     {
         "source_id": "miit-policy-releases",
-        "title": "工业和信息化部政策文件入口",
-        "source_url": "https://www.miit.gov.cn/zwgk/zcwj/",
+        "title": "工业和信息化部政策文件",
+        "source_url": "https://www.miit.gov.cn/search/wjfb.html?websiteid=110000000000000&pg=&p=&tpl=14&category=51&q=%E8%8A%82%E8%83%BD%E9%99%8D%E7%A2%B3",
         "source_label": "工业和信息化部",
         "allowed_domain": "miit.gov.cn",
-        "metadata": {"scope": "industry_policy", "discovery_mode": "policy_listing"},
+        "metadata": {
+            "scope": "industry_policy",
+            "discovery_mode": "official_policy_search",
+            "extra_start_urls": [
+                "https://www.miit.gov.cn/search/wjfb.html?websiteid=110000000000000&pg=&p=&tpl=14&category=51&q=%E7%A2%B3%E8%BE%BE%E5%B3%B0",
+                "https://www.miit.gov.cn/search/wjfb.html?websiteid=110000000000000&pg=&p=&tpl=14&category=51&q=%E7%BB%BF%E8%89%B2%E5%88%B6%E9%80%A0",
+            ],
+        },
     },
     {
         "source_id": "beijing-policy-library",
@@ -208,7 +239,15 @@ DEFAULT_POLICY_CRAWL_SOURCES = (
         "source_url": "https://www.beijing.gov.cn/zhengce/",
         "source_label": "北京市人民政府",
         "allowed_domain": "beijing.gov.cn",
-        "metadata": {"scope": "local_policy", "region": "北京", "discovery_mode": "policy_listing"},
+        "metadata": {
+            "scope": "local_policy",
+            "region": "北京",
+            "discovery_mode": "policy_listing",
+            "extra_start_urls": [
+                "https://www.beijing.gov.cn/zhengce/zhengcefagui/",
+                "https://www.beijing.gov.cn/zhengce/zcjd/",
+            ],
+        },
     },
     {
         "source_id": "beijing-fgw-policy",
@@ -216,7 +255,15 @@ DEFAULT_POLICY_CRAWL_SOURCES = (
         "source_url": "https://fgw.beijing.gov.cn/fgwzwgk/2024zcwj/",
         "source_label": "北京市发展和改革委员会",
         "allowed_domain": "fgw.beijing.gov.cn",
-        "metadata": {"scope": "local_policy", "region": "北京", "discovery_mode": "policy_listing"},
+        "metadata": {
+            "scope": "local_policy",
+            "region": "北京",
+            "discovery_mode": "policy_listing",
+            "extra_start_urls": [
+                "https://fgw.beijing.gov.cn/fgwzwgk/zcjd/",
+                "https://fgw.beijing.gov.cn/fgwzwgk/tzgg/",
+            ],
+        },
     },
 )
 
@@ -520,13 +567,18 @@ class PolicyCrawlerStore:
         reviewed_by_user_id: str | None,
         review_note: str | None = None,
         knowledge_item_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> PolicyCrawlerCandidate:
         now = self.utcnow()
+        existing = self.get_candidate(candidate_id)
+        if existing is None:
+            raise KeyError(candidate_id)
+        merged_metadata = {**existing.metadata, **(metadata or {})}
         self._execute(
             """
             UPDATE policy_crawl_candidates
             SET status = {p}, reviewed_by_user_id = {p}, reviewed_at = {p}, review_note = {p},
-                knowledge_item_id = {p}, updated_at = {p}
+                knowledge_item_id = {p}, updated_at = {p}, metadata_json = {p}
             WHERE candidate_id = {p}
             """,
             [
@@ -536,6 +588,7 @@ class PolicyCrawlerStore:
                 review_note,
                 knowledge_item_id,
                 now.isoformat(),
+                json.dumps(merged_metadata, ensure_ascii=False),
                 candidate_id,
             ],
         )
@@ -709,6 +762,7 @@ class PolicyCrawlerScheduler:
             scheduler_started=self._started,
             scheduled_enabled=self.settings.rag_policy_live_crawler_scheduled_enabled,
             manual_enabled=self.settings.rag_policy_live_crawler_manual_enabled,
+            auto_publish_enabled=self.settings.rag_policy_live_crawler_auto_publish,
             running=self._run_lock.locked(),
             crawler_backend=descriptor.crawler_backend or _normalize_crawler_backend(self.settings.rag_policy_crawler_backend),
             provider_name=descriptor.name,
@@ -763,6 +817,8 @@ class PolicyCrawlerScheduler:
         candidate = self.store.get_candidate(candidate_id)
         if candidate is None:
             raise KeyError(candidate_id)
+        if candidate.status == "published":
+            return candidate
         if candidate.status != "pending_review":
             raise ValueError("only pending_review candidates can be published")
         storage_path = Path(candidate.storage_path)
@@ -781,7 +837,8 @@ class PolicyCrawlerScheduler:
                 **candidate.metadata,
                 "policy_crawl_candidate_id": candidate.candidate_id,
                 "policy_crawl_run_id": candidate.run_id,
-                "review_status": "published",
+                "review_status": "auto_published" if reviewed_by_user_id is None else "admin_published",
+                "auto_publish_enabled": self.settings.rag_policy_live_crawler_auto_publish,
             },
         )
         from app.knowledge.service import get_knowledge_service
@@ -796,8 +853,15 @@ class PolicyCrawlerScheduler:
             candidate_id=candidate_id,
             status="published",
             reviewed_by_user_id=reviewed_by_user_id,
-            review_note="Published by admin review; crawl_ingest queued.",
+            review_note="Auto-published to public_policy_web; crawl_ingest queued."
+            if reviewed_by_user_id is None
+            else "Published by admin; crawl_ingest queued.",
             knowledge_item_id=task.knowledge_item_id,
+            metadata={
+                "auto_publish_enabled": self.settings.rag_policy_live_crawler_auto_publish,
+                "publish_mode": "auto" if reviewed_by_user_id is None else "manual",
+                "index_status": "queued",
+            },
         )
         try:
             processed = knowledge_service.run_queued_tasks()
@@ -808,16 +872,18 @@ class PolicyCrawlerScheduler:
                     candidate_id=candidate_id,
                     status="published",
                     reviewed_by_user_id=reviewed_by_user_id,
-                    review_note=f"Published and indexed. Processed tasks: {', '.join(processed_ids) or task.task_id}.",
+                    review_note=f"Auto-published and indexed. Processed tasks: {', '.join(processed_ids) or task.task_id}.",
                     knowledge_item_id=task.knowledge_item_id,
+                    metadata={"index_status": "indexed", "processed_task_ids": processed_ids or [task.task_id]},
                 )
             if refreshed_item is not None and refreshed_item.last_error:
                 return self.store.update_candidate_review(
                     candidate_id=candidate_id,
                     status="published",
                     reviewed_by_user_id=reviewed_by_user_id,
-                    review_note=f"Published, but indexing failed: {refreshed_item.last_error}",
+                    review_note=f"Auto-published, but indexing failed: {refreshed_item.last_error}",
                     knowledge_item_id=task.knowledge_item_id,
+                    metadata={"index_status": "failed", "index_error": refreshed_item.last_error},
                 )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Policy crawler candidate was published but immediate indexing failed.")
@@ -825,8 +891,9 @@ class PolicyCrawlerScheduler:
                 candidate_id=candidate_id,
                 status="published",
                 reviewed_by_user_id=reviewed_by_user_id,
-                review_note=f"Published, but immediate indexing failed: {exc}",
+                review_note=f"Auto-published, but immediate indexing failed: {exc}",
                 knowledge_item_id=task.knowledge_item_id,
+                metadata={"index_status": "failed", "index_error": str(exc)},
             )
         return reviewed
 
@@ -888,8 +955,9 @@ class PolicyCrawlerScheduler:
         if not is_allowed_policy_url(source.source_url, allowed_domains=DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS):
             raise ValueError(f"policy crawl source is outside official allowlist: {source.source_url}")
         descriptor = self.provider.describe()
+        start_urls = _source_start_urls(source)
         request = PolicyCrawlRequest(
-            start_urls=[source.source_url],
+            start_urls=start_urls,
             allowed_domains=[source.allowed_domain],
             max_depth=self.settings.rag_policy_live_crawler_max_depth,
             max_pages=self.settings.rag_policy_live_crawler_max_pages,
@@ -898,7 +966,13 @@ class PolicyCrawlerScheduler:
             concurrent_requests_per_domain=self.settings.rag_policy_live_crawler_concurrent_per_domain,
             timeout_seconds=self.settings.rag_policy_live_crawler_timeout_seconds,
             user_agent=self.settings.rag_policy_live_crawler_user_agent,
-            metadata={"source_id": source.source_id, "trigger_type": trigger_type},
+            metadata={
+                "source_id": source.source_id,
+                "trigger_type": trigger_type,
+                "source_label": source.source_label,
+                "auto_publish_enabled": self.settings.rag_policy_live_crawler_auto_publish,
+                "topic_filter": "dual_carbon_policy_or_standard",
+            },
         )
         run = self.store.create_run(
             source_id=source.source_id,
@@ -928,40 +1002,84 @@ class PolicyCrawlerScheduler:
                 next_run_at=failure_next_run_at,
             )
         candidates: list[PolicyCrawlerCandidate] = []
+        published_candidates: list[PolicyCrawlerCandidate] = []
         errors: list[str] = []
+        skipped_by_topic: list[str] = []
         for document in result.documents:
             if not is_allowed_policy_url(document.url, allowed_domains=DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS):
                 errors.append(f"skipped non-allowlisted crawled URL: {document.url}")
                 continue
+            matched_keywords = _matched_policy_topic_keywords(document)
+            if not matched_keywords:
+                skipped_by_topic.append(document.url)
+                continue
             storage_path = self._write_candidate_document(source=source, document=document)
-            candidates.append(
-                self.store.upsert_candidate(
-                    run_id=run.run_id,
-                    source_id=source.source_id,
-                    document=document,
-                    storage_path=str(storage_path),
-                    metadata={
-                        "source_title": source.title,
-                        "source_label": source.source_label,
-                        "allowed_domain": source.allowed_domain,
-                        "seed_url": source.source_url,
-                        "policy_review_required": True,
-                        "candidate_summary": _candidate_summary(document),
-                        "candidate_content_length": _candidate_content_length(document),
-                        "candidate_depth": document.metadata.get("depth"),
-                        "candidate_response_url": document.metadata.get("response_url"),
-                        "provider_metadata": result.metadata,
-                    },
-                )
+            candidate = self.store.upsert_candidate(
+                run_id=run.run_id,
+                source_id=source.source_id,
+                document=document,
+                storage_path=str(storage_path),
+                metadata={
+                    "source_title": source.title,
+                    "source_label": source.source_label,
+                    "allowed_domain": source.allowed_domain,
+                    "seed_url": source.source_url,
+                    "start_urls": start_urls,
+                    "policy_review_required": False,
+                    "auto_publish_enabled": self.settings.rag_policy_live_crawler_auto_publish,
+                    "matched_policy_keywords": matched_keywords,
+                    "candidate_summary": _candidate_summary(document),
+                    "candidate_content_length": _candidate_content_length(document),
+                    "candidate_depth": document.metadata.get("depth"),
+                    "candidate_response_url": document.metadata.get("response_url"),
+                    "provider_metadata": result.metadata,
+                },
             )
-        status: PolicyCrawlRunStatus = "succeeded" if not errors else "failed"
+            candidates.append(candidate)
+            if self.settings.rag_policy_live_crawler_auto_publish:
+                try:
+                    published_candidates.append(
+                        self.publish_candidate(candidate_id=candidate.candidate_id, reviewed_by_user_id=None)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Policy crawler auto-publish failed; candidate_id=%s", candidate.candidate_id)
+                    errors.append(f"auto-publish failed for {candidate.url}: {exc}")
+                    self.store.update_candidate_review(
+                        candidate_id=candidate.candidate_id,
+                        status="published",
+                        reviewed_by_user_id=triggered_by_user_id,
+                        review_note=f"Auto-publish attempted, but indexing failed: {exc}",
+                        knowledge_item_id=candidate.knowledge_item_id,
+                        metadata={"index_status": "failed", "index_error": str(exc), "publish_mode": "auto"},
+                    )
+        if result.documents and not candidates:
+            errors.append(
+                "no crawled document matched the dual-carbon policy/technical-standard topic filter"
+            )
+        indexed_count = sum(1 for candidate in published_candidates if candidate.metadata.get("index_status") == "indexed")
+        failed_index_count = sum(
+            1
+            for candidate in published_candidates
+            if candidate.metadata.get("index_status") == "failed" or (candidate.review_note and "failed" in candidate.review_note.lower())
+        )
+        status: PolicyCrawlRunStatus = "succeeded" if not errors and (candidates or not result.documents) else "failed"
+        run_metadata = {
+            **result.metadata,
+            "start_urls": start_urls,
+            "auto_publish_enabled": self.settings.rag_policy_live_crawler_auto_publish,
+            "auto_published_count": len(published_candidates),
+            "auto_indexed_count": indexed_count,
+            "auto_index_failed_count": failed_index_count,
+            "skipped_topic_count": len(skipped_by_topic),
+            "skipped_topic_urls": skipped_by_topic[:20],
+        }
         return self.store.finish_run(
             run_id=run.run_id,
             status=status,
             document_count=len(result.documents),
             candidate_count=len(candidates),
             error_detail="; ".join(errors) if errors else None,
-            metadata=result.metadata,
+            metadata=run_metadata,
             next_run_at=success_next_run_at if status == "succeeded" else failure_next_run_at,
         )
 
@@ -995,11 +1113,11 @@ def _build_default_crawler_provider(settings: Settings) -> CrawlerProvider:
     backend = _normalize_crawler_backend(settings.rag_policy_crawler_backend)
     if backend == "scrapyd":
         return ScrapydCrawlerProvider(
-            enabled=settings.rag_policy_live_crawler_manual_enabled,
+            enabled=settings.rag_enable_policy_crawler,
             settings=settings,
         )
     return ScrapyCrawlerProvider(
-        enabled=settings.rag_policy_live_crawler_manual_enabled,
+        enabled=settings.rag_enable_policy_crawler,
         settings=settings,
     )
 
@@ -1014,6 +1132,58 @@ def _normalize_crawler_backend(value: str | None) -> str:
 def _metadata_string(metadata: dict[str, Any], key: str) -> str | None:
     value = metadata.get(key)
     return value if isinstance(value, str) and value else None
+
+
+def _source_start_urls(source: PolicyCrawlerSource) -> list[str]:
+    urls: list[str] = [source.source_url]
+    raw_extra = source.metadata.get("extra_start_urls")
+    if isinstance(raw_extra, list):
+        urls.extend(str(item).strip() for item in raw_extra if str(item).strip())
+    approved: list[str] = []
+    for url in urls:
+        if is_allowed_policy_url(url, allowed_domains=DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS):
+            approved.append(url)
+    return list(dict.fromkeys(approved)) or [source.source_url]
+
+
+def _matched_policy_topic_keywords(document: CrawledDocument) -> list[str]:
+    haystack = " ".join(
+        [
+            document.title or "",
+            document.url,
+            _readable_preview(document.content)[:12000],
+            json.dumps(document.metadata, ensure_ascii=False),
+        ]
+    ).lower()
+    topic_keywords = (
+        "双碳",
+        "碳达峰",
+        "碳中和",
+        "降碳",
+        "低碳",
+        "零碳",
+        "碳排放",
+        "碳核算",
+        "碳市场",
+        "节能",
+        "能耗",
+        "绿色低碳",
+        "绿色制造",
+        "清洁生产",
+        "温室气体",
+        "排放权",
+        "能源消费",
+        "技术标准",
+        "国家标准",
+        "行业标准",
+        "团体标准",
+    )
+    matched = [keyword for keyword in topic_keywords if keyword.lower() in haystack]
+    if matched:
+        return matched[:12]
+    if any(token in haystack for token in ("carbon", "emission", "green", "energy saving")):
+        return ["english-carbon-topic"]
+    return []
 
 
 def _host(url: str) -> str:

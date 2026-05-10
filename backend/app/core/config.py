@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     rag_parser_provider: str = "default"
     rag_enable_mineru: bool = False
     rag_parser_fallback_chain: str = "docling,mineru,default"
-    rag_enable_policy_crawler: bool = False
+    rag_enable_policy_crawler: bool = True
     rag_policy_crawler_backend: str = "local_scrapy"
     rag_policy_scrapyd_endpoint: str = "http://127.0.0.1:6800"
     rag_policy_scrapyd_project: str = "carbonrag"
@@ -67,8 +67,9 @@ class Settings(BaseSettings):
     rag_policy_scrapyd_poll_timeout_seconds: float = 60.0
     rag_policy_scrapyd_feed_url_template: str | None = None
     rag_policy_live_crawler_manual_enabled: bool = True
-    rag_policy_live_crawler_scheduled_enabled: bool = False
+    rag_policy_live_crawler_scheduled_enabled: bool = True
     rag_policy_live_crawler_startup_seed_sources: bool = True
+    rag_policy_live_crawler_auto_publish: bool = True
     rag_policy_live_crawler_initial_delay_seconds: float = 60.0
     rag_policy_live_crawler_interval_seconds: int = 86_400
     rag_policy_live_crawler_failure_backoff_seconds: int = 3_600
@@ -77,7 +78,7 @@ class Settings(BaseSettings):
     rag_policy_live_crawler_download_delay_seconds: float = 2.0
     rag_policy_live_crawler_concurrent_per_domain: int = 1
     rag_policy_live_crawler_timeout_seconds: float = 60.0
-    rag_policy_live_crawler_user_agent: str = "CarbonRagPolicyCrawler/1.0 (+admin-reviewed)"
+    rag_policy_live_crawler_user_agent: str = "CarbonRagPolicyCrawler/1.0 (+official-policy-knowledge)"
     vector_store_path: str = "./data/outputs/vector_store"
     public_data_dir: str = "./data/public"
     private_sample_dir: str = "./data/private_sample"

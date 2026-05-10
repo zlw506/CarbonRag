@@ -166,28 +166,28 @@ const approvedPolicyCrawlerSources: PolicyCrawlerSourceSummary[] = [
 const normalizedApprovedPolicyCrawlerSources: PolicyCrawlerSourceSummary[] = approvedPolicyCrawlerSources.map((source) => {
     const normalized: Record<string, Partial<PolicyCrawlerSourceSummary>> = {
         "gov-cn-policy-library": {
-            title: "中国政府网政策文件入口",
+            title: "中国政府网政策文件库",
             source_url: "https://www.gov.cn/zhengce/",
             source_label: "中国政府网",
-            metadata: { scope: "national_policy", discovery_mode: "policy_listing" },
+            metadata: { scope: "national_policy", discovery_mode: "official_policy_search" },
         },
         "ndrc-policy-releases": {
-            title: "国家发展改革委政策发布入口",
-            source_url: "https://www.ndrc.gov.cn/xxgk/zcfb/",
+            title: "国家发展改革委碳达峰碳中和",
+            source_url: "https://www.ndrc.gov.cn/fggz/hjyzy/tdftzh/",
             source_label: "国家发展改革委",
             metadata: { scope: "national_policy", discovery_mode: "policy_listing" },
         },
         "mee-policy-releases": {
-            title: "生态环境部政策公开入口",
-            source_url: "https://www.mee.gov.cn/xxgklssj/",
+            title: "生态环境部应对气候变化",
+            source_url: "https://www.mee.gov.cn/ywgz/ydqhbh/",
             source_label: "生态环境部",
             metadata: { scope: "environment_policy", discovery_mode: "policy_listing" },
         },
         "miit-policy-releases": {
-            title: "工业和信息化部政策文件入口",
-            source_url: "https://www.miit.gov.cn/zwgk/zcwj/",
+            title: "工业和信息化部政策文件",
+            source_url: "https://www.miit.gov.cn/search/wjfb.html?websiteid=110000000000000&pg=&p=&tpl=14&category=51&q=%E8%8A%82%E8%83%BD%E9%99%8D%E7%A2%B3",
             source_label: "工业和信息化部",
-            metadata: { scope: "industry_policy", discovery_mode: "policy_listing" },
+            metadata: { scope: "industry_policy", discovery_mode: "official_policy_search" },
         },
         "beijing-policy-library": {
             title: "北京市政策文件入口",
@@ -721,9 +721,11 @@ export function AdminPlaceholderPage() {
             const run = await runPolicyCrawlerSource(sourceId);
             if (run.status === "succeeded") {
                 if (run.candidate_count > 0) {
-                    message.success(`真实 Scrapy 抓取完成，新增/刷新 ${run.candidate_count} 个待审核候选。`);
+                    const indexedCount =
+                        typeof run.metadata.auto_indexed_count === "number" ? run.metadata.auto_indexed_count : run.candidate_count;
+                    message.success(`真实 Scrapy 抓取完成，新增/刷新 ${run.candidate_count} 条政策记录，已索引 ${indexedCount} 条。`);
                 } else {
-                    message.warning("真实 Scrapy 已运行，但本次没有生成候选文档。请查看运行记录中的目标站点返回情况。");
+                    message.warning("真实 Scrapy 已运行，但本次没有匹配到双碳政策或技术标准。请查看运行记录和主题过滤数量。");
                 }
             } else {
                 setErrorMessage(run.error_detail ?? `实时政策爬虫运行结束，状态：${crawlerRunStatusLabelMap[run.status] ?? run.status}`);
@@ -1115,7 +1117,7 @@ export function AdminPlaceholderPage() {
                                     {policyCrawlerStatus?.provider_available ? "Scrapy 真实可用" : "Scrapy 当前不可用"}
                                 </Tag>
                                 <Tag color={policyCrawlerStatus?.scheduled_enabled ? "blue" : "default"}>
-                                    {policyCrawlerStatus?.scheduled_enabled ? "定时已显式启用" : "默认手动触发"}
+                                    {policyCrawlerStatus?.scheduled_enabled ? "自动更新已启用" : "仅手动触发"}
                                 </Tag>
                             </Space>
                         }
@@ -1124,8 +1126,8 @@ export function AdminPlaceholderPage() {
                             <Alert
                                 showIcon
                                 type="warning"
-                                message="自动抓取不等于正式政策发布"
-                                description="公网政策爬虫默认不自动定时运行。管理员手动抓取后，结果只进入 pending_review 候选区；发布前不会进入 public_policy_web，也不会影响 /ask 默认检索。"
+                                message="官方白名单自动更新知识库"
+                                description="实时政策爬虫只访问 gov.cn、ndrc.gov.cn、mee.gov.cn、miit.gov.cn、fgw.beijing.gov.cn、beijing.gov.cn 六类官方白名单域名；抓取到的双碳政策和技术标准会自动创建或刷新 public_policy_web，并立即进入解析、入库和索引链路。"
                             />
                             <Alert
                                 showIcon
@@ -1137,7 +1139,7 @@ export function AdminPlaceholderPage() {
                                 }
                                 description={
                                     policyCrawlerStatus?.provider_available
-                                        ? "点击下方任一官方源的“手动抓取”会真实访问该白名单站点，并把结果写入待审核候选。"
+                                        ? "点击下方任一官方源的“抓取并自动入库”会真实访问该白名单站点，页面会展示抓到的政策文件、匹配关键词、解析入库与索引结果。"
                                         : `请确认正在运行的后端使用 backend/.venv，并执行 ${String(
                                                   policyCrawlerStatus?.safe_limits.scrapy_install_command ??
                                                   "backend\\.venv\\Scripts\\python.exe -m pip install scrapy==2.15.2",
@@ -1185,7 +1187,7 @@ export function AdminPlaceholderPage() {
                                             </Tag>
                                         </Space>
                                     </Descriptions.Item>
-                                    <Descriptions.Item label="待审核候选">
+                                    <Descriptions.Item label="待处理记录">
                                         {policyCrawlerStatus.pending_candidate_count}
                                     </Descriptions.Item>
                                     <Descriptions.Item label="最近运行">
@@ -1277,7 +1279,7 @@ export function AdminPlaceholderPage() {
                                                               latestRun?.status
                                                             : "尚未抓取"}
                                                     </Tag>
-                                                    <Tag>{sourceCandidates.length} 个候选</Tag>
+                                                    <Tag>{sourceCandidates.length} 条入库记录</Tag>
                                                     {latestRun ? <Tag>{latestRun.document_count} 个文档</Tag> : null}
                                                 </Space>
                                                 {source.last_error || latestRun?.error_detail ? (
@@ -1286,11 +1288,11 @@ export function AdminPlaceholderPage() {
                                                     </Typography.Paragraph>
                                                 ) : (
                                                     <Typography.Text type="secondary">
-                                                        点击后会真实访问该官方白名单源，抓取结果先进入待审核候选。
+                                                        点击后会真实访问该官方白名单源，匹配双碳政策/技术标准后自动进入知识库。
                                                     </Typography.Text>
                                                 )}
                                                 <Space size={8} wrap>
-                                                    <Tooltip title={disabledReason ?? "真实运行 Scrapy，并遵守 robots、限速、深度和页数限制。"}>
+                                                    <Tooltip title={disabledReason ?? "真实运行 Scrapy，并遵守 robots、限速、深度和页数限制；命中的政策文件会自动入库索引。"}>
                                                         <Button
                                                             type="primary"
                                                             icon={<ReloadOutlined />}
@@ -1298,7 +1300,7 @@ export function AdminPlaceholderPage() {
                                                             loading={runningCrawlerSourceId === source.source_id}
                                                             onClick={() => void handleRunPolicyCrawler(source.source_id)}
                                                         >
-                                                            手动抓取
+                                                            抓取并自动入库
                                                         </Button>
                                                     </Tooltip>
                                                     <Button icon={<SyncOutlined />} onClick={() => void fetchPolicyCrawlerWorkspace()}>
@@ -1314,36 +1316,11 @@ export function AdminPlaceholderPage() {
                             <List
                                 className="admin-compact-list"
                                 size="small"
-                                header={<Typography.Text strong>待审核/已处理候选</Typography.Text>}
+                                header={<Typography.Text strong>自动入库记录</Typography.Text>}
                                 dataSource={policyCrawlerCandidates.slice(0, 8)}
-                                locale={{ emptyText: "暂无候选。手动抓取成功后会先出现在这里。" }}
+                                locale={{ emptyText: "暂无记录。抓取成功后会显示政策文件、来源、摘要、匹配关键词和索引结果。" }}
                                 renderItem={(candidate) => (
-                                    <List.Item
-                                        actions={
-                                            candidate.status === "pending_review"
-                                                ? [
-                                                      <Button
-                                                          key="publish"
-                                                          size="small"
-                                                          type="primary"
-                                                          loading={reviewingCandidateId === candidate.candidate_id}
-                                                          onClick={() => void handlePublishPolicyCandidate(candidate.candidate_id)}
-                                                      >
-                                                          发布
-                                                      </Button>,
-                                                      <Button
-                                                          key="reject"
-                                                          size="small"
-                                                          danger
-                                                          loading={reviewingCandidateId === candidate.candidate_id}
-                                                          onClick={() => void handleRejectPolicyCandidate(candidate.candidate_id)}
-                                                      >
-                                                          拒绝
-                                                      </Button>,
-                                                  ]
-                                                : []
-                                        }
-                                    >
+                                    <List.Item>
                                         <Space direction="vertical" size={4} style={{ width: "100%" }}>
                                             <Space size={8} wrap>
                                                 <Typography.Text strong>{candidate.title ?? candidate.url}</Typography.Text>
@@ -1371,8 +1348,11 @@ export function AdminPlaceholderPage() {
                                                         {formatMetadataText(candidate.metadata.candidate_response_url) || candidate.url}
                                                     </Typography.Text>
                                                 </Descriptions.Item>
+                                                <Descriptions.Item label="匹配关键词">
+                                                    {formatMetadataValue(candidate.metadata.matched_policy_keywords) || "未记录"}
+                                                </Descriptions.Item>
                                                 <Descriptions.Item label="入库结果">
-                                                    {candidate.review_note || (candidate.knowledge_item_id ? "已创建知识条目" : "待审核发布")}
+                                                    {candidate.review_note || (candidate.knowledge_item_id ? "已创建知识条目" : "等待自动处理")}
                                                 </Descriptions.Item>
                                             </Descriptions>
                                             <Typography.Text type="secondary">
@@ -1397,11 +1377,17 @@ export function AdminPlaceholderPage() {
                                                 <Tag color={crawlerRunStatusColorMap[run.status] ?? "default"}>
                                                     {crawlerRunStatusLabelMap[run.status] ?? run.status}
                                                 </Tag>
-                                                <Tag>{run.trigger_type}</Tag>
+                                                 <Tag>{run.trigger_type}</Tag>
                                                 {typeof run.metadata.external_job_id === "string" ? (
                                                     <Tag>{run.metadata.external_job_id}</Tag>
                                                 ) : null}
-                                                <Tag>{run.candidate_count} 候选</Tag>
+                                                <Tag>{run.candidate_count} 入库记录</Tag>
+                                                {typeof run.metadata.auto_indexed_count === "number" ? (
+                                                    <Tag color="green">{run.metadata.auto_indexed_count} 已索引</Tag>
+                                                ) : null}
+                                                {typeof run.metadata.skipped_topic_count === "number" ? (
+                                                    <Tag color="gold">{run.metadata.skipped_topic_count} 主题过滤</Tag>
+                                                ) : null}
                                             </Space>
                                             <Typography.Text type={run.error_detail ? "danger" : "secondary"}>
                                                 {run.error_detail ?? `${formatTimestamp(run.started_at)} / ${run.provider_name ?? "unknown"}`}
@@ -1636,8 +1622,8 @@ const crawlerRunStatusColorMap: Record<string, string> = {
 };
 
 const candidateStatusLabelMap: Record<string, string> = {
-    pending_review: "待审核",
-    published: "已发布",
+    pending_review: "待自动处理",
+    published: "已入库",
     rejected: "已拒绝",
 };
 
