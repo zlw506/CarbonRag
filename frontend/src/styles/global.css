@@ -985,12 +985,14 @@ body {
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
-    padding-right: 6px;
+    padding-inline: clamp(18px, 5vw, 96px) clamp(18px, 5vw, 96px);
     padding-bottom: 132px;
 }
 
 .chat-message {
     display: flex;
+    width: min(100%, 1180px);
+    margin-inline: auto;
 }
 
 .chat-message--assistant {
@@ -1008,7 +1010,7 @@ body {
 .chat-message__card {
     position: relative;
     width: fit-content;
-    max-width: min(100%, 880px);
+    max-width: 100%;
     border-radius: 22px;
     border: 1px solid var(--cr-border);
     box-shadow: var(--cr-shadow-medium);
@@ -1019,7 +1021,8 @@ body {
 }
 
 .chat-message__card--assistant {
-    width: min(100%, 880px);
+    width: fit-content;
+    max-width: 100%;
     background: transparent;
     border: 0;
     border-radius: 0;
@@ -1031,7 +1034,7 @@ body {
 }
 
 .chat-message__card--user {
-    max-width: min(74%, 680px);
+    max-width: 75%;
     background: linear-gradient(180deg, var(--cr-user-bubble), var(--cr-user-bubble-alt));
     border-color: var(--cr-user-bubble-border);
     color: var(--cr-user-bubble-text);

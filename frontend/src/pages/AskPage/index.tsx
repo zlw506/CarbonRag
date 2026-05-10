@@ -1026,15 +1026,9 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
     const isAssistant = message.role === "assistant";
     const isSystem = message.role === "system";
     const hasCitations = isAssistant && message.citations.length > 0;
-    const messageSourceSummary = summarizeCitations(message.citations);
     const lifecycleTag = message.client_state ? lifecycleTagMap[message.client_state] : null;
-    const finalStatusTag = isAssistant && isFinalAskStatus(message.status) ? statusColorMap[message.status] : null;
-    const finalStatusLabel = isAssistant && isFinalAskStatus(message.status) ? statusLabelMap[message.status] : null;
-    const ragTraceTags = isAssistant ? buildRagTraceTags(message.retrieval_trace) : [];
     const hasRealThinkingContent = Boolean(message.thinking_content?.trim());
     const shouldShowThinking = isAssistant && (message.client_state === "pending" || message.client_state === "thinking" || hasRealThinkingContent);
-    const shouldShowDetails = Boolean(message.trace_id) || Boolean(message.trace_id && (!message.client_state || message.client_state === "done" || message.client_state === "error"));
-    const liveStateText = message.client_state ? lifecycleStatusTextMap[message.client_state] : null;
     const messageContent = resolveMessageContent(message, isAssistant);
     const [thinkingExpanded, setThinkingExpanded] = useState(
         expandThinkingByDefault || message.client_state === "pending" || message.client_state === "thinking",
@@ -1103,26 +1097,12 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
                 }
             >
                 <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                    {!isAssistant && !isSystem ? null : (
+                    {isSystem ? (
                         <Space size={8} wrap className="chat-message__header">
-                            <Typography.Text className={isAssistant ? "chat-message__speaker chat-message__speaker--assistant" : "chat-message__speaker chat-message__speaker--system"}>
-                                {isAssistant ? "CarbonRag" : "系统消息"}
-                            </Typography.Text>
-                            {message.client_state && ["pending", "connecting", "thinking", "reconnecting", "streaming"].includes(message.client_state) ? (
-                                <span className={`chat-live-state chat-live-state--${message.client_state}`}>
-                                    <span className="chat-live-state__dot" aria-hidden="true" />
-                                    <span>{liveStateText}</span>
-                                </span>
-                            ) : lifecycleTag ? (
-                                <Tag color={lifecycleTag.color}>{lifecycleTag.label}</Tag>
-                            ) : null}
-                            {message.status_note ? (
-                                <Typography.Text type="secondary">{message.status_note}</Typography.Text>
-                            ) : null}
-                            {finalStatusTag && finalStatusLabel ? <Tag color={finalStatusTag}>{finalStatusLabel}</Tag> : null}
+                            <Typography.Text className="chat-message__speaker chat-message__speaker--system">系统消息</Typography.Text>
                             <Typography.Text type="secondary">{formatTimestamp(message.created_at)}</Typography.Text>
                         </Space>
-                    )}
+                    ) : null}
                     {isAssistant && shouldShowThinking ? (
                         <Collapse
                             ghost
@@ -1168,56 +1148,6 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
                                 sessionId={sessionId}
                                 createdAt={message.created_at}
                             />
-                            <Space size={12} wrap>
-                                {hasCitations ? (
-                                    <>
-                                        <Typography.Text type="secondary" className="chat-message__evidence-summary">
-                                            {buildAssistantEvidenceSummary(messageSourceSummary)}
-                                        </Typography.Text>
-                                        <Button type={activeCitation ? "primary" : "default"} size="small" icon={<FileTextOutlined />} onClick={onSelectCitations}>
-                                            查看依据 {message.citations.length}
-                                        </Button>
-                                    </>
-                                ) : null}
-                                {ragTraceTags.length > 0 ? (
-                                    <Space size={6} wrap className="chat-message__rag-trace">
-                                        {ragTraceTags.map((tag) => (
-                                            <Tag key={tag.key} color={tag.color}>{tag.label}</Tag>
-                                        ))}
-                                    </Space>
-                                ) : null}
-                            </Space>
-                            {shouldShowDetails ? (
-                                <Collapse
-                                    ghost
-                                    className="chat-message__details"
-                                    defaultActiveKey={[]}
-                                    items={[
-                                        {
-                                            key: "details",
-                                            label: "查看详细信息",
-                                            children: (
-                                                <Space direction="vertical" size={10} style={{ width: "100%" }}>
-                                                    {message.trace_id ? (
-                                                        <Typography.Text type="secondary">
-                                                            追踪号：<Typography.Text code>{message.trace_id}</Typography.Text>
-                                                        </Typography.Text>
-                                                    ) : null}
-                                                    {message.trace_id && (!message.client_state || message.client_state === "done" || message.client_state === "error") ? (
-                                                        <FeedbackButtonGroup
-                                                            targetType="ask"
-                                                            traceId={message.trace_id}
-                                                            sessionId={sessionId}
-                                                            size="small"
-                                                            iconOnly
-                                                        />
-                                                    ) : null}
-                                                </Space>
-                                            ),
-                                        },
-                                    ]}
-                                />
-                            ) : null}
                         </div>
                     ) : null}
                 </Space>
