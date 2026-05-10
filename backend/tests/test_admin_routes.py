@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.admin.service import AdminService
+from app.core.config import Settings
 from app.knowledge import KnowledgeService
 from app.knowledge.runner import KnowledgeTaskRunner
 from app.knowledge.store import KnowledgeStore
@@ -242,7 +243,8 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
 
     status_response = client.get("/api/v1/admin/policy-crawler/status")
     assert status_response.status_code == 200
-    assert status_response.json()["scheduled_enabled"] is False
+    assert status_response.json()["scheduled_enabled"] is True
+    assert status_response.json()["auto_publish_enabled"] is True
 
     sources_response = client.get("/api/v1/admin/policy-crawler/sources")
     assert sources_response.status_code == 200
@@ -255,23 +257,20 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     candidates_response = client.get("/api/v1/admin/policy-crawler/candidates")
     assert candidates_response.status_code == 200
     candidate = candidates_response.json()[0]
-    assert candidate["status"] == "pending_review"
+    assert candidate["status"] == "published"
     assert candidate["metadata"]["candidate_summary"]
     assert candidate["metadata"]["candidate_content_length"] > 0
     assert candidate["metadata"]["seed_url"] == "https://www.gov.cn/zhengce/"
+    assert candidate["metadata"]["policy_review_required"] is False
+    assert candidate["metadata"]["matched_policy_keywords"]
+    assert candidate["metadata"]["index_status"] == "indexed"
+    assert candidate["knowledge_item_id"]
 
     runs_response = client.get("/api/v1/admin/policy-crawler/runs")
     assert runs_response.status_code == 200
     assert runs_response.json()[0]["candidate_count"] == 1
-
-    publish_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/publish")
-    assert publish_response.status_code == 200
-    assert publish_response.json()["status"] == "published"
-    assert publish_response.json()["knowledge_item_id"]
-    assert "indexed" in publish_response.json()["review_note"]
-
-    second_publish_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/publish")
-    assert second_publish_response.status_code == 400
+    assert runs_response.json()[0]["metadata"]["auto_published_count"] == 1
+    assert runs_response.json()[0]["metadata"]["auto_indexed_count"] == 1
 
 
 def test_admin_policy_live_crawler_reject_flow(monkeypatch, tmp_path) -> None:
@@ -289,6 +288,7 @@ def test_admin_policy_live_crawler_reject_flow(monkeypatch, tmp_path) -> None:
         store=PolicyCrawlerStore(sqlite_db_path=db_path),
         provider=FakeCrawlerProvider(documents=[document]),
         candidate_dir=tmp_path / "candidates",
+        settings=Settings(rag_policy_live_crawler_auto_publish=False, rag_policy_live_crawler_scheduled_enabled=False),
     )
     scheduler.start()
     monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)

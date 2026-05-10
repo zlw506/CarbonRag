@@ -12,12 +12,13 @@ Fix the admin live policy crawler surface so it is an actually testable Scrapy w
 ## Key Decisions
 
 - Official allowlist is limited to `gov.cn`, `ndrc.gov.cn`, `mee.gov.cn`, `miit.gov.cn`, `fgw.beijing.gov.cn`, and `beijing.gov.cn`.
-- Live crawling remains admin-triggered and review-first.
-- Scheduled public crawling remains disabled by default.
-- Crawl candidates must stay outside `/ask` and public retrieval until admin publication.
+- Live crawling supports manual admin trigger and default scheduled automatic refresh.
+- Scheduled public crawling is enabled by default with strict official allowlist, robots, throttling, depth/page limits, and topic filtering.
+- Crawled documents that match double-carbon policy or technical-standard topics are auto-published to `public_policy_web`, queued through `crawl_ingest`, and indexed immediately; candidate rows remain as audit records.
 - Scrapy should be available in the normal backend development install, while still failing with explicit diagnostics if the runtime environment uses a Python interpreter without Scrapy.
 - The production crawler uses a shared Scrapy spider module for both local execution and optional Scrapyd deployment; Scrapy/Scrapyd remain external dependencies, not vendored source copies.
 - Crawled binary policy attachments are staged as bytes from base64 payloads so PDF/OFD candidates are not corrupted before parser processing.
+- The six default sources are official search/listing entrypoints under `gov.cn`, `ndrc.gov.cn`, `mee.gov.cn`, `miit.gov.cn`, `fgw.beijing.gov.cn`, and `beijing.gov.cn`, not one fixed detail page.
 
 ## Risks
 

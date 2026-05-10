@@ -92,6 +92,7 @@ def test_policy_live_crawler_backend_defaults_to_local_scrapy(tmp_path) -> None:
     assert status.provider_mode == "scrapy"
     assert status.manual_enabled is True
     assert status.scheduled_enabled is False
+    assert status.auto_publish_enabled is True
 
 
 def test_policy_live_crawler_scrapyd_unavailable_does_not_crash(tmp_path) -> None:
@@ -122,7 +123,7 @@ def test_policy_live_crawler_scrapyd_unavailable_does_not_crash(tmp_path) -> Non
     assert scheduler.list_candidates() == []
 
 
-def test_policy_live_crawler_scrapyd_success_stages_pending_candidates(tmp_path) -> None:
+def test_policy_live_crawler_scrapyd_success_stages_candidates_without_auto_publish_when_disabled(tmp_path) -> None:
     document = _official_document("https://www.gov.cn/zhengce/scrapyd-policy.html")
 
     def fake_get(url: str, timeout_seconds: float):
@@ -140,7 +141,7 @@ def test_policy_live_crawler_scrapyd_success_stages_pending_candidates(tmp_path)
         assert "DEPTH_LIMIT=1" in payload["setting"]
         return {"status": "ok", "jobid": "job-1", "documents": [document.model_dump(mode="json")]}
 
-    settings = _settings(tmp_path, {"rag_policy_crawler_backend": "scrapyd"})
+    settings = _settings(tmp_path, {"rag_policy_crawler_backend": "scrapyd", "rag_policy_live_crawler_auto_publish": False})
     provider = ScrapydCrawlerProvider(settings=settings, http_get=fake_get, http_post=fake_post, sleeper=lambda seconds: None)
     scheduler = _build_scheduler(tmp_path, provider=provider, settings=settings)
     scheduler.start()
@@ -171,7 +172,7 @@ def test_policy_live_crawler_scrapyd_reads_spider_output_file(tmp_path) -> None:
         output_path.write_text(json.dumps([document.model_dump(mode="json")], ensure_ascii=False), encoding="utf-8")
         return {"status": "ok", "jobid": "job-1"}
 
-    settings = _settings(tmp_path, {"rag_policy_crawler_backend": "scrapyd"})
+    settings = _settings(tmp_path, {"rag_policy_crawler_backend": "scrapyd", "rag_policy_live_crawler_auto_publish": False})
     provider = ScrapydCrawlerProvider(settings=settings, http_get=fake_get, http_post=fake_post, sleeper=lambda seconds: None)
     scheduler = _build_scheduler(tmp_path, provider=provider, settings=settings)
     scheduler.start()
@@ -223,9 +224,13 @@ def test_policy_live_crawler_scrapy_is_available_in_normal_backend_env() -> None
     assert descriptor.available is True
 
 
-def test_policy_live_crawler_stages_pending_candidates_before_indexing(tmp_path) -> None:
+def test_policy_live_crawler_stages_candidates_without_indexing_when_auto_publish_disabled(tmp_path) -> None:
     document = _official_document("https://www.gov.cn/zhengce/live-policy.html")
-    scheduler = _build_scheduler(tmp_path, provider=FakeCrawlerProvider(documents=[document]))
+    scheduler = _build_scheduler(
+        tmp_path,
+        provider=FakeCrawlerProvider(documents=[document]),
+        settings_overrides={"rag_policy_live_crawler_auto_publish": False},
+    )
     scheduler.start()
 
     run = scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
@@ -252,13 +257,17 @@ def test_policy_live_crawler_writes_binary_candidate_payload(tmp_path) -> None:
     raw_pdf = b"%PDF-1.4\n% CarbonRag crawler binary smoke\n"
     document = CrawledDocument(
         url="https://www.gov.cn/zhengce/binary-policy.pdf",
-        title="Binary policy sample",
+        title="Carbon technical standard sample",
         content=base64.b64encode(raw_pdf).decode("ascii"),
         content_type="application/pdf",
         source_name="Gov.cn",
         metadata={"content_transfer_encoding": "base64"},
     )
-    scheduler = _build_scheduler(tmp_path, provider=FakeCrawlerProvider(documents=[document]))
+    scheduler = _build_scheduler(
+        tmp_path,
+        provider=FakeCrawlerProvider(documents=[document]),
+        settings_overrides={"rag_policy_live_crawler_auto_publish": False},
+    )
     scheduler.start()
 
     run = scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
@@ -271,7 +280,11 @@ def test_policy_live_crawler_writes_binary_candidate_payload(tmp_path) -> None:
 
 def test_policy_live_crawler_publish_candidate_enqueues_crawl_ingest(monkeypatch, tmp_path) -> None:
     document = _official_document("https://www.gov.cn/zhengce/publish-policy.html")
-    scheduler = _build_scheduler(tmp_path, provider=FakeCrawlerProvider(documents=[document]))
+    scheduler = _build_scheduler(
+        tmp_path,
+        provider=FakeCrawlerProvider(documents=[document]),
+        settings_overrides={"rag_policy_live_crawler_auto_publish": False},
+    )
     scheduler.start()
     scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
     candidate = scheduler.list_candidates()[0]
@@ -294,9 +307,42 @@ def test_policy_live_crawler_publish_candidate_enqueues_crawl_ingest(monkeypatch
     assert "indexed" in (published.review_note or "")
 
 
+def test_policy_live_crawler_auto_publishes_and_indexes_matching_policy(monkeypatch, tmp_path) -> None:
+    document = _official_document("https://www.gov.cn/zhengce/auto-index-policy.html")
+    runner = KnowledgeTaskRunner()
+    service = _NoBootstrapKnowledgeService(
+        store=KnowledgeStore(sqlite_db_path=tmp_path / "carbonrag.sqlite3"),
+        session_service=_FakeSessionService(),
+    )
+    monkeypatch.setattr("app.knowledge.service.get_knowledge_service", lambda: service)
+    monkeypatch.setattr("app.knowledge.runner.get_knowledge_task_runner", lambda: runner)
+    scheduler = _build_scheduler(tmp_path, provider=FakeCrawlerProvider(documents=[document]))
+    scheduler.start()
+
+    run = scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
+    candidate = scheduler.list_candidates()[0]
+    item = service.store.get_item(candidate.knowledge_item_id or "")
+
+    assert run.status == "succeeded"
+    assert run.candidate_count == 1
+    assert run.metadata["auto_publish_enabled"] is True
+    assert run.metadata["auto_published_count"] == 1
+    assert run.metadata["auto_indexed_count"] == 1
+    assert candidate.status == "published"
+    assert candidate.metadata["policy_review_required"] is False
+    assert candidate.metadata["matched_policy_keywords"]
+    assert candidate.metadata["index_status"] == "indexed"
+    assert item is not None
+    assert item.source_type == "public_policy_web"
+
+
 def test_policy_live_crawler_reject_candidate_does_not_index(monkeypatch, tmp_path) -> None:
     document = _official_document("https://www.gov.cn/zhengce/reject-policy.html")
-    scheduler = _build_scheduler(tmp_path, provider=FakeCrawlerProvider(documents=[document]))
+    scheduler = _build_scheduler(
+        tmp_path,
+        provider=FakeCrawlerProvider(documents=[document]),
+        settings_overrides={"rag_policy_live_crawler_auto_publish": False},
+    )
     scheduler.start()
     scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
     candidate = scheduler.list_candidates()[0]
@@ -336,7 +382,11 @@ def test_policy_live_crawler_non_reentrant_guard(tmp_path) -> None:
 
 def test_policy_live_crawler_published_candidate_can_be_processed(monkeypatch, tmp_path) -> None:
     document = _official_document("https://www.gov.cn/zhengce/index-policy.html")
-    scheduler = _build_scheduler(tmp_path, provider=FakeCrawlerProvider(documents=[document]))
+    scheduler = _build_scheduler(
+        tmp_path,
+        provider=FakeCrawlerProvider(documents=[document]),
+        settings_overrides={"rag_policy_live_crawler_auto_publish": False},
+    )
     scheduler.start()
     scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
     candidate = scheduler.list_candidates()[0]

@@ -75,8 +75,9 @@ def main() -> int:
             status_response = client.get("/api/v1/admin/policy-crawler/status")
             assert status_response.status_code == 200, status_response.text
             status_payload = status_response.json()
-            assert status_payload["scheduled_enabled"] is False, status_payload
-            checks.append("manual-default scheduler status")
+            assert status_payload["scheduled_enabled"] is True, status_payload
+            assert status_payload["auto_publish_enabled"] is True, status_payload
+            checks.append("auto-refresh scheduler status")
 
             sources_response = client.get("/api/v1/admin/policy-crawler/sources")
             assert sources_response.status_code == 200, sources_response.text
@@ -91,15 +92,10 @@ def main() -> int:
             candidates_response = client.get("/api/v1/admin/policy-crawler/candidates")
             assert candidates_response.status_code == 200, candidates_response.text
             candidate = candidates_response.json()[0]
-            assert candidate["status"] == "pending_review", candidate
-            assert not knowledge_service.list_admin_items(source_type="public_policy_web")
-            checks.append("pending candidate before indexing")
-
-            publish_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/publish")
-            assert publish_response.status_code == 200, publish_response.text
-            assert publish_response.json()["status"] == "published", publish_response.json()
+            assert candidate["status"] == "published", candidate
+            assert candidate["metadata"]["index_status"] == "indexed", candidate
             assert knowledge_service.list_admin_items(source_type="public_policy_web")
-            checks.append("publish enqueues ingestion")
+            checks.append("auto-published candidate indexed")
 
     print(json.dumps({"status": "ok", "checks": checks}, ensure_ascii=False, indent=2))
     return 0
