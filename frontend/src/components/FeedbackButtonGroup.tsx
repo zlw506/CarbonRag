@@ -9,6 +9,7 @@ interface FeedbackButtonGroupProps {
     traceId: string;
     sessionId?: string | null;
     size?: "small" | "middle" | "large";
+    iconOnly?: boolean;
 }
 
 export function FeedbackButtonGroup({
@@ -16,6 +17,7 @@ export function FeedbackButtonGroup({
     traceId,
     sessionId,
     size = "small",
+    iconOnly = false,
 }: FeedbackButtonGroupProps) {
     const [pendingRating, setPendingRating] = useState<FeedbackRating | null>(null);
     const [comment, setComment] = useState("");
@@ -53,18 +55,22 @@ export function FeedbackButtonGroup({
                 <Button
                     size={size}
                     icon={<LikeOutlined />}
+                    type={iconOnly ? "text" : "default"}
                     disabled={submitted}
                     onClick={() => setPendingRating("up")}
+                    aria-label="赞"
                 >
-                    赞
+                    {iconOnly ? null : "赞"}
                 </Button>
                 <Button
                     size={size}
                     icon={<DislikeOutlined />}
+                    type={iconOnly ? "text" : "default"}
                     disabled={submitted}
                     onClick={() => setPendingRating("down")}
+                    aria-label="踩"
                 >
-                    踩
+                    {iconOnly ? null : "踩"}
                 </Button>
                 {submitted ? <Tag color="green">已反馈</Tag> : null}
             </Space>

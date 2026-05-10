@@ -59,7 +59,7 @@ def build_context_bundle(
         limitations = [
             "不得伪造引用，也不得声称访问了未检索到的外部证据。",
             "private sample 当前只是脱敏演示样例，不代表真实客户审计结果。",
-            "用户上传文件进入知识任务流后，只有在当前 session 已挂接且索引完成时，才可作为私有依据参与回答。",
+            "用户上传文件只有在当前 session 已挂接且解析索引完成时，才可作为私有依据参与回答；若已检索到上传文件片段，应直接基于片段回答。",
         ]
 
         if session_summary:
@@ -146,6 +146,10 @@ def build_context_bundle(
                         f"片段内容：{hit['snippet']}",
                     ]
                 )
+            if any(hit.get("source_type") == "private_upload" for hit in private_hits):
+                evidence_lines.append(
+                    "注意：本轮已命中用户上传文件片段。请优先基于这些片段回答用户关于报告、附件或文档内容的问题；不要再声称无法读取该文件。"
+                )
         if not evidence_lines:
             evidence_lines = [
                 "当前未检索到足够依据。",
@@ -179,7 +183,7 @@ def build_context_bundle(
                     *session_context_lines,
                     *memory_note_lines,
                     *scope_strategy_lines,
-                    "当前限制：未接入完整知识库、不得伪造引用。",
+                    "当前限制：只能基于会话上下文与已检索依据回答，不得伪造引用或未命中的数据。",
                     f"当前知识范围请求：{knowledge_scope_requested}。",
                     f"当前知识范围实际生效：{knowledge_scope_effective}。",
                     f"当前上下文占用估算：{context_usage_estimate} / {context_budget_estimate}。",

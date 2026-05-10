@@ -1,10 +1,16 @@
 import {
+    BranchesOutlined,
+    CopyOutlined,
+    EditOutlined,
     FileTextOutlined,
     LinkOutlined,
     MessageOutlined,
     MoreOutlined,
     PaperClipOutlined,
+    ReloadOutlined,
     SettingOutlined,
+    ShareAltOutlined,
+    SoundOutlined,
     TagsOutlined,
 } from "@ant-design/icons";
 import {
@@ -813,6 +819,10 @@ export function AskPage() {
                                             activeCitation={message.message_id === selectedCitationMessageId}
                                             expandThinkingByDefault={settings?.chat.expand_thinking_by_default ?? false}
                                             onSelectCitations={() => openCitationPanel(message.message_id)}
+                                            onEditUserMessage={(content) => {
+                                                setQuestion(content);
+                                                antdMessage.info("已放回输入框，可继续编辑后发送。");
+                                            }}
                                         />
                                     ))
                                 )}
@@ -969,6 +979,7 @@ interface MessageBubbleProps {
     activeCitation: boolean;
     expandThinkingByDefault: boolean;
     onSelectCitations: () => void;
+    onEditUserMessage?: (content: string) => void;
 }
 
 function ComposerAttachmentChip({ attachment, onRemove }: { attachment: SessionAttachment; onRemove: () => void }) {
@@ -1011,7 +1022,7 @@ function MessageAttachmentStrip({ attachments }: { attachments: SessionAttachmen
     );
 }
 
-function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDefault, onSelectCitations }: MessageBubbleProps) {
+function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDefault, onSelectCitations, onEditUserMessage }: MessageBubbleProps) {
     const isAssistant = message.role === "assistant";
     const isSystem = message.role === "system";
     const hasCitations = isAssistant && message.citations.length > 0;
@@ -1024,6 +1035,7 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
     const shouldShowThinking = isAssistant && (message.client_state === "pending" || message.client_state === "thinking" || hasRealThinkingContent);
     const shouldShowDetails = Boolean(message.trace_id) || Boolean(message.trace_id && (!message.client_state || message.client_state === "done" || message.client_state === "error"));
     const liveStateText = message.client_state ? lifecycleStatusTextMap[message.client_state] : null;
+    const messageContent = resolveMessageContent(message, isAssistant);
     const [thinkingExpanded, setThinkingExpanded] = useState(
         expandThinkingByDefault || message.client_state === "pending" || message.client_state === "thinking",
     );
@@ -1091,24 +1103,26 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
                 }
             >
                 <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                    <Space size={8} wrap className="chat-message__header">
-                        <Typography.Text className={isAssistant ? "chat-message__speaker chat-message__speaker--assistant" : isSystem ? "chat-message__speaker chat-message__speaker--system" : "chat-message__speaker chat-message__speaker--user"}>
-                            {isAssistant ? "CarbonRag" : isSystem ? "系统消息" : "我"}
-                        </Typography.Text>
-                        {message.client_state && ["pending", "connecting", "thinking", "reconnecting", "streaming"].includes(message.client_state) ? (
-                            <span className={`chat-live-state chat-live-state--${message.client_state}`}>
-                                <span className="chat-live-state__dot" aria-hidden="true" />
-                                <span>{liveStateText}</span>
-                            </span>
-                        ) : lifecycleTag ? (
-                            <Tag color={lifecycleTag.color}>{lifecycleTag.label}</Tag>
-                        ) : null}
-                        {message.status_note ? (
-                            <Typography.Text type="secondary">{message.status_note}</Typography.Text>
-                        ) : null}
-                        {finalStatusTag && finalStatusLabel ? <Tag color={finalStatusTag}>{finalStatusLabel}</Tag> : null}
-                        <Typography.Text type="secondary">{formatTimestamp(message.created_at)}</Typography.Text>
-                    </Space>
+                    {!isAssistant && !isSystem ? null : (
+                        <Space size={8} wrap className="chat-message__header">
+                            <Typography.Text className={isAssistant ? "chat-message__speaker chat-message__speaker--assistant" : "chat-message__speaker chat-message__speaker--system"}>
+                                {isAssistant ? "CarbonRag" : "系统消息"}
+                            </Typography.Text>
+                            {message.client_state && ["pending", "connecting", "thinking", "reconnecting", "streaming"].includes(message.client_state) ? (
+                                <span className={`chat-live-state chat-live-state--${message.client_state}`}>
+                                    <span className="chat-live-state__dot" aria-hidden="true" />
+                                    <span>{liveStateText}</span>
+                                </span>
+                            ) : lifecycleTag ? (
+                                <Tag color={lifecycleTag.color}>{lifecycleTag.label}</Tag>
+                            ) : null}
+                            {message.status_note ? (
+                                <Typography.Text type="secondary">{message.status_note}</Typography.Text>
+                            ) : null}
+                            {finalStatusTag && finalStatusLabel ? <Tag color={finalStatusTag}>{finalStatusLabel}</Tag> : null}
+                            <Typography.Text type="secondary">{formatTimestamp(message.created_at)}</Typography.Text>
+                        </Space>
+                    )}
                     {isAssistant && shouldShowThinking ? (
                         <Collapse
                             ghost
@@ -1122,8 +1136,38 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
                         {renderMessageContent(message, isAssistant)}
                     </div>
                     {!isAssistant && !isSystem ? <MessageAttachmentStrip attachments={message.client_attachments ?? []} /> : null}
+                    {!isAssistant && !isSystem ? (
+                        <div className="chat-message__quick-actions chat-message__quick-actions--user">
+                            <Tooltip title="复制">
+                                <Button
+                                    type="text"
+                                    size="small"
+                                    icon={<CopyOutlined />}
+                                    onClick={() => void copyTextToClipboard(messageContent, "已复制这条消息。")}
+                                />
+                            </Tooltip>
+                            <Tooltip title="编辑并放回输入框">
+                                <Button
+                                    type="text"
+                                    size="small"
+                                    icon={<EditOutlined />}
+                                    onClick={() => onEditUserMessage?.(messageContent)}
+                                />
+                            </Tooltip>
+                        </div>
+                    ) : null}
                     {isAssistant ? (
                         <div className="chat-message__meta">
+                            <AssistantQuickActions
+                                content={messageContent}
+                                hasCitations={hasCitations}
+                                activeCitation={activeCitation}
+                                onSelectCitations={onSelectCitations}
+                                citationCount={message.citations.length}
+                                traceId={message.trace_id}
+                                sessionId={sessionId}
+                                createdAt={message.created_at}
+                            />
                             <Space size={12} wrap>
                                 {hasCitations ? (
                                     <>
@@ -1165,6 +1209,7 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
                                                             traceId={message.trace_id}
                                                             sessionId={sessionId}
                                                             size="small"
+                                                            iconOnly
                                                         />
                                                     ) : null}
                                                 </Space>
@@ -1177,6 +1222,92 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
                     ) : null}
                 </Space>
             </Card>
+        </div>
+    );
+}
+
+interface AssistantQuickActionsProps {
+    content: string;
+    hasCitations: boolean;
+    activeCitation: boolean;
+    onSelectCitations: () => void;
+    citationCount: number;
+    traceId?: string | null;
+    sessionId: string;
+    createdAt: string;
+}
+
+function AssistantQuickActions({
+    content,
+    hasCitations,
+    activeCitation,
+    onSelectCitations,
+    citationCount,
+    traceId,
+    sessionId,
+    createdAt,
+}: AssistantQuickActionsProps) {
+    const moreContent = (
+        <Space direction="vertical" size={10} className="chat-message-action-popover">
+            <Typography.Text type="secondary">{formatTimestamp(createdAt)}</Typography.Text>
+            <Button type="text" icon={<BranchesOutlined />} onClick={() => antdMessage.info("分支对话功能后续接入。")}>
+                新聊天中的分支
+            </Button>
+            <Button type="text" icon={<SoundOutlined />} onClick={() => antdMessage.info("朗读功能后续接入。")}>
+                朗读
+            </Button>
+        </Space>
+    );
+
+    return (
+        <div className="chat-message__quick-actions chat-message__quick-actions--assistant">
+            <Tooltip title="复制回答">
+                <Button
+                    type="text"
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={() => void copyTextToClipboard(content, "已复制回答。")}
+                />
+            </Tooltip>
+            {traceId ? (
+                <FeedbackButtonGroup
+                    targetType="ask"
+                    traceId={traceId}
+                    sessionId={sessionId}
+                    size="small"
+                    iconOnly
+                />
+            ) : null}
+            <Tooltip title="分享">
+                <Button
+                    type="text"
+                    size="small"
+                    icon={<ShareAltOutlined />}
+                    onClick={() => void copyTextToClipboard(`${window.location.origin}${window.location.pathname}`, "已复制当前页面链接。")}
+                />
+            </Tooltip>
+            <Tooltip title="重新生成">
+                <Button
+                    type="text"
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={() => antdMessage.info("重新生成入口已预留，当前请重新发送问题。")}
+                />
+            </Tooltip>
+            <Popover trigger="click" placement="top" content={moreContent}>
+                <Button type="text" size="small" icon={<MoreOutlined />} />
+            </Popover>
+            {hasCitations ? (
+                <Button
+                    className="chat-message__source-action"
+                    type={activeCitation ? "primary" : "default"}
+                    size="small"
+                    icon={<FileTextOutlined />}
+                    onClick={onSelectCitations}
+                >
+                    来源 {citationCount}
+                </Button>
+            ) : null}
         </div>
     );
 }
@@ -1680,6 +1811,8 @@ function normalizeAssistantMarkdown(content: string) {
 
 function normalizeMarkdownTextSegment(segment: string) {
     return segment
+        .replace(/(^|\n)\s*#{1,6}\s+(?=\d+\.)/g, "$1")
+        .replace(/(^|\n)\s*[-*]\s*(?=\n|$)/g, "$1")
         .replace(/([^\n])(\s*)(#{1,6})(?=\S)/g, "$1\n\n$3 ")
         .replace(/(^|\n)(#{1,6})(?=\S)/g, "$1$2 ")
         .replace(/([^\n])(\s+)-(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1\n- ")
@@ -1688,6 +1821,21 @@ function normalizeMarkdownTextSegment(segment: string) {
         .replace(/(^|\n)(\d+)\.(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1$2. ")
         .replace(/([。！？:：])(\s*)([-*]\s)/g, "$1\n$3")
         .replace(/([。！？:：])(\s*)(\d+\.\s)/g, "$1\n$3");
+}
+
+async function copyTextToClipboard(text: string, successMessage: string) {
+    const normalized = text.trim();
+    if (!normalized) {
+        antdMessage.warning("没有可复制的内容。");
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(normalized);
+        antdMessage.success(successMessage);
+    } catch {
+        antdMessage.error("复制失败，请手动选择内容。");
+    }
 }
 
 function normalizeAskStreamMemoryState(memoryState: AskStreamMetadataEvent["memory_state"]): SessionDetail["memory_state"] {
