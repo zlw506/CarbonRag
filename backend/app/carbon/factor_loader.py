@@ -38,6 +38,7 @@ def resolve_v2_factor_files(factor_file: Path | str | None = None) -> list[Path]
         resolved_dir / "carbon_v2_seed.json",
         resolved_dir / "electricity_cn_2023_official.json",
         resolved_dir / "fuel_combustion_cn_guidance_seed.json",
+        resolved_dir / "carbonstop_calculator_public_seed.json",
     ]
 
 
@@ -101,6 +102,15 @@ class CarbonFactorLoader:
                             records_by_id[record.factor_id] = record
                     except Exception as exc:  # pragma: no cover - pydantic internals are tested through callers
                         raise FactorLoadError(f"V2 factor payload validation failed: {path}") from exc
+                else:
+                    raw_calculator = payload.get("calculator_items")
+                    if isinstance(raw_calculator, list) and raw_calculator:
+                        try:
+                            for item in raw_calculator:
+                                record = self._calculator_item_to_record(item, payload)
+                                records_by_id[record.factor_id] = record
+                        except Exception as exc:  # pragma: no cover - defensive validation
+                            raise FactorLoadError(f"Calculator factor payload validation failed: {path}") from exc
             if records_by_id:
                 return list(records_by_id.values())
             if not loaded_any:
@@ -113,6 +123,13 @@ class CarbonFactorLoader:
                 return [FactorRecord.model_validate(item) for item in raw_v2]
             except Exception as exc:  # pragma: no cover - pydantic internals are tested through callers
                 raise FactorLoadError("V2 factor payload validation failed.") from exc
+
+        raw_calculator = payload.get("calculator_items")
+        if isinstance(raw_calculator, list) and raw_calculator:
+            try:
+                return [self._calculator_item_to_record(item, payload) for item in raw_calculator]
+            except Exception as exc:  # pragma: no cover - defensive validation
+                raise FactorLoadError("Calculator factor payload validation failed.") from exc
 
         raw_factors = payload.get("factors")
         if isinstance(raw_factors, list) and raw_factors:
@@ -168,6 +185,47 @@ class CarbonFactorLoader:
             result_unit="kgCO2e",
             is_default=True,
             notes=factor.note,
+        )
+
+    @staticmethod
+    def _calculator_item_to_record(item: dict, payload: dict) -> FactorRecord:
+        source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+        item_id = int(item["id"])
+        group_key = str(item["group_key"])
+        group_label = str(item["group_label"])
+        name = str(item["name"])
+        activity_unit = str(item["unit"])
+        source_name = str(source.get("source_name") or "CarbonStop 中国碳数据库公开碳计算器")
+        source_url = source.get("source_url") or "https://www.carbonstop.com/carboncalculators"
+        source_type = str(source.get("source_type") or "public_calculator")
+        return FactorRecord(
+            factor_id=f"carbonstop-calculator-{item_id:02d}",
+            factor_version=str(payload.get("version") or "public-calculator-v1"),
+            source_type=source_type,
+            source_name=source_name,
+            source_url=source_url,
+            scope="scope3",
+            activity_category=f"personal_calculator_{group_key}",
+            activity_name=name,
+            region="CN",
+            region_level="national",
+            region_name="中国",
+            source_priority=20,
+            applicable_industry="个人生活碳计算器",
+            applicable_standard="CarbonStop 公开碳计算器",
+            quality_level="public_calculator",
+            factor_value=float(item["factor_value"]),
+            factor_unit=f"kgCO2e/{activity_unit}",
+            activity_unit=activity_unit,
+            result_unit="kgCO2e",
+            is_default=True,
+            notes=str(item.get("tip") or ""),
+            tags=[
+                "carbonstop_calculator",
+                f"calculator_group:{group_key}",
+                f"calculator_group_label:{group_label}",
+                f"calculator_order:{item_id:02d}",
+            ],
         )
 
     @staticmethod

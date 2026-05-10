@@ -24,21 +24,21 @@ import { useEffect, useMemo, useState } from "react";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { submitCarbonCalculation } from "../../services/carbon";
-import { searchCarbonFactors } from "../../services/carbonFactors";
+import { getCarbonCalculatorCatalog } from "../../services/carbonFactors";
 import { getSession } from "../../services/sessions";
 import type { CalcCarbonResponse, CarbonActivityInput } from "../../types/carbon";
-import type { CarbonFactorSummary } from "../../types/carbonFactor";
+import type { CarbonCalculatorCatalogGroup, CarbonCalculatorCatalogItem } from "../../types/carbonFactor";
 import type { SessionDetail } from "../../types/session";
 
 type CalculatorGroupKey = "clothes" | "food" | "home" | "travel" | "daily";
 
 interface SelectedCalculatorItem {
     row_id: string;
-    factor: CarbonFactorSummary;
+    item: CarbonCalculatorCatalogItem;
     activity_value: number;
 }
 
-const CALCULATOR_GROUPS: Array<{ key: CalculatorGroupKey; label: string; hint: string }> = [
+const FALLBACK_CALCULATOR_GROUPS: Array<{ key: CalculatorGroupKey; label: string; hint: string }> = [
     { key: "clothes", label: "衣", hint: "纺织、服装、清洁用品等消费品因子" },
     { key: "food", label: "食", hint: "食品、烟酒茶、农林牧渔相关因子" },
     { key: "home", label: "住", hint: "电力、热力、燃气、建筑材料与居家能源" },
@@ -47,14 +47,14 @@ const CALCULATOR_GROUPS: Array<{ key: CalculatorGroupKey; label: string; hint: s
 ];
 
 const TREE_ABSORPTION_KGCO2E = 18.3;
-const MAX_VISIBLE_OPTIONS_PER_GROUP = 36;
 
 export function CarbonCalcPage() {
     const { activeSessionId, refreshSessions } = useWorkbenchShellContext();
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
     const [periodLabel, setPeriodLabel] = useState("");
-    const [factors, setFactors] = useState<CarbonFactorSummary[]>([]);
-    const [factorLoading, setFactorLoading] = useState(false);
+    const [calculatorGroups, setCalculatorGroups] = useState<CarbonCalculatorCatalogGroup[]>([]);
+    const [calculatorItems, setCalculatorItems] = useState<CarbonCalculatorCatalogItem[]>([]);
+    const [catalogLoading, setCatalogLoading] = useState(false);
     const [activeGroup, setActiveGroup] = useState<CalculatorGroupKey>("travel");
     const [factorSearch, setFactorSearch] = useState("");
     const [selectedItems, setSelectedItems] = useState<SelectedCalculatorItem[]>([]);
@@ -72,7 +72,7 @@ export function CarbonCalcPage() {
     }, [activeSessionId]);
 
     useEffect(() => {
-        void loadCalculatorFactors();
+        void loadCalculatorCatalog();
     }, []);
 
     async function loadSessionDetail(sessionId: string) {
@@ -89,62 +89,63 @@ export function CarbonCalcPage() {
         }
     }
 
-    async function loadCalculatorFactors() {
-        setFactorLoading(true);
+    async function loadCalculatorCatalog() {
+        setCatalogLoading(true);
         setTransportError(null);
         try {
-            const pageSize = 100;
-            const firstPage = await searchCarbonFactors({ quality: "public_ccdb", page: 1, page_size: pageSize });
-            const pages = Math.min(Math.ceil(firstPage.total / pageSize), 10);
-            const rest = await Promise.all(
-                Array.from({ length: Math.max(pages - 1, 0) }, (_, index) =>
-                    searchCarbonFactors({ quality: "public_ccdb", page: index + 2, page_size: pageSize }),
-                ),
-            );
-            const merged = [firstPage, ...rest].flatMap((page) => page.items);
-            setFactors(dedupeFactors(merged));
+            const catalog = await getCarbonCalculatorCatalog();
+            setCalculatorGroups(catalog.groups);
+            setCalculatorItems(catalog.items);
         } catch {
-            setFactors([]);
-            setTransportError("当前无法读取本地碳因子库，碳计算器暂不可用。");
+            setCalculatorGroups([]);
+            setCalculatorItems([]);
+            setTransportError("当前无法读取个人碳计算器条目，请稍后重试。");
         } finally {
-            setFactorLoading(false);
+            setCatalogLoading(false);
         }
     }
 
-    const factorsByGroup = useMemo(() => {
-        const grouped: Record<CalculatorGroupKey, CarbonFactorSummary[]> = {
+    const groups = useMemo(
+        () => normalizeCalculatorGroups(calculatorGroups),
+        [calculatorGroups],
+    );
+
+    const itemsByGroup = useMemo(() => {
+        const grouped: Record<CalculatorGroupKey, CarbonCalculatorCatalogItem[]> = {
             clothes: [],
             food: [],
             home: [],
             travel: [],
             daily: [],
         };
-        factors.forEach((factor) => grouped[groupFactorForCalculator(factor)].push(factor));
+        calculatorItems.forEach((item) => {
+            const groupKey = toCalculatorGroupKey(item.group_key);
+            grouped[groupKey].push(item);
+        });
         Object.keys(grouped).forEach((key) => {
-            grouped[key as CalculatorGroupKey] = sortCalculatorFactors(grouped[key as CalculatorGroupKey]);
+            grouped[key as CalculatorGroupKey] = [...grouped[key as CalculatorGroupKey]].sort(
+                (a, b) => a.order - b.order,
+            );
         });
         return grouped;
-    }, [factors]);
+    }, [calculatorItems]);
 
-    const visibleFactors = useMemo(() => {
+    const visibleItems = useMemo(() => {
         const keyword = factorSearch.trim().toLowerCase();
-        const source = factorsByGroup[activeGroup];
-        const filtered = keyword
-            ? source.filter((factor) =>
+        const source = itemsByGroup[activeGroup];
+        return keyword
+            ? source.filter((item) =>
                 [
-                    factor.name,
-                    factor.category,
-                    factor.industry ?? "",
-                    factor.source?.publisher ?? "",
-                    factor.source?.title ?? "",
+                    item.name,
+                    item.group_label,
+                    item.source_name,
                 ]
                     .join(" ")
                     .toLowerCase()
                     .includes(keyword),
             )
             : source;
-        return filtered.slice(0, MAX_VISIBLE_OPTIONS_PER_GROUP);
-    }, [activeGroup, factorSearch, factorsByGroup]);
+    }, [activeGroup, factorSearch, itemsByGroup]);
 
     const localTotalKgco2e = useMemo(
         () => roundCarbonValue(
@@ -152,8 +153,8 @@ export function CarbonCalcPage() {
                 (sum, item) =>
                     sum
                     + item.activity_value
-                    * item.factor.factor_value
-                    * resultUnitToKgco2eMultiplier(item.factor.co2e_unit || item.factor.factor_unit),
+                    * item.item.factor_value
+                    * resultUnitToKgco2eMultiplier(item.item.result_unit || item.item.factor_unit),
                 0,
             ),
         ),
@@ -163,21 +164,21 @@ export function CarbonCalcPage() {
     const treeCount = Math.ceil(localTotalKgco2e / TREE_ABSORPTION_KGCO2E);
     const positiveItems = selectedItems.filter((item) => item.activity_value > 0);
 
-    function addFactor(factor: CarbonFactorSummary) {
+    function addItem(item: CarbonCalculatorCatalogItem) {
         setSelectedItems((current) => {
-            const existed = current.find((item) => item.factor.factor_id === factor.factor_id);
+            const existed = current.find((selected) => selected.item.factor_id === item.factor_id);
             if (existed) {
-                return current.map((item) =>
-                    item.factor.factor_id === factor.factor_id
-                        ? { ...item, activity_value: item.activity_value + 1 }
-                        : item,
+                return current.map((selected) =>
+                    selected.item.factor_id === item.factor_id
+                        ? { ...selected, activity_value: selected.activity_value + 1 }
+                        : selected,
                 );
             }
             return [
                 ...current,
                 {
-                    row_id: `${factor.factor_id}-${Date.now()}`,
-                    factor,
+                    row_id: `${item.factor_id}-${Date.now()}`,
+                    item,
                     activity_value: 1,
                 },
             ];
@@ -209,7 +210,7 @@ export function CarbonCalcPage() {
             const response = await submitCarbonCalculation({
                 session_id: activeSessionId ?? undefined,
                 period_label: periodLabel.trim() || undefined,
-                activity_items: positiveItems.map((item) => buildActivityInput(item.factor, item.activity_value)),
+                activity_items: positiveItems.map((item) => buildActivityInput(item.item, item.activity_value)),
             });
             setCalcResult(response);
             if (activeSessionId) {
@@ -245,20 +246,20 @@ export function CarbonCalcPage() {
                     title={
                         <div className="carbon-calculator-title">
                             <span>碳计算器</span>
-                            <Tag color="green">使用本地碳因子库</Tag>
+                            <Tag color="green">个人生活条目</Tag>
                         </div>
                     }
                     extra={<Tag color="blue">{activeSession?.title ?? "未选择会话"}</Tag>}
                 >
                     <Typography.Paragraph type="secondary" className="carbon-calculator-intro">
-                        选择需要计算的类目并输入活动数据。计算因子来自当前 CarbonRag 碳因子库，结果会保存到当前会话，供报告和后续问答引用。
+                        选择衣、食、住、行、用中的个人生活条目并输入活动数据。计算器条目参考 CarbonStop 中国碳数据库公开碳计算器，结果会保存到当前会话，供报告和后续问答引用。
                     </Typography.Paragraph>
 
                     <div className="chat-session-state carbon-calculator-meta">
                         <Tag color="blue">当前会话：{activeSession ? "已关联" : "未关联"}</Tag>
                         <Tag color="green">上传附件：{uploadedFileCount}</Tag>
                         <Tag color="magenta">挂接样例：{privateSampleCount}</Tag>
-                        <Tag color="cyan">可用因子：{factors.length}</Tag>
+                        <Tag color="cyan">计算器条目：{calculatorItems.length}</Tag>
                     </div>
 
                     <div className="carbon-calculator-toolbar">
@@ -275,8 +276,8 @@ export function CarbonCalcPage() {
                             allowClear
                             className="carbon-calculator-toolbar__search"
                         />
-                        <Button icon={<ReloadOutlined />} onClick={() => void loadCalculatorFactors()} loading={factorLoading}>
-                            刷新因子
+                        <Button icon={<ReloadOutlined />} onClick={() => void loadCalculatorCatalog()} loading={catalogLoading}>
+                            刷新条目
                         </Button>
                     </div>
 
@@ -284,7 +285,7 @@ export function CarbonCalcPage() {
                         <section className="carbon-calculator-source-panel" aria-label="排放源类型">
                             <div className="carbon-calculator-source-panel__header">类型</div>
                             <div className="carbon-calculator-groups">
-                                {CALCULATOR_GROUPS.map((group) => (
+                                {groups.map((group) => (
                                     <button
                                         key={group.key}
                                         type="button"
@@ -292,29 +293,29 @@ export function CarbonCalcPage() {
                                         onClick={() => setActiveGroup(group.key)}
                                     >
                                         <span className="carbon-calculator-group__label">{group.label}</span>
-                                        <span className="carbon-calculator-group__count">{factorsByGroup[group.key].length}</span>
+                                        <span className="carbon-calculator-group__count">{group.count}</span>
                                     </button>
                                 ))}
                             </div>
                             <Typography.Paragraph className="carbon-calculator-group-hint">
-                                {CALCULATOR_GROUPS.find((item) => item.key === activeGroup)?.hint}
+                                {groups.find((item) => item.key === activeGroup)?.hint}
                             </Typography.Paragraph>
 
                             <div className="carbon-calculator-options">
-                                {factorLoading ? (
+                                {catalogLoading ? (
                                     <div className="carbon-calculator-loading"><Spin /></div>
-                                ) : visibleFactors.length ? (
-                                    visibleFactors.map((factor) => (
+                                ) : visibleItems.length ? (
+                                    visibleItems.map((item) => (
                                         <button
-                                            key={factor.factor_id}
+                                            key={item.factor_id}
                                             type="button"
                                             className="carbon-calculator-option"
-                                            onClick={() => addFactor(factor)}
-                                            title={`${factor.name}：${factor.factor_value} ${factor.factor_unit}`}
+                                            onClick={() => addItem(item)}
+                                            title={`${item.name}：${item.factor_value} ${item.factor_unit}`}
                                         >
-                                            <span className="carbon-calculator-option__name">{factor.name}</span>
+                                            <span className="carbon-calculator-option__name">{item.name}</span>
                                             <span className="carbon-calculator-option__meta">
-                                                {formatFactorValue(factor.factor_value)} {factor.factor_unit}
+                                                {formatFactorValue(item.factor_value)} {item.factor_unit}
                                             </span>
                                         </button>
                                     ))
@@ -334,20 +335,20 @@ export function CarbonCalcPage() {
                                     selectedItems.map((item) => {
                                         const itemEmission = roundCarbonValue(
                                             item.activity_value
-                                            * item.factor.factor_value
-                                            * resultUnitToKgco2eMultiplier(item.factor.co2e_unit || item.factor.factor_unit),
+                                            * item.item.factor_value
+                                            * resultUnitToKgco2eMultiplier(item.item.result_unit || item.item.factor_unit),
                                         );
                                         return (
                                             <div className="carbon-calculator-selected" key={item.row_id}>
                                                 <div className="carbon-calculator-selected__info">
-                                                    <Typography.Text strong ellipsis title={item.factor.name}>
-                                                        {item.factor.name}
+                                                    <Typography.Text strong ellipsis title={item.item.name}>
+                                                        {item.item.name}
                                                     </Typography.Text>
                                                     <Typography.Text type="secondary">
-                                                        {formatFactorValue(item.factor.factor_value)} {item.factor.factor_unit}
+                                                        {formatFactorValue(item.item.factor_value)} {item.item.factor_unit}
                                                     </Typography.Text>
-                                                    <Typography.Text type="secondary" ellipsis title={item.factor.source?.publisher ?? item.factor.source?.title ?? "未知来源"}>
-                                                        来源：{item.factor.source?.publisher ?? item.factor.source?.title ?? "未知来源"}
+                                                    <Typography.Text type="secondary" ellipsis title={item.item.source_name}>
+                                                        来源：{item.item.source_name}
                                                     </Typography.Text>
                                                 </div>
                                                 <div className="carbon-calculator-selected__input">
@@ -357,7 +358,7 @@ export function CarbonCalcPage() {
                                                         onChange={(value) => updateSelectedValue(item.row_id, Number(value ?? 0))}
                                                     />
                                                     <Typography.Text className="carbon-calculator-selected__unit">
-                                                        {item.factor.activity_unit}
+                                                        {item.item.activity_unit}
                                                     </Typography.Text>
                                                     <Typography.Text className="carbon-calculator-selected__emission">
                                                         {formatFactorValue(itemEmission)} kgCO₂e
@@ -367,7 +368,7 @@ export function CarbonCalcPage() {
                                                         size="small"
                                                         icon={<CloseOutlined />}
                                                         onClick={() => removeSelected(item.row_id)}
-                                                        aria-label={`移除 ${item.factor.name}`}
+                                                        aria-label={`移除 ${item.item.name}`}
                                                     />
                                                 </div>
                                             </div>
@@ -566,59 +567,39 @@ export function CarbonCalcPage() {
     );
 }
 
-function dedupeFactors(items: CarbonFactorSummary[]) {
-    const map = new Map<string, CarbonFactorSummary>();
-    items.forEach((item) => map.set(item.factor_id, item));
-    return Array.from(map.values());
-}
-
-function sortCalculatorFactors(items: CarbonFactorSummary[]) {
-    return [...items].sort((a, b) => {
-        const aYear = a.year ?? 0;
-        const bYear = b.year ?? 0;
-        if (aYear !== bYear) {
-            return bYear - aYear;
-        }
-        return a.name.localeCompare(b.name, "zh-CN");
+function normalizeCalculatorGroups(groups: CarbonCalculatorCatalogGroup[]) {
+    const groupMap = new Map(groups.map((group) => [group.group_key, group]));
+    return FALLBACK_CALCULATOR_GROUPS.map((fallback) => {
+        const group = groupMap.get(fallback.key);
+        return {
+            key: fallback.key,
+            label: group?.label ?? fallback.label,
+            hint: group?.hint ?? fallback.hint,
+            count: group?.count ?? 0,
+        };
     });
 }
 
-function groupFactorForCalculator(factor: CarbonFactorSummary): CalculatorGroupKey {
-    const text = `${factor.name} ${factor.category} ${factor.industry ?? ""}`.toLowerCase();
-    if (includesAny(text, ["交通", "运输", "汽车", "公交", "火车", "飞机", "轮船", "物流", "公里"])) {
-        return "travel";
-    }
-    if (includesAny(text, ["食品", "烟酒", "茶", "农林牧渔", "肉", "米", "奶", "菜", "啤酒"])) {
-        return "food";
-    }
-    if (includesAny(text, ["电力", "热力", "天然气", "煤气", "燃气", "建筑", "水泥", "玻璃", "供暖", "石油化工"])) {
-        return "home";
-    }
-    if (includesAny(text, ["纺织", "服装", "织物", "衣", "洗衣"])) {
-        return "clothes";
-    }
-    return "daily";
+function toCalculatorGroupKey(value: string): CalculatorGroupKey {
+    return value === "clothes" || value === "food" || value === "home" || value === "travel" || value === "daily"
+        ? value
+        : "daily";
 }
 
-function includesAny(text: string, keywords: string[]) {
-    return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
-}
-
-function buildActivityInput(factor: CarbonFactorSummary, activityValue: number): CarbonActivityInput {
+function buildActivityInput(item: CarbonCalculatorCatalogItem, activityValue: number): CarbonActivityInput {
     return {
-        scope: toCarbonScope(factor.scope),
-        activity_category: factor.category,
-        activity_name: factor.name,
+        scope: toCarbonScope(item.scope),
+        activity_category: item.activity_category,
+        activity_name: item.activity_name,
         activity_value: activityValue,
-        activity_unit: factor.activity_unit,
-        region: factor.region ?? factor.region_code ?? null,
-        year: factor.year ?? null,
-        factor_preference: "official_latest",
-        requested_factor_id: factor.factor_id,
+        activity_unit: item.activity_unit,
+        region: "CN",
+        factor_preference: "public_calculator",
+        requested_factor_id: item.factor_id,
         metadata: {
-            factor_id: factor.factor_id,
-            factor_unit: factor.factor_unit,
-            source: factor.source?.publisher ?? factor.source?.title ?? "CarbonRag 碳因子库",
+            factor_id: item.factor_id,
+            factor_unit: item.factor_unit,
+            source: item.source_name,
         },
     };
 }
