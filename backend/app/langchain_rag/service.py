@@ -11,14 +11,12 @@ from app.langchain_rag.retriever import HybridLangChainRetriever
 from app.langchain_rag.schemas import (
     LangChainRagAnswerResult,
     LangChainRagHealth,
-    LangChainRagHit,
     LangChainRagIndexStats,
     LangChainRagScope,
     LangChainRagSearchResult,
     LangChainRagTrace,
 )
 from app.langchain_rag.vector_store import ChromaVectorStore
-from app.rag import build_rag_query_params, get_rag_engine_service
 
 
 class LangChainRagService:
@@ -109,18 +107,9 @@ class LangChainRagService:
             trace=trace,
         )
         if not hits:
-            legacy_hits = _legacy_fallback_hits(
-                query=query,
-                knowledge_scope=knowledge_scope,
-                top_k=top_k,
-                allowed_knowledge_item_ids=allowed_knowledge_item_ids or [],
-            )
-            if legacy_hits:
-                hits = legacy_hits
-                trace.fallback_used = True
-                trace.fallback_reason = "legacy_rag_fallback"
-                trace.merged_count = len(hits)
-                trace.warnings.append("LangChain RAG 未命中，已回退旧 RAG 检索路径。")
+            trace.fallback_used = False
+            trace.fallback_reason = None
+            trace.warnings.append("LangChain RAG 未命中；按 V1.6.3 规则不再回退旧 RagEngineService。")
         return LangChainRagSearchResult(query=query, hyde_query=trace.hyde_query, hits=hits, trace=trace)
 
     def answer(
@@ -145,64 +134,3 @@ class LangChainRagService:
 @lru_cache(maxsize=1)
 def get_langchain_rag_service() -> LangChainRagService:
     return LangChainRagService()
-
-
-def _legacy_fallback_hits(
-    *,
-    query: str,
-    knowledge_scope: LangChainRagScope,
-    top_k: int,
-    allowed_knowledge_item_ids: list[str],
-) -> list[LangChainRagHit]:
-    try:
-        result = get_rag_engine_service().retrieve(
-            build_rag_query_params(
-                question=query,
-                knowledge_scope=knowledge_scope,
-                top_k=top_k,
-                allowed_knowledge_item_ids=allowed_knowledge_item_ids,
-            )
-        )
-    except Exception:  # noqa: BLE001
-        return []
-    hits: list[LangChainRagHit] = []
-    for item in result.hits:
-        score = float(item.get("score") or 0.0)
-        hits.append(
-            LangChainRagHit(
-                chunk_id=str(item.get("chunk_id") or ""),
-                knowledge_item_id=_optional_str(item.get("knowledge_item_id") or item.get("doc_id")),
-                doc_id=str(item.get("doc_id") or item.get("knowledge_item_id") or item.get("chunk_id") or ""),
-                title=str(item.get("title") or "旧 RAG 命中片段"),
-                snippet=str(item.get("snippet") or ""),
-                source_type=str(item.get("source_type") or "public_policy"),
-                source=str(item.get("source") or ""),
-                source_url=_optional_str(item.get("source_url")),
-                library_scope=_optional_str(item.get("library_scope")),
-                file_id=_optional_str(item.get("file_id")),
-                page_number=_optional_int(item.get("page_number")),
-                sheet_name=_optional_str(item.get("sheet_name")),
-                slide_number=_optional_int(item.get("slide_number")),
-                section_title=_optional_str(item.get("section_title")),
-                score=score,
-                bm25_score=score,
-                source_retrievers=["legacy_rag_fallback"],
-            )
-        )
-    return hits
-
-
-def _optional_str(value) -> str | None:
-    if value is None:
-        return None
-    normalized = str(value).strip()
-    return normalized or None
-
-
-def _optional_int(value) -> int | None:
-    try:
-        if value is None or value == "":
-            return None
-        return int(value)
-    except (TypeError, ValueError):
-        return None

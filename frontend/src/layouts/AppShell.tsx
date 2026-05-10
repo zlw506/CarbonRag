@@ -25,6 +25,7 @@ const { Header, Content, Sider } = Layout;
 const iconMap = {
     "/": <SearchOutlined />,
     "/my-knowledge": <FolderOpenOutlined />,
+    "/kb": <DatabaseOutlined />,
     "/rag-lab": <ClusterOutlined />,
     "/carbon-factors": <DatabaseOutlined />,
     "/carbon-calc": <ExperimentOutlined />,

@@ -14,6 +14,12 @@ CORE_TABLES = (
     "session_private_samples",
     "knowledge_items",
     "knowledge_chunks",
+    "rag_knowledge_bases",
+    "rag_documents",
+    "rag_chunks",
+    "rag_test_qa_runs",
+    "knowledge_graph_nodes",
+    "knowledge_graph_edges",
     "knowledge_tasks",
     "workflow_runs",
     "workflow_nodes",
@@ -47,6 +53,8 @@ OWNER_TABLES = (
     "files",
     "memory_notes",
     "knowledge_items",
+    "rag_knowledge_bases",
+    "rag_documents",
     "feedback_entries",
     "carbon_calculations",
     "carbon_inventories",
@@ -264,6 +272,114 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     updated_at TEXT,
     UNIQUE (knowledge_item_id, chunk_id),
     FOREIGN KEY (knowledge_item_id) REFERENCES knowledge_items(knowledge_item_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS rag_knowledge_bases (
+    kb_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    kb_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
+    name TEXT NOT NULL,
+    description TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private',
+    retrieval_mode TEXT NOT NULL DEFAULT 'hybrid',
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_documents (
+    doc_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id TEXT NOT NULL UNIQUE,
+    kb_id TEXT NOT NULL,
+    owner_user_id TEXT,
+    knowledge_item_id TEXT,
+    file_id TEXT,
+    title TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'uploaded',
+    parse_status TEXT NOT NULL DEFAULT 'uploaded',
+    chunk_status TEXT NOT NULL DEFAULT 'pending',
+    index_status TEXT NOT NULL DEFAULT 'pending',
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    indexed_chunk_count INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (kb_id) REFERENCES rag_knowledge_bases(kb_id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    FOREIGN KEY (knowledge_item_id) REFERENCES knowledge_items(knowledge_item_id) ON DELETE SET NULL,
+    FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_chunks (
+    chunk_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    rag_chunk_id TEXT NOT NULL UNIQUE,
+    kb_id TEXT NOT NULL,
+    doc_id TEXT NOT NULL,
+    owner_user_id TEXT,
+    knowledge_chunk_id TEXT,
+    parent_chunk_id TEXT,
+    chunk_index INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    token_estimate INTEGER NOT NULL DEFAULT 0,
+    page_number INTEGER,
+    sheet_name TEXT,
+    slide_number INTEGER,
+    section_title TEXT,
+    status TEXT NOT NULL DEFAULT 'chunked',
+    vector_status TEXT NOT NULL DEFAULT 'pending',
+    dense_vector_json TEXT,
+    sparse_vector_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (kb_id) REFERENCES rag_knowledge_bases(kb_id) ON DELETE CASCADE,
+    FOREIGN KEY (doc_id) REFERENCES rag_documents(doc_id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_test_qa_runs (
+    run_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL UNIQUE,
+    kb_id TEXT NOT NULL,
+    owner_user_id TEXT,
+    query TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    trace_json TEXT NOT NULL DEFAULT '{}',
+    citations_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (kb_id) REFERENCES rag_knowledge_bases(kb_id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_graph_nodes (
+    node_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
+    node_type TEXT NOT NULL,
+    label TEXT NOT NULL,
+    source_ref TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_graph_edges (
+    edge_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    edge_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT,
+    source_node_id TEXT NOT NULL,
+    target_node_id TEXT NOT NULL,
+    edge_type TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 1.0,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS workflow_runs (
@@ -707,6 +823,20 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_items_status
     ON knowledge_items(index_status, parse_status, ingest_status);
 CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_item_order
     ON knowledge_chunks(knowledge_item_id, order_index ASC);
+CREATE INDEX IF NOT EXISTS idx_rag_kb_owner_updated
+    ON rag_knowledge_bases(owner_user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rag_documents_kb_status
+    ON rag_documents(kb_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rag_chunks_kb_doc_order
+    ON rag_chunks(kb_id, doc_id, chunk_index ASC);
+CREATE INDEX IF NOT EXISTS idx_rag_chunks_vector_status
+    ON rag_chunks(kb_id, vector_status);
+CREATE INDEX IF NOT EXISTS idx_rag_test_qa_kb_created
+    ON rag_test_qa_runs(kb_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_owner_type
+    ON knowledge_graph_nodes(owner_user_id, node_type);
+CREATE INDEX IF NOT EXISTS idx_kg_edges_source_type
+    ON knowledge_graph_edges(source_node_id, edge_type);
 CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_status_created_at
     ON knowledge_tasks(status, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_item_created_at
@@ -969,6 +1099,108 @@ POSTGRES_SCHEMA_STATEMENTS = (
         created_at TEXT NOT NULL,
         updated_at TEXT,
         UNIQUE (knowledge_item_id, chunk_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS rag_knowledge_bases (
+        kb_seq BIGSERIAL PRIMARY KEY,
+        kb_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private',
+        retrieval_mode TEXT NOT NULL DEFAULT 'hybrid',
+        is_default BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS rag_documents (
+        doc_seq BIGSERIAL PRIMARY KEY,
+        doc_id TEXT NOT NULL UNIQUE,
+        kb_id TEXT NOT NULL REFERENCES rag_knowledge_bases(kb_id) ON DELETE CASCADE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        knowledge_item_id TEXT REFERENCES knowledge_items(knowledge_item_id) ON DELETE SET NULL,
+        file_id TEXT REFERENCES files(file_id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'uploaded',
+        parse_status TEXT NOT NULL DEFAULT 'uploaded',
+        chunk_status TEXT NOT NULL DEFAULT 'pending',
+        index_status TEXT NOT NULL DEFAULT 'pending',
+        chunk_count INTEGER NOT NULL DEFAULT 0,
+        indexed_chunk_count INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS rag_chunks (
+        chunk_seq BIGSERIAL PRIMARY KEY,
+        rag_chunk_id TEXT NOT NULL UNIQUE,
+        kb_id TEXT NOT NULL REFERENCES rag_knowledge_bases(kb_id) ON DELETE CASCADE,
+        doc_id TEXT NOT NULL REFERENCES rag_documents(doc_id) ON DELETE CASCADE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        knowledge_chunk_id TEXT,
+        parent_chunk_id TEXT,
+        chunk_index INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL DEFAULT 0,
+        page_number INTEGER,
+        sheet_name TEXT,
+        slide_number INTEGER,
+        section_title TEXT,
+        status TEXT NOT NULL DEFAULT 'chunked',
+        vector_status TEXT NOT NULL DEFAULT 'pending',
+        dense_vector_json TEXT,
+        sparse_vector_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS rag_test_qa_runs (
+        run_seq BIGSERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL UNIQUE,
+        kb_id TEXT NOT NULL REFERENCES rag_knowledge_bases(kb_id) ON DELETE CASCADE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        query TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        trace_json TEXT NOT NULL DEFAULT '{}',
+        citations_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS knowledge_graph_nodes (
+        node_seq BIGSERIAL PRIMARY KEY,
+        node_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        node_type TEXT NOT NULL,
+        label TEXT NOT NULL,
+        source_ref TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS knowledge_graph_edges (
+        edge_seq BIGSERIAL PRIMARY KEY,
+        edge_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        source_node_id TEXT NOT NULL,
+        target_node_id TEXT NOT NULL,
+        edge_type TEXT NOT NULL,
+        confidence DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     )
     """,
     """
@@ -1446,6 +1678,13 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_knowledge_items_owner_scope_updated_at ON knowledge_items(owner_user_id, library_scope, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_items_status ON knowledge_items(index_status, parse_status, ingest_status)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_item_order ON knowledge_chunks(knowledge_item_id, order_index ASC)",
+    "CREATE INDEX IF NOT EXISTS idx_rag_kb_owner_updated ON rag_knowledge_bases(owner_user_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_rag_documents_kb_status ON rag_documents(kb_id, status, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_rag_chunks_kb_doc_order ON rag_chunks(kb_id, doc_id, chunk_index ASC)",
+    "CREATE INDEX IF NOT EXISTS idx_rag_chunks_vector_status ON rag_chunks(kb_id, vector_status)",
+    "CREATE INDEX IF NOT EXISTS idx_rag_test_qa_kb_created ON rag_test_qa_runs(kb_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_kg_nodes_owner_type ON knowledge_graph_nodes(owner_user_id, node_type)",
+    "CREATE INDEX IF NOT EXISTS idx_kg_edges_source_type ON knowledge_graph_edges(source_node_id, edge_type)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_status_created_at ON knowledge_tasks(status, created_at ASC)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_item_created_at ON knowledge_tasks(knowledge_item_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_workflow_runs_item_updated_at ON workflow_runs(knowledge_item_id, updated_at DESC)",
