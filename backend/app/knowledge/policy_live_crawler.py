@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import base64
+import re
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
@@ -115,21 +117,21 @@ class PolicyCrawlerStatus(BaseModel):
     safe_limits: dict[str, Any] = Field(default_factory=dict)
 
 
-DEFAULT_POLICY_CRAWL_SOURCES: tuple[dict[str, Any], ...] = (
+LEGACY_MOJIBAKE_POLICY_CRAWL_SOURCES: tuple[dict[str, Any], ...] = (
     {
         "source_id": "gov-cn-policy-library",
-        "title": "中国政府网政策文件库",
-        "source_url": "https://www.gov.cn/zhengce/zhengcewenjianku/",
+        "title": "中国政府网：2030年前碳达峰行动方案",
+        "source_url": "https://www.gov.cn/zhengce/content/2021-10/26/content_5644984.htm",
         "source_label": "中国政府网",
-        "allowed_domain": "www.gov.cn",
-        "metadata": {"scope": "national_policy"},
+        "allowed_domain": "gov.cn",
+        "metadata": {"scope": "national_policy", "topic": "carbon_peak"},
     },
     {
         "source_id": "ndrc-policy-releases",
         "title": "国家发展改革委政策发布",
         "source_url": "https://www.ndrc.gov.cn/xxgk/zcfb/",
         "source_label": "国家发展改革委",
-        "allowed_domain": "www.ndrc.gov.cn",
+        "allowed_domain": "ndrc.gov.cn",
         "metadata": {"scope": "national_policy"},
     },
     {
@@ -137,7 +139,7 @@ DEFAULT_POLICY_CRAWL_SOURCES: tuple[dict[str, Any], ...] = (
         "title": "生态环境部政策公开",
         "source_url": "https://www.mee.gov.cn/xxgklssj/",
         "source_label": "生态环境部",
-        "allowed_domain": "www.mee.gov.cn",
+        "allowed_domain": "mee.gov.cn",
         "metadata": {"scope": "environment_policy"},
     },
     {
@@ -145,7 +147,7 @@ DEFAULT_POLICY_CRAWL_SOURCES: tuple[dict[str, Any], ...] = (
         "title": "工业和信息化部政策文件",
         "source_url": "https://www.miit.gov.cn/zwgk/zcwj/",
         "source_label": "工业和信息化部",
-        "allowed_domain": "www.miit.gov.cn",
+        "allowed_domain": "miit.gov.cn",
         "metadata": {"scope": "industry_policy"},
     },
     {
@@ -153,7 +155,7 @@ DEFAULT_POLICY_CRAWL_SOURCES: tuple[dict[str, Any], ...] = (
         "title": "北京市政策文件",
         "source_url": "https://www.beijing.gov.cn/zhengce/",
         "source_label": "北京市人民政府",
-        "allowed_domain": "www.beijing.gov.cn",
+        "allowed_domain": "beijing.gov.cn",
         "metadata": {"scope": "local_policy", "region": "北京"},
     },
     {
@@ -163,6 +165,58 @@ DEFAULT_POLICY_CRAWL_SOURCES: tuple[dict[str, Any], ...] = (
         "source_label": "北京市发展和改革委员会",
         "allowed_domain": "fgw.beijing.gov.cn",
         "metadata": {"scope": "local_policy", "region": "北京"},
+    },
+)
+
+
+DEFAULT_POLICY_CRAWL_SOURCES = (
+    {
+        "source_id": "gov-cn-policy-library",
+        "title": "中国政府网政策文件入口",
+        "source_url": "https://www.gov.cn/zhengce/",
+        "source_label": "中国政府网",
+        "allowed_domain": "gov.cn",
+        "metadata": {"scope": "national_policy", "discovery_mode": "policy_listing"},
+    },
+    {
+        "source_id": "ndrc-policy-releases",
+        "title": "国家发展改革委政策发布入口",
+        "source_url": "https://www.ndrc.gov.cn/xxgk/zcfb/",
+        "source_label": "国家发展改革委",
+        "allowed_domain": "ndrc.gov.cn",
+        "metadata": {"scope": "national_policy", "discovery_mode": "policy_listing"},
+    },
+    {
+        "source_id": "mee-policy-releases",
+        "title": "生态环境部政策公开入口",
+        "source_url": "https://www.mee.gov.cn/xxgklssj/",
+        "source_label": "生态环境部",
+        "allowed_domain": "mee.gov.cn",
+        "metadata": {"scope": "environment_policy", "discovery_mode": "policy_listing"},
+    },
+    {
+        "source_id": "miit-policy-releases",
+        "title": "工业和信息化部政策文件入口",
+        "source_url": "https://www.miit.gov.cn/zwgk/zcwj/",
+        "source_label": "工业和信息化部",
+        "allowed_domain": "miit.gov.cn",
+        "metadata": {"scope": "industry_policy", "discovery_mode": "policy_listing"},
+    },
+    {
+        "source_id": "beijing-policy-library",
+        "title": "北京市政策文件入口",
+        "source_url": "https://www.beijing.gov.cn/zhengce/",
+        "source_label": "北京市人民政府",
+        "allowed_domain": "beijing.gov.cn",
+        "metadata": {"scope": "local_policy", "region": "北京", "discovery_mode": "policy_listing"},
+    },
+    {
+        "source_id": "beijing-fgw-policy",
+        "title": "北京市发展改革委政策文件入口",
+        "source_url": "https://fgw.beijing.gov.cn/fgwzwgk/2024zcwj/",
+        "source_label": "北京市发展和改革委员会",
+        "allowed_domain": "fgw.beijing.gov.cn",
+        "metadata": {"scope": "local_policy", "region": "北京", "discovery_mode": "policy_listing"},
     },
 )
 
@@ -671,7 +725,12 @@ class PolicyCrawlerScheduler:
             source_count=len(self.store.list_sources()),
             pending_candidate_count=self.store.count_pending_candidates(),
             recent_run_status=latest_run.status if latest_run else None,
-            safe_limits=self._safe_limits(),
+            safe_limits={
+                **self._safe_limits(),
+                "allowed_domains": list(DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS),
+                "scrapy_import_available": descriptor.available,
+                "scrapy_install_command": "backend\\.venv\\Scripts\\python.exe -m pip install scrapy==2.15.2",
+            },
         )
 
     def run_source_now(self, *, source_id: str, triggered_by_user_id: str | None = None) -> PolicyCrawlerRun:
@@ -712,7 +771,7 @@ class PolicyCrawlerScheduler:
         document = CrawledDocument(
             url=candidate.url,
             title=candidate.title,
-            content=storage_path.read_text(encoding="utf-8"),
+            content=_read_candidate_content(candidate),
             content_type=candidate.content_type,
             source_name=candidate.source_name,
             fetched_at=candidate.fetched_at or self.store.utcnow(),
@@ -727,18 +786,49 @@ class PolicyCrawlerScheduler:
         )
         from app.knowledge.service import get_knowledge_service
 
-        task = get_knowledge_service().create_policy_item_from_crawled_document(
+        knowledge_service = get_knowledge_service()
+        task = knowledge_service.create_policy_item_from_crawled_document(
             crawled_document=document,
             staging_dir=Path(self.settings.public_data_dir) / "policy_staging",
             requested_by_user_id=reviewed_by_user_id,
         )
-        return self.store.update_candidate_review(
+        reviewed = self.store.update_candidate_review(
             candidate_id=candidate_id,
             status="published",
             reviewed_by_user_id=reviewed_by_user_id,
-            review_note="Published by admin review.",
+            review_note="Published by admin review; crawl_ingest queued.",
             knowledge_item_id=task.knowledge_item_id,
         )
+        try:
+            processed = knowledge_service.run_queued_tasks()
+            processed_ids = [item.task_id for item in processed]
+            refreshed_item = knowledge_service.store.get_item(task.knowledge_item_id)
+            if refreshed_item is not None and refreshed_item.index_status == "indexed":
+                return self.store.update_candidate_review(
+                    candidate_id=candidate_id,
+                    status="published",
+                    reviewed_by_user_id=reviewed_by_user_id,
+                    review_note=f"Published and indexed. Processed tasks: {', '.join(processed_ids) or task.task_id}.",
+                    knowledge_item_id=task.knowledge_item_id,
+                )
+            if refreshed_item is not None and refreshed_item.last_error:
+                return self.store.update_candidate_review(
+                    candidate_id=candidate_id,
+                    status="published",
+                    reviewed_by_user_id=reviewed_by_user_id,
+                    review_note=f"Published, but indexing failed: {refreshed_item.last_error}",
+                    knowledge_item_id=task.knowledge_item_id,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Policy crawler candidate was published but immediate indexing failed.")
+            return self.store.update_candidate_review(
+                candidate_id=candidate_id,
+                status="published",
+                reviewed_by_user_id=reviewed_by_user_id,
+                review_note=f"Published, but immediate indexing failed: {exc}",
+                knowledge_item_id=task.knowledge_item_id,
+            )
+        return reviewed
 
     def reject_candidate(self, *, candidate_id: str, reviewed_by_user_id: str | None) -> PolicyCrawlerCandidate:
         candidate = self.store.get_candidate(candidate_id)
@@ -789,6 +879,7 @@ class PolicyCrawlerScheduler:
         trigger_type: str,
         triggered_by_user_id: str | None,
     ) -> PolicyCrawlerRun:
+        self.store.seed_default_sources()
         source = self.store.get_source(source_id)
         if source is None:
             raise KeyError(source_id)
@@ -853,7 +944,12 @@ class PolicyCrawlerScheduler:
                         "source_title": source.title,
                         "source_label": source.source_label,
                         "allowed_domain": source.allowed_domain,
+                        "seed_url": source.source_url,
                         "policy_review_required": True,
+                        "candidate_summary": _candidate_summary(document),
+                        "candidate_content_length": _candidate_content_length(document),
+                        "candidate_depth": document.metadata.get("depth"),
+                        "candidate_response_url": document.metadata.get("response_url"),
                         "provider_metadata": result.metadata,
                     },
                 )
@@ -874,7 +970,7 @@ class PolicyCrawlerScheduler:
         suffix = _suffix_for_content_type(document.content_type)
         content_hash = document.content_hash or hash_content(document.content)
         target_path = self.candidate_dir / f"{source.source_id}-{hash_content(document.url)[:10]}-{content_hash[:10]}{suffix}"
-        target_path.write_text(document.content, encoding="utf-8")
+        target_path.write_bytes(_document_content_bytes(document))
         return target_path
 
     def _safe_limits(self) -> dict[str, Any]:
@@ -967,3 +1063,54 @@ def _suffix_for_content_type(content_type: str) -> str:
     if normalized in {"text/plain", "text/markdown"}:
         return ".txt"
     return ".html"
+
+
+def _document_content_bytes(document: CrawledDocument) -> bytes:
+    transfer_encoding = str(document.metadata.get("content_transfer_encoding") or "text").strip().lower()
+    if transfer_encoding == "base64":
+        try:
+            return base64.b64decode(document.content.encode("ascii"), validate=True)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"Invalid base64 crawled document payload for {document.url}") from exc
+    return document.content.encode("utf-8")
+
+
+def _read_candidate_content(candidate: PolicyCrawlerCandidate) -> str:
+    path = Path(candidate.storage_path)
+    normalized = candidate.content_type.split(";", 1)[0].strip().lower()
+    if normalized in {"application/pdf", "application/ofd", "application/vnd.ofd"}:
+        return base64.b64encode(path.read_bytes()).decode("ascii")
+    return _read_text_candidate(path)
+
+
+def _read_text_candidate(path: Path) -> str:
+    for encoding in ("utf-8", "utf-8-sig", "gbk"):
+        try:
+            return path.read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _candidate_content_length(document: CrawledDocument) -> int:
+    raw_length = document.metadata.get("content_length")
+    try:
+        return int(raw_length)
+    except (TypeError, ValueError):
+        pass
+    return len(_document_content_bytes(document))
+
+
+def _candidate_summary(document: CrawledDocument, *, max_length: int = 240) -> str:
+    normalized = document.content_type.split(";", 1)[0].strip().lower()
+    if normalized in {"application/pdf", "application/ofd", "application/vnd.ofd"}:
+        return f"{normalized} binary document, {_candidate_content_length(document)} bytes"
+    text = _readable_preview(document.content)
+    return text[:max_length].strip()
+
+
+def _readable_preview(value: str) -> str:
+    text = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", value, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
