@@ -58,6 +58,7 @@ export interface RagTrace {
     merged_count: number;
     rerank_applied: boolean;
     vector_backend: string;
+    vector_runtime?: string | null;
     degraded: boolean;
     warnings: string[];
     retrieval_mode: RagRetrievalMode;

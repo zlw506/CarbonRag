@@ -1,6 +1,17 @@
-import { ApiOutlined, DatabaseOutlined, FileSearchOutlined, PlayCircleOutlined, PlusOutlined } from "@ant-design/icons";
+import {
+    ApiOutlined,
+    CloudUploadOutlined,
+    DatabaseOutlined,
+    FileSearchOutlined,
+    PartitionOutlined,
+    PlayCircleOutlined,
+    PlusOutlined,
+    SearchOutlined,
+} from "@ant-design/icons";
 import { Alert, Button, Card, Empty, Input, List, Select, Space, Spin, Tag, Typography } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import {
     chunkKbDocument,
     createKbDocument,
@@ -16,9 +27,56 @@ import { runRagTestQA, searchRagSpine } from "../../services/rag";
 import type { KnowledgeItem } from "../../types/knowledge";
 import type { KnowledgeBase, RagChunk, RagDocument, RagHit, RagSearchResult, RagTestQAResult } from "../../types/kb";
 
+type StageName = "parse" | "chunk" | "index";
+
+const stageMeta: Record<StageName, { label: string; shortLabel: string; hint: string; icon: ReactNode }> = {
+    parse: {
+        label: "解析文档",
+        shortLabel: "解析",
+        hint: "读取原始文件或知识条目的正文，形成可处理文本。",
+        icon: <FileSearchOutlined />,
+    },
+    chunk: {
+        label: "生成片段",
+        shortLabel: "分块",
+        hint: "把长文档切成可检索的小段，并保留页码、表格、章节等定位信息。",
+        icon: <PartitionOutlined />,
+    },
+    index: {
+        label: "写入向量库",
+        shortLabel: "入库",
+        hint: "用 BGE-M3 生成向量并写入 Milvus，之后才能被 RAG 问答命中。",
+        icon: <CloudUploadOutlined />,
+    },
+};
+
+const statusLabelMap: Record<string, string> = {
+    uploaded: "已导入，待解析",
+    pending: "待处理",
+    queued: "排队中",
+    running: "处理中",
+    parsing: "解析中",
+    parsed: "已解析",
+    chunked: "已分块",
+    indexed: "已入库，可检索",
+    failed: "失败",
+    parse_failed: "解析失败",
+    chunk_failed: "分块失败",
+    index_failed: "入库失败",
+};
+
+const sourceTypeLabelMap: Record<string, string> = {
+    manual: "手动文本",
+    private_upload: "个人上传",
+    private_sample: "知识条目",
+    public_policy: "公共政策",
+};
+
 export function KnowledgeBaseWorkbench() {
+    const navigate = useNavigate();
     const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
     const [activeKbId, setActiveKbId] = useState<string | undefined>();
+    const [activeDocId, setActiveDocId] = useState<string | undefined>();
     const [documents, setDocuments] = useState<RagDocument[]>([]);
     const [chunks, setChunks] = useState<RagChunk[]>([]);
     const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
@@ -28,7 +86,11 @@ export function KnowledgeBaseWorkbench() {
     const [searchResult, setSearchResult] = useState<RagSearchResult | null>(null);
     const [qaResult, setQaResult] = useState<RagTestQAResult | null>(null);
     const [loading, setLoading] = useState(false);
+    const [runningStage, setRunningStage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+
+    const activeKb = useMemo(() => kbs.find((item) => item.kb_id === activeKbId), [activeKbId, kbs]);
+    const activeDoc = useMemo(() => documents.find((item) => item.doc_id === activeDocId), [activeDocId, documents]);
 
     useEffect(() => {
         void bootstrap();
@@ -49,7 +111,7 @@ export function KnowledgeBaseWorkbench() {
             setActiveKbId(nextKbs[0]?.kb_id);
             setKnowledgeItems(items);
         } catch {
-            setError("当前无法加载知识库工作台。");
+            setError("当前无法加载知识库工作台。请确认后端已启动，并且你已经登录。");
         } finally {
             setLoading(false);
         }
@@ -61,13 +123,15 @@ export function KnowledgeBaseWorkbench() {
         try {
             const docs = await listKbDocuments(kbId);
             setDocuments(docs);
-            if (docs[0]) {
-                setChunks(await listKbDocumentChunks(kbId, docs[0].doc_id));
+            const nextActiveDocId = docs[0]?.doc_id;
+            setActiveDocId(nextActiveDocId);
+            if (nextActiveDocId) {
+                setChunks(await listKbDocumentChunks(kbId, nextActiveDocId));
             } else {
                 setChunks([]);
             }
         } catch {
-            setError("当前无法加载知识库文档。");
+            setError("当前无法加载知识库文档。请确认该知识库仍存在，且你有访问权限。");
         } finally {
             setLoading(false);
         }
@@ -88,37 +152,85 @@ export function KnowledgeBaseWorkbench() {
         }
         const doc = await createKbDocument(activeKbId, { knowledge_item_id: selectedKnowledgeItemId });
         setDocuments((current) => [doc, ...current]);
+        setActiveDocId(doc.doc_id);
+        setChunks([]);
     }
 
-    async function runDocStage(doc: RagDocument, stage: "parse" | "chunk" | "index") {
+    async function handleLoadChunks(doc: RagDocument) {
         if (!activeKbId) {
             return;
         }
-        const next =
-            stage === "parse"
-                ? await parseKbDocument(activeKbId, doc.doc_id)
-                : stage === "chunk"
-                    ? await chunkKbDocument(activeKbId, doc.doc_id)
-                    : await indexKbDocument(activeKbId, doc.doc_id);
-        setDocuments((current) => current.map((item) => item.doc_id === next.doc_id ? next : item));
-        setChunks(await listKbDocumentChunks(activeKbId, next.doc_id));
+        setActiveDocId(doc.doc_id);
+        setChunks(await listKbDocumentChunks(activeKbId, doc.doc_id));
+    }
+
+    async function runDocStage(doc: RagDocument, stage: StageName) {
+        if (!activeKbId) {
+            return;
+        }
+        setRunningStage(`${doc.doc_id}:${stage}`);
+        setError(null);
+        try {
+            const next =
+                stage === "parse"
+                    ? await parseKbDocument(activeKbId, doc.doc_id)
+                    : stage === "chunk"
+                        ? await chunkKbDocument(activeKbId, doc.doc_id)
+                        : await indexKbDocument(activeKbId, doc.doc_id);
+            setDocuments((current) => current.map((item) => item.doc_id === next.doc_id ? next : item));
+            setActiveDocId(next.doc_id);
+            setChunks(await listKbDocumentChunks(activeKbId, next.doc_id));
+        } catch {
+            setError(`${stageMeta[stage].label}失败。请检查文档状态、后端日志、Milvus/Docker 是否正常运行。`);
+        } finally {
+            setRunningStage(null);
+        }
     }
 
     async function handleSearch() {
         if (!query.trim()) {
             return;
         }
-        const result = await searchRagSpine({ query, kb_id: activeKbId, mode: "hybrid_rerank" });
-        setSearchResult(result);
-        setQaResult(null);
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await searchRagSpine({ query, kb_id: activeKbId, mode: "hybrid_rerank" });
+            setSearchResult(result);
+            setQaResult(null);
+        } catch {
+            setError("检索测试失败。请确认文档已写入向量库，并且 Docker Milvus / BGE 模型可用。");
+        } finally {
+            setLoading(false);
+        }
     }
 
     async function handleTestQA() {
         if (!query.trim()) {
             return;
         }
-        const result = await runRagTestQA({ query, kb_id: activeKbId, mode: "hybrid_rerank" });
-        setQaResult(result);
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await runRagTestQA({ query, kb_id: activeKbId, mode: "hybrid_rerank" });
+            setQaResult(result);
+            setSearchResult(null);
+        } catch {
+            setError("检索问答测试失败。请先确认检索测试能命中片段。");
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    function openAskPageWithCurrentKb() {
+        const params = new URLSearchParams();
+        if (activeKbId) {
+            params.set("kb_id", activeKbId);
+        }
+        params.set("rag_mode", "hybrid_rerank");
+        if (query.trim()) {
+            params.set("question", query.trim());
+        }
+        navigate(`/?${params.toString()}`);
     }
 
     return (
@@ -126,10 +238,10 @@ export function KnowledgeBaseWorkbench() {
             <Space direction="vertical" size={16} style={{ width: "100%" }}>
                 <Card
                     title={<Space><DatabaseOutlined />RAG-Pro 知识库工作台</Space>}
-                    extra={<Tag color="green">V1.6.4 real-vector spine</Tag>}
+                    extra={<Tag color="green">V1.6.9 可读性修复</Tag>}
                 >
                     <Typography.Paragraph type="secondary">
-                        这里是新的 RAG 主脊柱入口：知识库、文档状态、chunk 预览、hybrid/RRF、rerank trace 和 test QA。
+                        这里不是普通聊天页，而是 RAG 验收台：先把资料导入知识库，再按“解析文档 → 生成片段 → 写入向量库”处理，最后用检索测试和检索问答确认能不能命中原文。
                     </Typography.Paragraph>
                     {error ? <Alert type="error" showIcon message={error} /> : null}
                     <Space wrap>
@@ -143,9 +255,25 @@ export function KnowledgeBaseWorkbench() {
                             placeholder="选择知识库"
                         />
                     </Space>
+                    {activeKb ? (
+                        <Alert
+                            type="info"
+                            showIcon
+                            className="kb-workbench__tip"
+                            message={`当前知识库：${activeKb.name}`}
+                            description="AskPage 也可以选择这个知识库提问；这里主要用于检查文档是否真的完成入库、检索、重排序和引用。"
+                        />
+                    ) : null}
                 </Card>
 
-                <Card title="文档导入与状态机" extra={loading ? <Spin size="small" /> : null}>
+                <Card title="文档导入与处理流程" extra={loading ? <Spin size="small" /> : null}>
+                    <Alert
+                        type="info"
+                        showIcon
+                        className="kb-workbench__flow"
+                        message="三个按钮的意思"
+                        description="解析文档：读取正文；生成片段：切成可检索小段；写入向量库：把片段写入 Milvus。只有完成写入向量库，下面的检索和 Test QA 才可能命中。"
+                    />
                     <Space wrap style={{ marginBottom: 16 }}>
                         <Select
                             showSearch
@@ -163,51 +291,89 @@ export function KnowledgeBaseWorkbench() {
                             dataSource={documents}
                             renderItem={(doc) => (
                                 <List.Item
+                                    className={doc.doc_id === activeDocId ? "kb-document-item kb-document-item--active" : "kb-document-item"}
                                     actions={[
-                                        <Button size="small" onClick={() => runDocStage(doc, "parse")}>parse</Button>,
-                                        <Button size="small" onClick={() => runDocStage(doc, "chunk")}>chunk</Button>,
-                                        <Button size="small" type="primary" onClick={() => runDocStage(doc, "index")}>index</Button>,
+                                        <Button
+                                            size="small"
+                                            icon={stageMeta.parse.icon}
+                                            loading={runningStage === `${doc.doc_id}:parse`}
+                                            onClick={() => runDocStage(doc, "parse")}
+                                        >
+                                            {stageMeta.parse.label}
+                                        </Button>,
+                                        <Button
+                                            size="small"
+                                            icon={stageMeta.chunk.icon}
+                                            loading={runningStage === `${doc.doc_id}:chunk`}
+                                            disabled={!canRunChunk(doc)}
+                                            onClick={() => runDocStage(doc, "chunk")}
+                                        >
+                                            {stageMeta.chunk.label}
+                                        </Button>,
+                                        <Button
+                                            size="small"
+                                            type="primary"
+                                            icon={stageMeta.index.icon}
+                                            loading={runningStage === `${doc.doc_id}:index`}
+                                            disabled={!canRunIndex(doc)}
+                                            onClick={() => runDocStage(doc, "index")}
+                                        >
+                                            {stageMeta.index.label}
+                                        </Button>,
+                                        <Button size="small" onClick={() => handleLoadChunks(doc)}>查看片段</Button>,
                                     ]}
                                 >
                                     <List.Item.Meta
                                         avatar={<FileSearchOutlined />}
-                                        title={<Space>{doc.title}<StatusTag status={doc.status} /></Space>}
-                                        description={`parse=${doc.parse_status} · chunk=${doc.chunk_status} · index=${doc.index_status} · backend=${doc.vector_backend ?? "-"} · chunks=${doc.chunk_count}/${doc.indexed_chunk_count}${doc.index_warnings?.length ? ` · ${doc.index_warnings.join("；")}` : ""}`}
+                                        title={<Space wrap>{doc.title}<StatusTag status={doc.status} /></Space>}
+                                        description={<DocumentStatusSummary doc={doc} />}
                                     />
                                 </List.Item>
                             )}
                         />
-                    ) : <Empty description="暂无文档，先导入一个现有知识条目。" />}
+                    ) : <Empty description="暂无文档。先选择一个上传文件或知识条目，导入到当前知识库。" />}
                 </Card>
 
-                <Card title="Chunk 预览">
+                <Card title="片段预览">
+                    <Typography.Paragraph type="secondary">
+                        片段是 RAG 真正检索的最小单位。Test QA 命中的不是整份文件，而是这些片段。
+                    </Typography.Paragraph>
+                    {activeDoc ? <Tag color="blue">当前文档：{activeDoc.title}</Tag> : null}
                     {chunks.length ? (
                         <List
                             dataSource={chunks.slice(0, 8)}
                             renderItem={(chunk) => (
                                 <List.Item>
                                     <Typography.Paragraph ellipsis={{ rows: 3, expandable: "collapsible", symbol: "展开" }}>
-                                        <Typography.Text type="secondary">#{chunk.chunk_index} · {chunk.vector_status}</Typography.Text>
+                                        <Typography.Text type="secondary">片段 #{chunk.chunk_index} · {statusLabel(chunk.vector_status)}</Typography.Text>
                                         <br />
                                         {chunk.text}
                                     </Typography.Paragraph>
                                 </List.Item>
                             )}
                         />
-                    ) : <Empty description="选择或 chunk 文档后查看片段。" />}
+                    ) : <Empty description="选择文档并完成“生成片段”后，这里会显示可检索片段。" />}
                 </Card>
 
-                <Card title={<Space><ApiOutlined />Test QA 与 Trace</Space>}>
+                <Card title={<Space><ApiOutlined />检索问答测试与 RAG Trace</Space>}>
+                    <Alert
+                        type="warning"
+                        showIcon
+                        className="kb-workbench__flow"
+                        message="Test QA 是 RAG 链路验收，不是普通聊天页"
+                        description="它会调用 /api/v1/rag/test-qa：先检索当前知识库，再基于命中的片段生成可追溯回答。真正的大模型对话请点击“去 AskPage 用大模型问”，AskPage 会带上当前知识库和问题。"
+                    />
                     <Space.Compact style={{ width: "100%" }}>
-                        <Input value={query} onChange={(event) => setQuery(event.target.value)} />
-                        <Button icon={<PlayCircleOutlined />} onClick={handleSearch}>检索</Button>
-                        <Button type="primary" onClick={handleTestQA}>Test QA</Button>
+                        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入一个能在文档中找到依据的问题" />
+                        <Button icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>只测检索</Button>
+                        <Button icon={<PlayCircleOutlined />} type="primary" onClick={handleTestQA} loading={loading}>生成依据回答</Button>
+                        <Button onClick={openAskPageWithCurrentKb}>去 AskPage 用大模型问</Button>
                     </Space.Compact>
-                    {searchResult ? <TracePanel hits={searchResult.hits} trace={searchResult.trace} /> : null}
+                    {searchResult ? <TracePanel mode="search" hits={searchResult.hits} trace={searchResult.trace} /> : null}
                     {qaResult ? (
-                        <Card size="small" title="回答" style={{ marginTop: 12 }}>
+                        <Card size="small" title="依据回答" style={{ marginTop: 12 }}>
                             <Typography.Paragraph>{qaResult.answer}</Typography.Paragraph>
-                            <TracePanel hits={qaResult.hits} trace={qaResult.retrieval_trace} />
+                            <TracePanel mode="qa" hits={qaResult.hits} trace={qaResult.retrieval_trace} />
                         </Card>
                     ) : null}
                 </Card>
@@ -216,46 +382,155 @@ export function KnowledgeBaseWorkbench() {
     );
 }
 
-function StatusTag({ status }: { status: string }) {
-    const color = status === "indexed" ? "green" : status === "failed" ? "red" : status === "chunked" ? "blue" : "default";
-    return <Tag color={color}>{status}</Tag>;
+function DocumentStatusSummary({ doc }: { doc: RagDocument }) {
+    const generatedCount = doc.chunk_count ?? 0;
+    const indexedCount = doc.indexed_chunk_count ?? 0;
+    return (
+        <Space direction="vertical" size={6} className="kb-document-status">
+            <Typography.Text type="secondary">
+                {documentReadableSummary(doc)}
+            </Typography.Text>
+            <Space wrap>
+                <Tag color={statusColor(doc.parse_status)}>解析：{statusLabel(doc.parse_status)}</Tag>
+                <Tag color={statusColor(doc.chunk_status)}>分块：{statusLabel(doc.chunk_status)}</Tag>
+                <Tag color={statusColor(doc.index_status)}>向量入库：{statusLabel(doc.index_status)}</Tag>
+                <Tag>{vectorBackendLabel(doc.vector_backend)}</Tag>
+                <Tag>片段 {generatedCount} 个，已入库 {indexedCount} 个</Tag>
+                {doc.source_type ? <Tag>{sourceTypeLabelMap[doc.source_type] ?? doc.source_type}</Tag> : null}
+            </Space>
+            {doc.index_warnings?.length ? (
+                <Alert type="warning" showIcon message={doc.index_warnings.map(humanizeWarning).join("；")} />
+            ) : null}
+        </Space>
+    );
 }
 
-function TracePanel({ hits, trace }: { hits: RagHit[]; trace: RagSearchResult["trace"] }) {
+function StatusTag({ status }: { status: string }) {
+    return <Tag color={statusColor(status)}>{statusLabel(status)}</Tag>;
+}
+
+function TracePanel({ hits, trace, mode }: { hits: RagHit[]; trace: RagSearchResult["trace"]; mode: "search" | "qa" }) {
+    const noHits = hits.length === 0;
     return (
         <Space direction="vertical" size={10} style={{ width: "100%", marginTop: 12 }}>
             <Space wrap>
-                <Tag color={trace.degraded ? "orange" : "green"}>backend {trace.vector_backend}</Tag>
-                <Tag>dense {trace.dense_count}</Tag>
-                <Tag>sparse {trace.sparse_count}</Tag>
-                <Tag>rrf {trace.merged_count}</Tag>
-                <Tag color={trace.rerank_applied ? "green" : "default"}>rerank {trace.rerank_applied ? "yes" : "no"}</Tag>
+                <Tag color={trace.degraded ? "orange" : "green"}>向量库：{vectorBackendLabel(trace.vector_runtime ?? trace.vector_backend)}</Tag>
+                <Tag color={trace.dense_count > 0 ? "geekblue" : "default"}>向量命中 {trace.dense_count}</Tag>
+                <Tag color={trace.sparse_count > 0 ? "blue" : "default"}>关键词命中 {trace.sparse_count}</Tag>
+                <Tag color={trace.merged_count > 0 ? "cyan" : "default"}>融合候选 {trace.merged_count}</Tag>
+                <Tag color={trace.rerank_applied ? "green" : "default"}>重排序：{trace.rerank_applied ? "已执行" : "未执行"}</Tag>
             </Space>
-            {trace.warnings?.length ? <Alert type="warning" showIcon message={trace.warnings.join("；")} /> : null}
-            <List
-                size="small"
-                dataSource={hits}
-                renderItem={(hit) => (
-                    <List.Item>
-                        <List.Item.Meta
-                            title={<Space>{hit.title}<Tag>{hit.source_type}</Tag></Space>}
-                            description={
-                                <Typography.Paragraph ellipsis={{ rows: 2, expandable: "collapsible", symbol: "展开" }}>
-                                    {hit.snippet}
-                                </Typography.Paragraph>
-                            }
-                        />
-                        <Typography.Text type="secondary">
-                            dense {formatScore(hit.dense_score)} · sparse {formatScore(hit.sparse_score)} · rrf {formatScore(hit.rrf_score)} · rerank {formatScore(hit.rerank_score)}
-                        </Typography.Text>
-                    </List.Item>
-                )}
-            />
+            {trace.warnings?.length ? <Alert type="warning" showIcon message={trace.warnings.map(humanizeWarning).join("；")} /> : null}
+            {noHits ? (
+                <Empty
+                    description={
+                        mode === "search"
+                            ? "没有检索到片段。请先确认文档已完成“写入向量库”，或换一个更贴近文档原文的问题。"
+                            : "没有可引用片段，因此不会生成没有依据的 RAG 回答。"
+                    }
+                />
+            ) : (
+                <List
+                    size="small"
+                    dataSource={hits}
+                    renderItem={(hit) => (
+                        <List.Item>
+                            <List.Item.Meta
+                                title={<Space wrap>{hit.title}<Tag>{sourceTypeLabelMap[hit.source_type] ?? hit.source_type}</Tag>{hit.page_number ? <Tag>第 {hit.page_number} 页</Tag> : null}</Space>}
+                                description={
+                                    <Typography.Paragraph ellipsis={{ rows: 2, expandable: "collapsible", symbol: "展开" }}>
+                                        {hit.snippet}
+                                    </Typography.Paragraph>
+                                }
+                            />
+                            <Typography.Text type="secondary" className="kb-hit-score">
+                                向量 {formatScore(hit.dense_score)} · 关键词 {formatScore(hit.sparse_score)} · 融合 {formatScore(hit.rrf_score)} · 重排 {formatScore(hit.rerank_score)}
+                            </Typography.Text>
+                        </List.Item>
+                    )}
+                />
+            )}
         </Space>
     );
+}
+
+function canRunChunk(doc: RagDocument) {
+    return ["parsed", "chunked", "indexed"].includes(doc.parse_status) || doc.chunk_count > 0;
+}
+
+function canRunIndex(doc: RagDocument) {
+    return ["chunked", "indexed"].includes(doc.chunk_status) || doc.chunk_count > 0;
+}
+
+function documentReadableSummary(doc: RagDocument) {
+    if (doc.status === "indexed" || doc.index_status === "indexed") {
+        return "这份文档已写入向量库，可以被检索和 Test QA 命中。";
+    }
+    if (doc.chunk_status === "chunked" || doc.chunk_count > 0) {
+        return "这份文档已经生成片段，下一步点击“写入向量库”。";
+    }
+    if (doc.parse_status === "parsed") {
+        return "这份文档已经解析出正文，下一步点击“生成片段”。";
+    }
+    if (doc.status === "failed" || doc.parse_status.includes("failed") || doc.index_status.includes("failed")) {
+        return doc.error_message ? `处理失败：${doc.error_message}` : "处理失败，请查看后端日志或重新导入。";
+    }
+    return "这份文档已导入，下一步点击“解析文档”。";
+}
+
+function statusLabel(status?: string | null) {
+    if (!status) {
+        return "未开始";
+    }
+    return statusLabelMap[status] ?? status;
+}
+
+function statusColor(status?: string | null) {
+    if (!status) {
+        return "default";
+    }
+    if (["indexed", "parsed", "chunked"].includes(status)) {
+        return "green";
+    }
+    if (["failed", "parse_failed", "chunk_failed", "index_failed"].includes(status)) {
+        return "red";
+    }
+    if (["running", "parsing", "queued"].includes(status)) {
+        return "blue";
+    }
+    return "default";
+}
+
+function vectorBackendLabel(value?: string | null) {
+    if (!value) {
+        return "向量库：未写入";
+    }
+    const normalized = value.toLowerCase();
+    if (normalized.includes("milvus_standalone") || normalized === "milvus") {
+        return "Milvus Docker";
+    }
+    if (normalized.includes("milvus_lite")) {
+        return "Milvus Lite";
+    }
+    if (normalized.includes("memory")) {
+        return "内存开发模式";
+    }
+    if (normalized.includes("chroma")) {
+        return "Chroma 兼容模式";
+    }
+    return value;
+}
+
+function humanizeWarning(value: string) {
+    return value
+        .replace(/no_hits/g, "没有命中片段")
+        .replace(/rerank/g, "重排序")
+        .replace(/vector unavailable/g, "向量检索不可用")
+        .replace(/fallback/g, "降级")
+        .replace(/BGE/g, "BGE")
+        .replace(/Milvus/g, "Milvus");
 }
 
 function formatScore(value?: number | null) {
     return typeof value === "number" ? value.toFixed(3) : "-";
 }
-

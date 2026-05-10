@@ -163,6 +163,22 @@ export function AskPage() {
     }, []);
 
     useEffect(() => {
+        const kbIdFromUrl = searchParams.get("kb_id");
+        const ragModeFromUrl = searchParams.get("rag_mode");
+        const questionFromUrl = searchParams.get("question");
+        if (kbIdFromUrl) {
+            setSelectedKbId(kbIdFromUrl);
+            setKnowledgeScope("mixed");
+        }
+        if (isRagRetrievalMode(ragModeFromUrl)) {
+            setRagMode(ragModeFromUrl);
+        }
+        if (questionFromUrl) {
+            setQuestion((current) => current || questionFromUrl);
+        }
+    }, [searchParams]);
+
+    useEffect(() => {
         if (!activeSessionId) {
             setActiveSession(null);
             return;
@@ -1634,6 +1650,10 @@ function buildRagTraceTags(trace?: Record<string, unknown> | null) {
 function readTraceNumber(trace: Record<string, unknown>, key: string) {
     const value = trace[key];
     return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isRagRetrievalMode(value: string | null): value is RagRetrievalMode {
+    return value === "dense" || value === "sparse" || value === "hybrid" || value === "hybrid_rerank";
 }
 
 function resolveMessageContent(message: ChatMessageView, isAssistant: boolean) {
