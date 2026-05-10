@@ -187,7 +187,10 @@ body {
 
 .app-shell__brand {
     color: var(--cr-sider-text);
-    margin-bottom: 18px;
+    margin-bottom: 14px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
 }
 
 .app-shell__brand--compact {
@@ -202,6 +205,19 @@ body {
 .app-shell__brand .ant-typography,
 .app-shell__header .ant-typography {
     color: inherit;
+}
+
+.app-shell__brand .ant-typography {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+}
+
+.app-shell__brand--compact .ant-typography {
+    font-size: inherit;
+    letter-spacing: 0;
 }
 
 .app-shell__header {
@@ -1533,6 +1549,239 @@ body {
     margin-bottom: 0;
 }
 
+.carbon-calculator-card .ant-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.carbon-calculator-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.carbon-calculator-intro {
+    margin-bottom: 0;
+}
+
+.carbon-calculator-meta {
+    margin-bottom: 0;
+}
+
+.carbon-calculator-toolbar {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) minmax(260px, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+}
+
+.carbon-calculator-layout {
+    display: grid;
+    grid-template-columns: minmax(360px, 0.9fr) minmax(360px, 1.1fr);
+    gap: 18px;
+    align-items: stretch;
+}
+
+.carbon-calculator-source-panel,
+.carbon-calculator-result-panel {
+    min-height: 560px;
+    border: 1px solid var(--cr-border);
+    border-radius: 24px;
+    background: var(--cr-surface);
+    overflow: hidden;
+}
+
+.carbon-calculator-source-panel {
+    display: grid;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.carbon-calculator-source-panel__header,
+.carbon-calculator-result-panel__header {
+    display: flex;
+    align-items: center;
+    min-height: 56px;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--cr-border);
+    color: var(--cr-primary);
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.carbon-calculator-result-panel__header {
+    justify-content: space-between;
+}
+
+.carbon-calculator-groups {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    padding: 16px 18px 8px;
+}
+
+.carbon-calculator-group {
+    border: 1px solid var(--cr-border);
+    border-radius: 18px;
+    background: var(--cr-surface-elevated);
+    color: var(--cr-text);
+    cursor: pointer;
+    padding: 10px 8px;
+    transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.carbon-calculator-group--active {
+    border-color: var(--cr-primary);
+    background: var(--cr-primary);
+    color: #fff;
+}
+
+.carbon-calculator-group__label {
+    display: block;
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.carbon-calculator-group__count {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    opacity: 0.78;
+}
+
+.carbon-calculator-group-hint {
+    margin: 0;
+    padding: 0 22px 14px;
+    color: var(--cr-text-secondary);
+}
+
+.carbon-calculator-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-content: start;
+    gap: 10px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 18px 18px;
+}
+
+.carbon-calculator-option {
+    min-height: 90px;
+    border: 1px solid var(--cr-border);
+    border-radius: 20px;
+    background: var(--cr-surface-elevated);
+    color: var(--cr-text);
+    cursor: pointer;
+    padding: 14px;
+    text-align: left;
+    transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.carbon-calculator-option:hover {
+    border-color: var(--cr-primary);
+    box-shadow: var(--cr-shadow-soft);
+    transform: translateY(-1px);
+}
+
+.carbon-calculator-option__name,
+.carbon-calculator-option__meta {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.carbon-calculator-option__name {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.carbon-calculator-option__meta {
+    margin-top: 10px;
+    color: var(--cr-text-secondary);
+    font-size: 12px;
+}
+
+.carbon-calculator-loading {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 220px;
+}
+
+.carbon-calculator-result-panel {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.carbon-calculator-selected-list {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 18px;
+}
+
+.carbon-calculator-selected {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(210px, 260px);
+    gap: 14px;
+    align-items: center;
+    border: 1px solid var(--cr-border);
+    border-radius: 18px;
+    background: var(--cr-surface-elevated);
+    padding: 14px;
+}
+
+.carbon-calculator-selected + .carbon-calculator-selected {
+    margin-top: 10px;
+}
+
+.carbon-calculator-selected__info,
+.carbon-calculator-selected__input {
+    min-width: 0;
+}
+
+.carbon-calculator-selected__info {
+    display: grid;
+    gap: 6px;
+}
+
+.carbon-calculator-selected__input {
+    display: grid;
+    grid-template-columns: minmax(96px, 1fr) auto auto auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.carbon-calculator-selected__unit {
+    white-space: nowrap;
+    color: var(--cr-text-secondary);
+}
+
+.carbon-calculator-selected__emission {
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.carbon-calculator-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 22px;
+    border-top: 1px solid var(--cr-border);
+    background: var(--cr-background-secondary);
+}
+
+.carbon-calculator-summary__total {
+    color: var(--cr-text);
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
 .report-workbench__config-stack,
 .report-workbench__preview-stack {
     display: flex;
@@ -1990,6 +2239,21 @@ body {
 }
 
 @media (max-width: 960px) {
+    .carbon-calculator-toolbar,
+    .carbon-calculator-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .carbon-calculator-options {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        max-height: 420px;
+    }
+
+    .carbon-calculator-source-panel,
+    .carbon-calculator-result-panel {
+        min-height: 440px;
+    }
+
     .carbon-factor-hero,
     .carbon-factor-layout {
         grid-template-columns: 1fr;
@@ -2005,6 +2269,25 @@ body {
 }
 
 @media (max-width: 720px) {
+    .carbon-calculator-groups {
+        grid-template-columns: repeat(5, minmax(44px, 1fr));
+        padding-inline: 12px;
+    }
+
+    .carbon-calculator-options {
+        grid-template-columns: 1fr;
+    }
+
+    .carbon-calculator-selected,
+    .carbon-calculator-selected__input {
+        grid-template-columns: 1fr;
+    }
+
+    .carbon-calculator-summary {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
     .carbon-factor-results-grid {
         grid-template-columns: 1fr;
         grid-auto-rows: 226px;

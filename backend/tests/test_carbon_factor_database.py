@@ -1,7 +1,8 @@
 import sqlite3
 
+from app.carbon.engine import CarbonCalculationEngine
 from app.carbon.factor_loader import CarbonFactorLoader
-from app.carbon.schemas import CarbonActivityItem
+from app.carbon.schemas import CalcCarbonRequest, CarbonActivityItem
 from app.carbon.factors.registry import FactorRegistry
 from app.carbon_factors.carbonstop import CarbonStopPublicAdapter
 from app.carbon_factors.service import CarbonFactorDatabaseService
@@ -89,6 +90,72 @@ def test_factor_registry_reads_runtime_db_before_file_seed(tmp_path) -> None:
     )
 
     assert selected.factor.factor_id.startswith("carbonstop-ccdb-")
+
+
+def test_carbonstop_public_factor_can_drive_scope3_calculation(tmp_path) -> None:
+    service = build_service(tmp_path)
+    service.import_carbonstop_seed(owner_user_id="tester")
+
+    records = service.store.list_enabled_factor_records()
+    registry = FactorRegistry(records)
+    result = CarbonCalculationEngine(registry=registry).calculate(
+        CalcCarbonRequest(
+            activity_items=[
+                {
+                    "scope": "scope3",
+                    "activity_category": "陆上交通",
+                    "activity_name": "载客汽车",
+                    "activity_value": 10,
+                    "activity_unit": "km",
+                    "requested_factor_id": "carbonstop-ccdb-1704587623764736",
+                }
+            ]
+        ).to_activity_batch()
+    )
+
+    assert result.breakdown[0].factor_id == "carbonstop-ccdb-1704587623764736"
+    assert result.total_emission_kgco2e == 2.4
+
+
+def test_carbonstop_calculator_seed_contains_public_lifestyle_catalog() -> None:
+    records = [
+        record
+        for record in CarbonFactorLoader().load_records()
+        if "carbonstop_calculator" in record.tags
+    ]
+
+    assert len(records) == 42
+    assert {record.activity_name for record in records} >= {"涤纶织物", "纯棉T恤", "用电", "飞机", "城市垃圾"}
+    assert {record.activity_category for record in records} == {
+        "personal_calculator_clothes",
+        "personal_calculator_food",
+        "personal_calculator_home",
+        "personal_calculator_travel",
+        "personal_calculator_daily",
+    }
+
+
+def test_carbonstop_calculator_seed_can_drive_lifestyle_calculation() -> None:
+    registry = CarbonFactorLoader().load_registry()
+
+    result = CarbonCalculationEngine(registry=registry).calculate(
+        CalcCarbonRequest(
+            activity_items=[
+                {
+                    "scope": "scope3",
+                    "activity_category": "personal_calculator_clothes",
+                    "activity_name": "纯棉T恤",
+                    "activity_value": 2,
+                    "activity_unit": "件",
+                    "factor_preference": "public_calculator",
+                    "requested_factor_id": "carbonstop-calculator-02",
+                }
+            ]
+        ).to_activity_batch()
+    )
+
+    assert result.breakdown[0].factor_id == "carbonstop-calculator-02"
+    assert result.total_emission_kgco2e == 14
 
 
 def test_runtime_factor_loader_keeps_seed_fallback_when_db_unavailable(monkeypatch) -> None:

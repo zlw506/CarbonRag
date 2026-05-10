@@ -41,6 +41,11 @@ export function SessionRail({
     onDeleteSession,
 }: SessionRailProps) {
     const [recentCollapsed, setRecentCollapsed] = useState(false);
+    const [openMenuSessionId, setOpenMenuSessionId] = useState<string | null>(null);
+
+    useEffect(() => {
+        setOpenMenuSessionId(null);
+    }, [collapsed, recentCollapsed, sessions]);
 
     return (
         <div className={collapsed ? "chat-session-rail chat-session-rail--collapsed" : "chat-session-rail"}>
@@ -80,7 +85,7 @@ export function SessionRail({
                     {loading ? (
                         <div className="chat-workbench__loading"><Spin /></div>
                     ) : sessions.length ? (
-                        <div className="chat-session-rail__scroll">
+                        <div className="chat-session-rail__scroll" onScroll={() => setOpenMenuSessionId(null)}>
                             <button
                                 type="button"
                                 className="chat-session-rail__section-title"
@@ -121,6 +126,10 @@ export function SessionRail({
                                                     <Dropdown
                                                         trigger={["click"]}
                                                         placement="bottomRight"
+                                                        open={openMenuSessionId === session.session_id}
+                                                        onOpenChange={(open) => {
+                                                            setOpenMenuSessionId(open ? session.session_id : null);
+                                                        }}
                                                         menu={{
                                                             items: [
                                                                 {
@@ -145,6 +154,7 @@ export function SessionRail({
                                                             ],
                                                             onClick: ({ key, domEvent }) => {
                                                                 domEvent.stopPropagation();
+                                                                setOpenMenuSessionId(null);
                                                                 if (key === "rename") {
                                                                     onRenameSession(session);
                                                                     return;

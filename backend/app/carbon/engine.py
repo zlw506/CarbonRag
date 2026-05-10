@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from app.carbon.factors.registry import FactorRegistry
 from app.carbon.schemas import (
     CarbonActivityBatch,
+    CarbonActivityItem,
     CarbonBreakdownItem,
     CarbonCitation,
     CarbonFactorSnapshot,
@@ -75,12 +76,16 @@ class CarbonCalculationEngine:
             elif activity.scope == "scope2":
                 selection, normalized_value, conversion_trace, item_warnings = self.scope2.prepare(activity)
             elif activity.scope == "scope3":
-                raise ValueError("Scope 3 is reserved in V1.4.4 and is not calculated.")
+                selection, normalized_value, conversion_trace, item_warnings = self._prepare_generic(activity)
             else:
                 raise ValueError(f"Unsupported carbon scope: {activity.scope}")
 
             factor = selection.factor
-            emission = _round_value(normalized_value * factor.factor_value)
+            emission = _round_value(
+                normalized_value
+                * factor.factor_value
+                * self._result_unit_to_kgco2e_multiplier(factor.result_unit or factor.factor_unit)
+            )
             item = CarbonBreakdownItem(
                 item=activity.activity_name,
                 scope=activity.scope,
@@ -139,6 +144,36 @@ class CarbonCalculationEngine:
             fallback_factor_count=fallback_factor_count,
             warnings=list(dict.fromkeys(warnings)),
         )
+
+    def _prepare_generic(self, activity: CarbonActivityItem):
+        selection = self.registry.select_factor(activity)
+        normalized_value, conversion_trace = self.unit_converter.normalize(
+            activity_name=activity.activity_name,
+            value=activity.activity_value,
+            from_unit=activity.activity_unit,
+            to_unit=selection.factor.activity_unit,
+        )
+        return selection, normalized_value, conversion_trace, list(selection.warnings)
+
+    @staticmethod
+    def _result_unit_to_kgco2e_multiplier(unit: str) -> float:
+        normalized = (
+            unit.strip()
+            .replace("₂", "2")
+            .replace("二氧化碳当量", "CO2e")
+            .replace("千克", "kg")
+            .replace("吨", "t")
+        )
+        if "/" in normalized:
+            normalized = normalized.split("/", 1)[0].strip()
+        normalized_lower = normalized.lower()
+        if normalized_lower in {"kgco2e", "kg co2e", "kg-co2e", "kgco₂e"}:
+            return 1.0
+        if normalized_lower in {"tco2e", "tonco2e", "tonneco2e", "t co2e", "t-co2e"}:
+            return 1000.0
+        if normalized_lower in {"gco2e", "g co2e", "g-co2e"}:
+            return 0.001
+        return 1.0
 
     @staticmethod
     def _build_source_summary(

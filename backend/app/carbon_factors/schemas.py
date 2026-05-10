@@ -84,6 +84,38 @@ class CarbonFactorFacets(BaseModel):
     category_tree: list[dict] = Field(default_factory=list)
 
 
+class CarbonCalculatorCatalogGroup(BaseModel):
+    group_key: str
+    label: str
+    hint: str
+    count: int
+
+
+class CarbonCalculatorCatalogItem(BaseModel):
+    item_id: str
+    factor_id: str
+    group_key: str
+    group_label: str
+    name: str
+    factor_value: float
+    factor_unit: str
+    activity_unit: str
+    result_unit: str
+    scope: str
+    activity_category: str
+    activity_name: str
+    source_name: str
+    source_url: str | None = None
+    tip: str | None = None
+    order: int
+
+
+class CarbonCalculatorCatalogResponse(BaseModel):
+    groups: list[CarbonCalculatorCatalogGroup]
+    items: list[CarbonCalculatorCatalogItem]
+    total: int
+
+
 class CarbonFactorImportSource(BaseModel):
     title: str
     publisher: str

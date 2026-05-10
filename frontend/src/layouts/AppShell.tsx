@@ -15,7 +15,6 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
 import { useSettings } from "../app/SettingsContext";
 import { SessionRail, useResponsiveSessionRail } from "../components/SessionRail";
-import env from "../app/env";
 import { ADMIN_NAV_ITEM, getNavigationItems } from "../constants/navigation";
 import { createSession, deleteSession, listSessions, updateSession } from "../services/sessions";
 import type { SessionSummary } from "../types/session";
@@ -289,12 +288,7 @@ export function AppShell() {
                             <Typography.Text type="secondary">对话</Typography.Text>
                         </>
                     ) : (
-                        <>
-                            <Typography.Title level={4}>{env.appTitle}</Typography.Title>
-                            <Typography.Paragraph>
-                                面向双碳问答、知识检索、核算和报告的工作台。
-                            </Typography.Paragraph>
-                        </>
+                        <Typography.Title level={4}>CarbonRag</Typography.Title>
                     )}
                 </div>
                 <div className="app-shell__sider-nav">
