@@ -10,8 +10,7 @@ import {
     SettingOutlined,
 } from "@ant-design/icons";
 import { App as AntdApp, Avatar, Button, Input, Layout, Menu, Modal, Popover, Space, Tag, Typography } from "antd";
-import { useEffect, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
 import { useSettings } from "../app/SettingsContext";
@@ -37,7 +36,7 @@ const iconMap = {
 export function AppShell() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { user, logout, updateProfile } = useAuth();
+    const { user, logout } = useAuth();
     const { settings } = useSettings();
     const { modal, message } = AntdApp.useApp();
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -48,11 +47,6 @@ export function AppShell() {
     const [renameTarget, setRenameTarget] = useState<SessionSummary | null>(null);
     const [renameDraft, setRenameDraft] = useState("");
     const [sessionActionLoading, setSessionActionLoading] = useState(false);
-    const [profileModalOpen, setProfileModalOpen] = useState(false);
-    const [profileNameDraft, setProfileNameDraft] = useState("");
-    const [profileAvatarDraft, setProfileAvatarDraft] = useState<string | null>(null);
-    const [profileSaving, setProfileSaving] = useState(false);
-    const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
     if (!user) {
         return null;
@@ -259,54 +253,6 @@ export function AppShell() {
         navigate("/login", { replace: true });
     }
 
-    function openProfileEditor() {
-        setProfileNameDraft(currentUser.display_name || currentUser.username);
-        setProfileAvatarDraft(currentUser.avatar_url ?? null);
-        setProfileModalOpen(true);
-    }
-
-    function handleAvatarFileChange(event: ChangeEvent<HTMLInputElement>) {
-        const file = event.target.files?.[0];
-        event.target.value = "";
-        if (!file) {
-            return;
-        }
-        if (!file.type.startsWith("image/")) {
-            message.warning("请选择图片文件作为头像。");
-            return;
-        }
-        if (file.size > 180_000) {
-            message.warning("头像图片请控制在 180KB 以内。");
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-            setProfileAvatarDraft(typeof reader.result === "string" ? reader.result : null);
-        };
-        reader.readAsDataURL(file);
-    }
-
-    async function handleSaveProfile() {
-        const displayName = profileNameDraft.trim();
-        if (!displayName) {
-            message.warning("名称不能为空。");
-            return;
-        }
-        setProfileSaving(true);
-        try {
-            await updateProfile({
-                display_name: displayName,
-                avatar_url: profileAvatarDraft,
-            });
-            setProfileModalOpen(false);
-            message.success("个人资料已更新。");
-        } catch (error) {
-            message.warning(extractDetailMessage(error) ?? "名称可能已重复，请换一个名称。");
-        } finally {
-            setProfileSaving(false);
-        }
-    }
-
     const siderUserMenu = (
         <div className="app-shell__focus-user-menu">
             <Space align="start" size={12}>
@@ -319,9 +265,6 @@ export function AppShell() {
                 </div>
             </Space>
             <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Button block onClick={openProfileEditor}>
-                    修改名称和头像
-                </Button>
                 <Button block icon={<SettingOutlined />} onClick={() => navigate("/settings")}>
                     通用设置
                 </Button>
@@ -436,49 +379,6 @@ export function AppShell() {
                 </Content>
             </Layout>
             <Modal
-                title="修改个人资料"
-                open={profileModalOpen}
-                okText="保存"
-                cancelText="取消"
-                confirmLoading={profileSaving}
-                onOk={() => void handleSaveProfile()}
-                onCancel={() => {
-                    if (!profileSaving) {
-                        setProfileModalOpen(false);
-                    }
-                }}
-            >
-                <Space direction="vertical" size={14} style={{ width: "100%" }}>
-                    <Space align="center" size={14}>
-                        <Avatar size={64} src={profileAvatarDraft ?? undefined}>
-                            {profileNameDraft.trim().slice(0, 1).toUpperCase() || getUserInitial(user)}
-                        </Avatar>
-                        <Space direction="vertical" size={8}>
-                            <Button onClick={() => avatarInputRef.current?.click()}>上传头像</Button>
-                            <Button onClick={() => setProfileAvatarDraft(null)}>移除头像</Button>
-                        </Space>
-                        <input
-                            ref={avatarInputRef}
-                            type="file"
-                            accept="image/*"
-                            hidden
-                            onChange={handleAvatarFileChange}
-                        />
-                    </Space>
-                    <div>
-                        <Typography.Text strong>名称</Typography.Text>
-                        <Input
-                            value={profileNameDraft}
-                            maxLength={32}
-                            placeholder="输入展示名称"
-                            onChange={(event) => setProfileNameDraft(event.target.value)}
-                            onPressEnter={() => void handleSaveProfile()}
-                        />
-                        <Typography.Text type="secondary">名称不可重复；身份仅作为 admin / user 标签展示。</Typography.Text>
-                    </div>
-                </Space>
-            </Modal>
-            <Modal
                 title="重命名会话"
                 open={Boolean(renameTarget)}
                 okText="保存"
@@ -508,13 +408,4 @@ export function AppShell() {
 function getUserInitial(user: { display_name?: string | null; username: string }) {
     const value = user.display_name || user.username;
     return value.slice(0, 1).toUpperCase();
-}
-
-function extractDetailMessage(value: unknown): string | null {
-    if (!value || typeof value !== "object") {
-        return null;
-    }
-    const candidate = value as { response?: { data?: { detail?: unknown } }; detail?: unknown };
-    const detail = candidate.response?.data?.detail ?? candidate.detail;
-    return typeof detail === "string" ? detail : null;
 }
