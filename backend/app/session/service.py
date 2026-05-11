@@ -115,7 +115,8 @@ class SessionService:
         return updated
 
     def delete_session(self, *, owner_user_id: str, session_id: str) -> bool:
-        self.require_session(owner_user_id=owner_user_id, session_id=session_id)
+        if self.get_session(owner_user_id=owner_user_id, session_id=session_id) is None:
+            return False
         return self.store.delete_session(owner_user_id=owner_user_id, session_id=session_id)
 
     def build_session_context(

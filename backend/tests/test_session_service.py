@@ -183,6 +183,7 @@ def test_session_service_supports_pin_and_delete_controls(tmp_path) -> None:
 
     assert service.delete_session(owner_user_id=owner_user_id, session_id=session.session_id) is True
     assert service.get_session(owner_user_id=owner_user_id, session_id=session.session_id) is None
+    assert service.delete_session(owner_user_id=owner_user_id, session_id=session.session_id) is False
 
 
 def test_session_service_begin_and_finalize_exchange_updates_placeholder(tmp_path) -> None:

@@ -722,6 +722,21 @@ body {
     align-items: center !important;
     gap: 12px;
     padding-inline: 14px !important;
+    cursor: pointer;
+    transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.settings-session-bulk-list__item:hover,
+.settings-session-bulk-list__item--selected {
+    background: var(--cr-session-item-hover-bg);
+}
+
+.settings-session-bulk-list__item--selected {
+    box-shadow: inset 3px 0 0 var(--cr-primary);
+}
+
+.settings-session-bulk-list__item .ant-list-item-action {
+    margin-inline-start: 12px;
 }
 
 .settings-session-bulk-list__copy {

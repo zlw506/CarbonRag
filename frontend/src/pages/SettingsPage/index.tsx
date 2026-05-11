@@ -1,4 +1,4 @@
-import { CloudServerOutlined, PlusOutlined, SaveOutlined, UploadOutlined } from "@ant-design/icons";
+import { CloudServerOutlined, DeleteOutlined, FolderOpenOutlined, PlusOutlined, SaveOutlined, UploadOutlined } from "@ant-design/icons";
 import {
     Alert,
     AutoComplete,
@@ -27,7 +27,7 @@ import { useSettings } from "../../app/SettingsContext";
 import { useTheme } from "../../app/ThemeContext";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { discoverProviderModels, testProviderConnection } from "../../services/settings";
-import { deleteSession } from "../../services/sessions";
+import { bulkDeleteSessions } from "../../services/sessions";
 import type {
     AppearanceSettings,
     ChatPreferenceSettings,
@@ -78,6 +78,7 @@ export function SettingsPage() {
         sessions: shellSessions,
         activeSessionId,
         refreshSessions,
+        selectSession,
     } = useWorkbenchShellContext();
     const { themeMode, themePreset, allPresets, setThemeMode, setThemePreset } = useTheme();
     const {
@@ -291,34 +292,65 @@ export function SettingsPage() {
         setSelectedSessionIds(sessionList.map((session) => session.session_id));
     }
 
+    async function executeSessionDeletion(targetSessionIds: string[]) {
+        if (!targetSessionIds.length) {
+            return;
+        }
+        setDeletingSessions(true);
+        try {
+            const result = await bulkDeleteSessions(targetSessionIds);
+            setSelectedSessionIds((current) =>
+                current.filter((sessionId) => !result.deleted_session_ids.includes(sessionId)),
+            );
+            const nextPreferredSessionId = result.deleted_session_ids.includes(activeSessionId ?? "") ? null : activeSessionId;
+            const sessions = await refreshSessions(nextPreferredSessionId);
+            setSessionList(sessions);
+            if (result.deleted_count > 0) {
+                message.success(`已删除 ${result.deleted_count} 个会话。`);
+            }
+            if (result.missing_session_ids.length) {
+                message.warning("部分会话已不存在，列表已同步刷新。");
+            }
+        } catch {
+            setTransportError("会话删除失败，请刷新后重试。");
+        } finally {
+            setDeletingSessions(false);
+        }
+    }
+
     function handleDeleteSelectedSessions() {
-        if (!selectedSessionIds.length) {
+        const targetSelection = [...selectedSessionIds];
+        if (!targetSelection.length) {
             message.info("请先选择要删除的会话。");
             return;
         }
         Modal.confirm({
             title: "确认删除选中的会话？",
-            content: `将删除 ${selectedSessionIds.length} 个会话。该操作不可撤销。`,
+            content: `将删除 ${targetSelection.length} 个会话。该操作不可撤销。`,
             okText: "删除",
             okButtonProps: { danger: true },
             cancelText: "取消",
             async onOk() {
-                const targetSelection = [...selectedSessionIds];
-                setDeletingSessions(true);
-                try {
-                    await Promise.all(targetSelection.map((sessionId) => deleteSession(sessionId)));
-                    setSelectedSessionIds([]);
-                    const nextPreferredSessionId = targetSelection.includes(activeSessionId ?? "") ? null : activeSessionId;
-                    const sessions = await refreshSessions(nextPreferredSessionId);
-                    setSessionList(sessions);
-                    message.success("已删除选中的会话。");
-                } catch {
-                    setTransportError("部分会话删除失败，请刷新后重试。");
-                } finally {
-                    setDeletingSessions(false);
-                }
+                await executeSessionDeletion(targetSelection);
             },
         });
+    }
+
+    function handleDeleteSingleSession(session: SessionSummary) {
+        Modal.confirm({
+            title: "确认删除该会话？",
+            content: `将删除“${session.title || "未命名会话"}”。该操作不可撤销。`,
+            okText: "删除",
+            okButtonProps: { danger: true },
+            cancelText: "取消",
+            async onOk() {
+                await executeSessionDeletion([session.session_id]);
+            },
+        });
+    }
+
+    function handleOpenManagedSession(sessionId: string) {
+        selectSession(sessionId);
     }
 
     async function handleDiscoverModels() {
@@ -672,9 +704,58 @@ export function SettingsPage() {
                         dataSource={sessionList}
                         locale={{ emptyText: "当前没有可清理的会话。" }}
                         renderItem={(session) => (
-                            <List.Item className="settings-session-bulk-list__item">
+                            <List.Item
+                                className={[
+                                    "settings-session-bulk-list__item",
+                                    selectedSessionIds.includes(session.session_id) ? "settings-session-bulk-list__item--selected" : null,
+                                ].filter(Boolean).join(" ")}
+                                role="button"
+                                tabIndex={0}
+                                actions={[
+                                    <Button
+                                        key="open"
+                                        type="text"
+                                        size="small"
+                                        icon={<FolderOpenOutlined />}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            handleOpenManagedSession(session.session_id);
+                                        }}
+                                    >
+                                        打开
+                                    </Button>,
+                                    <Button
+                                        key="delete"
+                                        danger
+                                        type="text"
+                                        size="small"
+                                        icon={<DeleteOutlined />}
+                                        loading={deletingSessions}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            handleDeleteSingleSession(session);
+                                        }}
+                                    >
+                                        删除
+                                    </Button>,
+                                ]}
+                                onClick={() => toggleSessionSelection(
+                                    session.session_id,
+                                    !selectedSessionIds.includes(session.session_id),
+                                )}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        toggleSessionSelection(
+                                            session.session_id,
+                                            !selectedSessionIds.includes(session.session_id),
+                                        );
+                                    }
+                                }}
+                            >
                                 <Checkbox
                                     checked={selectedSessionIds.includes(session.session_id)}
+                                    onClick={(event) => event.stopPropagation()}
                                     onChange={(event) => toggleSessionSelection(session.session_id, event.target.checked)}
                                 />
                                 <div className="settings-session-bulk-list__copy">

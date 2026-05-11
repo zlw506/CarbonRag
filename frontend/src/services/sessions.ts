@@ -72,6 +72,15 @@ export async function deleteSession(sessionId: string) {
     await httpClient.delete(`/v1/sessions/${sessionId}`);
 }
 
+export async function bulkDeleteSessions(sessionIds: string[]) {
+    const response = await httpClient.post<{
+        deleted_count: number;
+        deleted_session_ids: string[];
+        missing_session_ids: string[];
+    }>("/v1/sessions/bulk-delete", { session_ids: sessionIds });
+    return response.data;
+}
+
 export async function replaceAttachedPrivateSamples(
     sessionId: string,
     payload: ReplaceAttachedPrivateSamplesRequest,
