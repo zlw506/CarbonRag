@@ -25,8 +25,9 @@ import type { ChangeEvent } from "react";
 import { useAuth } from "../../app/AuthContext";
 import { useSettings } from "../../app/SettingsContext";
 import { useTheme } from "../../app/ThemeContext";
+import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { discoverProviderModels, testProviderConnection } from "../../services/settings";
-import { deleteSession, listSessions } from "../../services/sessions";
+import { deleteSession } from "../../services/sessions";
 import type {
     AppearanceSettings,
     ChatPreferenceSettings,
@@ -73,6 +74,11 @@ function buildBlankProviderDraft(storageMode: CredentialStorageMode = "local_onl
 
 export function SettingsPage() {
     const { user, updateProfile } = useAuth();
+    const {
+        sessions: shellSessions,
+        activeSessionId,
+        refreshSessions,
+    } = useWorkbenchShellContext();
     const { themeMode, themePreset, allPresets, setThemeMode, setThemePreset } = useTheme();
     const {
         settings,
@@ -121,6 +127,13 @@ export function SettingsPage() {
     useEffect(() => {
         void loadSessionListForSettings();
     }, []);
+
+    useEffect(() => {
+        setSessionList(shellSessions);
+        setSelectedSessionIds((current) =>
+            current.filter((sessionId) => shellSessions.some((session) => session.session_id === sessionId)),
+        );
+    }, [shellSessions]);
 
     async function handleSaveAppearance() {
         await handleSaveAppearanceDraft({
@@ -253,7 +266,7 @@ export function SettingsPage() {
     async function loadSessionListForSettings() {
         setLoadingSessionList(true);
         try {
-            const sessions = await listSessions();
+            const sessions = await refreshSessions(activeSessionId);
             setSessionList(sessions);
             setSelectedSessionIds((current) =>
                 current.filter((sessionId) => sessions.some((session) => session.session_id === sessionId)),
@@ -290,11 +303,14 @@ export function SettingsPage() {
             okButtonProps: { danger: true },
             cancelText: "取消",
             async onOk() {
+                const targetSelection = [...selectedSessionIds];
                 setDeletingSessions(true);
                 try {
-                    await Promise.all(selectedSessionIds.map((sessionId) => deleteSession(sessionId)));
+                    await Promise.all(targetSelection.map((sessionId) => deleteSession(sessionId)));
                     setSelectedSessionIds([]);
-                    await loadSessionListForSettings();
+                    const nextPreferredSessionId = targetSelection.includes(activeSessionId ?? "") ? null : activeSessionId;
+                    const sessions = await refreshSessions(nextPreferredSessionId);
+                    setSessionList(sessions);
                     message.success("已删除选中的会话。");
                 } catch {
                     setTransportError("部分会话删除失败，请刷新后重试。");

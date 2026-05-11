@@ -119,6 +119,7 @@ export function AppShell() {
     }
 
     async function refreshSessions(preferredSessionId?: string | null) {
+        const hasPreferredSession = arguments.length > 0;
         try {
             const sessionList = await listSessions();
             setSessionRailError(null);
@@ -127,7 +128,7 @@ export function AppShell() {
                 if (!sessionList.length) {
                     return null;
                 }
-                const targetId = preferredSessionId ?? current;
+                const targetId = hasPreferredSession ? preferredSessionId : current;
                 if (targetId && sessionList.some((item) => item.session_id === targetId)) {
                     return targetId;
                 }
@@ -165,6 +166,9 @@ export function AppShell() {
 
     function handleSelectSession(sessionId: string) {
         setActiveSessionId(sessionId);
+        if (location.pathname !== "/") {
+            navigate("/");
+        }
         if (typeof window !== "undefined" && window.innerWidth <= 1200) {
             setSessionRailCollapsed(true);
         }

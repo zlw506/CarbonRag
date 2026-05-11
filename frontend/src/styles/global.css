@@ -144,10 +144,36 @@ body {
 .app-shell {
     display: flex;
     min-height: 100dvh;
+    overflow: hidden;
+    position: relative;
+    isolation: isolate;
     width: 100%;
+    background:
+        radial-gradient(circle at 16% 10%, var(--cr-page-radial), transparent 32%),
+        radial-gradient(circle at 78% 8%, color-mix(in srgb, var(--cr-primary-soft) 44%, transparent), transparent 36%),
+        linear-gradient(180deg, var(--cr-page-start) 0%, var(--cr-page-end) 100%);
+}
+
+.app-shell::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 12% 22%, color-mix(in srgb, var(--cr-primary-soft) 36%, transparent), transparent 28%),
+        radial-gradient(circle at 88% 20%, var(--cr-page-radial), transparent 30%);
+    opacity: 0.9;
+}
+
+.app-shell > .ant-layout,
+.app-shell > .ant-layout-sider {
+    position: relative;
+    z-index: 1;
 }
 
 .app-shell > .ant-layout {
+    background: transparent;
     min-width: 0;
 }
 
@@ -158,11 +184,15 @@ body {
 }
 
 .app-shell--focus {
-    background: var(--cr-page-start);
+    background:
+        radial-gradient(circle at 16% 10%, var(--cr-page-radial), transparent 32%),
+        radial-gradient(circle at 78% 8%, color-mix(in srgb, var(--cr-primary-soft) 44%, transparent), transparent 36%),
+        linear-gradient(180deg, var(--cr-page-start) 0%, var(--cr-page-end) 100%);
 }
 
 .app-shell__sider {
-    background: var(--cr-sider-bg) !important;
+    background: color-mix(in srgb, var(--cr-sider-bg) 88%, transparent) !important;
+    backdrop-filter: blur(18px);
     border-right: 1px solid var(--cr-border);
     height: 100dvh;
     min-height: 0;
