@@ -6,6 +6,7 @@ from app.auth.schemas import (
     AuthUserEnvelope,
     AuthenticatedUser,
     ChangePasswordRequest,
+    CurrentPasswordRequest,
     LoginRequest,
     LoginResponse,
     RegisterRequest,
@@ -14,6 +15,7 @@ from app.auth.schemas import (
 from app.auth.service import (
     AuthenticationError,
     InactiveUserError,
+    ProtectedAccountDeletionError,
     ReservedUsernameError,
     UserAlreadyExistsError,
     get_auth_service,
@@ -122,3 +124,24 @@ def change_password(
         max_age_seconds=service.cookie.max_age_seconds,
     )
     return LoginResponse(user=login_result.user, must_change_password=login_result.user.password_must_change)
+
+
+@router.delete("/me", response_model=AuthStatusResponse)
+def delete_me(
+    payload: CurrentPasswordRequest,
+    response: Response,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthStatusResponse:
+    try:
+        get_auth_service().delete_own_account(
+            user_id=current_user.user_id,
+            current_password=payload.current_password,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except ProtectedAccountDeletionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="User not found.")
+    response.delete_cookie("carbonrag_session", path="/")
+    return AuthStatusResponse()

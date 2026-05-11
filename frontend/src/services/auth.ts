@@ -3,6 +3,7 @@ import type {
     AuthStatusResponse,
     AuthUserEnvelope,
     ChangePasswordRequest,
+    CurrentPasswordRequest,
     LoginRequest,
     LoginResponse,
     RegisterRequest,
@@ -31,6 +32,11 @@ export async function getCurrentUser() {
 
 export async function changePassword(payload: ChangePasswordRequest) {
     const response = await httpClient.post<LoginResponse>("/v1/auth/change-password", payload);
+    return response.data;
+}
+
+export async function deleteOwnAccount(payload: CurrentPasswordRequest) {
+    const response = await httpClient.delete<AuthStatusResponse>("/v1/auth/me", { data: payload });
     return response.data;
 }
 

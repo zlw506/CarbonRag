@@ -73,7 +73,7 @@ function buildBlankProviderDraft(storageMode: CredentialStorageMode = "local_onl
 }
 
 export function SettingsPage() {
-    const { user, updateProfile } = useAuth();
+    const { user, updateProfile, deleteAccount } = useAuth();
     const {
         sessions: shellSessions,
         activeSessionId,
@@ -104,6 +104,9 @@ export function SettingsPage() {
     const [loadingSessionList, setLoadingSessionList] = useState(false);
     const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
     const [deletingSessions, setDeletingSessions] = useState(false);
+    const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
+    const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
+    const [deletingAccount, setDeletingAccount] = useState(false);
     const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
     const quickThemePresets = useMemo(() => allPresets.slice(0, 4), [allPresets]);
@@ -351,6 +354,22 @@ export function SettingsPage() {
 
     function handleOpenManagedSession(sessionId: string) {
         selectSession(sessionId);
+    }
+
+    async function handleDeleteOwnAccount() {
+        if (!deleteAccountPassword.trim()) {
+            message.warning("请输入当前账号密码。");
+            return;
+        }
+        setDeletingAccount(true);
+        try {
+            await deleteAccount({ current_password: deleteAccountPassword });
+            message.success("账号已注销。");
+        } catch (error) {
+            message.warning(extractDetailMessage(error) ?? "账号注销失败，请确认当前密码。");
+        } finally {
+            setDeletingAccount(false);
+        }
     }
 
     async function handleDiscoverModels() {
@@ -889,6 +908,18 @@ export function SettingsPage() {
                     />
                 </Space>
             </Card>
+            <Card className="settings-section-card" title="账号危险区">
+                <Space direction="vertical" size={14} style={{ width: "100%" }}>
+                    <Alert
+                        type="warning"
+                        showIcon
+                        message="注销账号会删除当前登录账号，并使现有登录会话失效。历史业务记录不会在本轮级联清空。"
+                    />
+                    <Button danger onClick={() => setDeleteAccountModalOpen(true)}>
+                        注销当前账号
+                    </Button>
+                </Space>
+            </Card>
         </div>
     );
 
@@ -976,6 +1007,35 @@ export function SettingsPage() {
                     ]}
                 />
             </Card>
+
+            <Modal
+                title="注销当前账号"
+                open={deleteAccountModalOpen}
+                okText="确认注销"
+                okButtonProps={{ danger: true, loading: deletingAccount }}
+                onOk={() => void handleDeleteOwnAccount()}
+                onCancel={() => {
+                    if (deletingAccount) {
+                        return;
+                    }
+                    setDeleteAccountModalOpen(false);
+                    setDeleteAccountPassword("");
+                }}
+            >
+                <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                    <Alert
+                        type="error"
+                        showIcon
+                        message="请再次输入当前账号密码。注销后需要重新注册或由管理员创建账号。"
+                    />
+                    <Input.Password
+                        value={deleteAccountPassword}
+                        placeholder="当前账号密码"
+                        onChange={(event) => setDeleteAccountPassword(event.target.value)}
+                        onPressEnter={() => void handleDeleteOwnAccount()}
+                    />
+                </Space>
+            </Modal>
         </div>
     );
 }

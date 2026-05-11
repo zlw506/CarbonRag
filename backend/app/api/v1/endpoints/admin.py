@@ -7,6 +7,8 @@ from app.admin.schemas import (
     AdminPrivateSampleItem,
     AdminSystemStatus,
     AdminUserSummary,
+    DeleteAdminUsersRequest,
+    DeleteAdminUsersResponse,
     KnowledgeRefreshTask,
     PolicyCrawlerCandidateStatus,
     PolicyCrawlerCandidateSummary,
@@ -24,6 +26,7 @@ from app.admin.schemas import (
 from app.admin.service import get_admin_service
 from app.auth.dependencies import require_admin
 from app.auth.schemas import AuthenticatedUser, ResetPasswordResponse
+from app.auth.service import AuthenticationError, ProtectedAccountDeletionError
 from app.knowledge import get_knowledge_service
 from app.knowledge.policy_live_crawler import PolicyCrawlerBusyError
 from app.knowledge.schemas import KnowledgeItemSummary, KnowledgeTaskSummary
@@ -83,6 +86,26 @@ def reset_admin_user_password(
     except KeyError:
         raise HTTPException(status_code=404, detail="User not found.")
     return ResetPasswordResponse(temporary_password=temporary_password)
+
+
+@router.delete("/users", response_model=DeleteAdminUsersResponse)
+def delete_admin_users(
+    payload: DeleteAdminUsersRequest,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> DeleteAdminUsersResponse:
+    try:
+        deleted_user_ids = get_admin_service().delete_users(
+            actor_user_id=current_user.user_id,
+            current_password=payload.current_password,
+            user_ids=payload.user_ids,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except ProtectedAccountDeletionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"User not found: {exc}")
+    return DeleteAdminUsersResponse(deleted_user_ids=deleted_user_ids)
 
 
 @router.get("/feedback/overview", response_model=AdminFeedbackOverview)

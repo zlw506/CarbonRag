@@ -47,6 +47,10 @@ class ReservedUsernameError(ValueError):
     pass
 
 
+class ProtectedAccountDeletionError(ValueError):
+    pass
+
+
 class AuthService:
     def __init__(
         self,
@@ -601,10 +605,7 @@ class AuthService:
         row = self._fetch_user_by_id(user_id)
         if row is None:
             raise KeyError(user_id)
-        try:
-            self.password_hasher.verify(row["password_hash"], current_password)
-        except (VerifyMismatchError, InvalidHashError) as exc:
-            raise AuthenticationError("Current password is incorrect.") from exc
+        self._verify_user_password(row, current_password)
 
         updated_at = self._utcnow().isoformat()
         password_hash = self.password_hasher.hash(new_password)
@@ -639,6 +640,68 @@ class AuthService:
         if refreshed is None:
             raise RuntimeError("Changed-password user could not be reloaded.")
         return self._row_to_user(refreshed)
+
+    def _verify_user_password(self, row, current_password: str) -> None:
+        try:
+            self.password_hasher.verify(row["password_hash"], current_password)
+        except (VerifyMismatchError, InvalidHashError) as exc:
+            raise AuthenticationError("Current password is incorrect.") from exc
+
+    def delete_non_admin_users(
+        self,
+        *,
+        actor_user_id: str,
+        current_password: str,
+        target_user_ids: list[str],
+    ) -> list[str]:
+        actor_row = self._fetch_user_by_id(actor_user_id)
+        if actor_row is None:
+            raise KeyError(actor_user_id)
+        self._verify_user_password(actor_row, current_password)
+
+        deduped_target_ids = list(dict.fromkeys(target_user_ids))
+        if not deduped_target_ids:
+            raise ProtectedAccountDeletionError("No users selected for deletion.")
+        if actor_user_id in deduped_target_ids:
+            raise ProtectedAccountDeletionError("Cannot delete the current account from admin user management.")
+
+        target_rows = []
+        missing_ids: list[str] = []
+        for user_id in deduped_target_ids:
+            row = self._fetch_user_by_id(user_id)
+            if row is None:
+                missing_ids.append(user_id)
+            else:
+                target_rows.append(row)
+        if missing_ids:
+            raise KeyError(", ".join(missing_ids))
+
+        protected = [row["username"] for row in target_rows if row["role"] == "admin"]
+        if protected:
+            raise ProtectedAccountDeletionError("Cannot delete administrator accounts.")
+
+        self._delete_user_rows(deduped_target_ids)
+        return deduped_target_ids
+
+    def delete_own_account(self, *, user_id: str, current_password: str) -> str:
+        row = self._fetch_user_by_id(user_id)
+        if row is None:
+            raise KeyError(user_id)
+        self._verify_user_password(row, current_password)
+        self._delete_user_rows([user_id])
+        return user_id
+
+    def _delete_user_rows(self, user_ids: list[str]) -> None:
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    for user_id in user_ids:
+                        cursor.execute("DELETE FROM auth_sessions WHERE user_id = %s", (user_id,))
+                        cursor.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+            else:
+                for user_id in user_ids:
+                    connection.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+                    connection.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
 
     def update_profile(self, *, user_id: str, payload: UpdateProfileRequest | dict) -> AuthenticatedUser:
         request = payload if isinstance(payload, UpdateProfileRequest) else UpdateProfileRequest.model_validate(payload)

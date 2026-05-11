@@ -1,6 +1,7 @@
 import {
     CloudServerOutlined,
     DatabaseOutlined,
+    DeleteOutlined,
     EyeOutlined,
     MessageOutlined,
     ReloadOutlined,
@@ -13,6 +14,7 @@ import {
     Card,
     Descriptions,
     Empty,
+    Input,
     List,
     Modal,
     Space,
@@ -28,7 +30,9 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../app/AuthContext";
 import {
+    deleteAdminUsers,
     getAdminFeedbackOverview,
     getAdminSystemStatus,
     getPolicyCrawlerStatus,
@@ -69,6 +73,7 @@ import type {
 import type { KnowledgeItem, KnowledgeTask } from "../../types/knowledge";
 
 type KnowledgeTaskRefreshAction = "scan" | "rebuild" | null;
+const USER_TABLE_PAGE_SIZE = 8;
 
 const approvedPolicyCrawlerSources: PolicyCrawlerSourceSummary[] = [
     {
@@ -213,6 +218,7 @@ const normalizedApprovedPolicyCrawlerSources: PolicyCrawlerSourceSummary[] = app
 });
 
 export function AdminPlaceholderPage() {
+    const { user: currentUser } = useAuth();
     const [loading, setLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [systemStatus, setSystemStatus] = useState<AdminSystemStatus | null>(null);
@@ -234,6 +240,49 @@ export function AdminPlaceholderPage() {
     const [runningCrawlerSourceId, setRunningCrawlerSourceId] = useState<string | null>(null);
     const [reviewingCandidateId, setReviewingCandidateId] = useState<string | null>(null);
     const [selectedTask, setSelectedTask] = useState<KnowledgeTask | null>(null);
+    const [selectedDeleteUserIds, setSelectedDeleteUserIds] = useState<string[]>([]);
+    const [deleteUsersModalOpen, setDeleteUsersModalOpen] = useState(false);
+    const [deleteUsersPassword, setDeleteUsersPassword] = useState("");
+    const [deletingUsers, setDeletingUsers] = useState(false);
+    const [userSearchQuery, setUserSearchQuery] = useState("");
+    const [userTablePage, setUserTablePage] = useState(1);
+
+    const filteredUsers = useMemo(() => {
+        const query = userSearchQuery.trim().toLowerCase();
+        if (!query) {
+            return users;
+        }
+        return users.filter((item) =>
+            [item.username, item.display_name, item.user_id]
+                .filter(Boolean)
+                .some((value) => value.toLowerCase().includes(query)),
+        );
+    }, [userSearchQuery, users]);
+
+    const deletableUserIds = useMemo(
+        () =>
+            new Set(
+                users
+                    .filter((item) => item.role !== "admin" && item.user_id !== currentUser?.user_id)
+                    .map((item) => item.user_id),
+            ),
+        [currentUser?.user_id, users],
+    );
+    const filteredDeletableUserIds = useMemo(
+        () => filteredUsers.map((item) => item.user_id).filter((userId) => deletableUserIds.has(userId)),
+        [deletableUserIds, filteredUsers],
+    );
+    const currentPageDeletableUserIds = useMemo(() => {
+        const start = (userTablePage - 1) * USER_TABLE_PAGE_SIZE;
+        return filteredUsers
+            .slice(start, start + USER_TABLE_PAGE_SIZE)
+            .map((item) => item.user_id)
+            .filter((userId) => deletableUserIds.has(userId));
+    }, [deletableUserIds, filteredUsers, userTablePage]);
+    const selectedDeleteUsers = useMemo(
+        () => users.filter((item) => selectedDeleteUserIds.includes(item.user_id)),
+        [selectedDeleteUserIds, users],
+    );
 
     const userColumns = useMemo<ColumnsType<AdminUserSummary>>(
         () => [
@@ -244,6 +293,7 @@ export function AdminPlaceholderPage() {
                 render: (_, record) => (
                     <Space direction="vertical" size={0}>
                         <Typography.Text strong>{record.username}</Typography.Text>
+                        <Typography.Text type="secondary">{record.display_name}</Typography.Text>
                         <Typography.Text type="secondary">{record.user_id}</Typography.Text>
                     </Space>
                 ),
@@ -629,6 +679,36 @@ export function AdminPlaceholderPage() {
             setErrorMessage(extractDetailMessage(error) ?? "重置密码失败。");
         } finally {
             setUserSavingId(null);
+        }
+    }
+
+    async function handleDeleteSelectedUsers() {
+        const targetIds = selectedDeleteUserIds.filter((userId) => deletableUserIds.has(userId));
+        if (!targetIds.length) {
+            message.warning("请选择可删除的普通用户。");
+            return;
+        }
+        if (!deleteUsersPassword.trim()) {
+            message.warning("请输入当前管理员账号密码。");
+            return;
+        }
+        setDeletingUsers(true);
+        setErrorMessage(null);
+        try {
+            const result = await deleteAdminUsers({
+                user_ids: targetIds,
+                current_password: deleteUsersPassword,
+            });
+            setUsers((current) => current.filter((item) => !result.deleted_user_ids.includes(item.user_id)));
+            setSelectedDeleteUserIds((current) => current.filter((userId) => !result.deleted_user_ids.includes(userId)));
+            setDeleteUsersPassword("");
+            setDeleteUsersModalOpen(false);
+            message.success(`已删除 ${result.deleted_user_ids.length} 个普通用户账号。`);
+            void refreshSystemStatus();
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "删除用户失败。请确认密码正确，且未选择管理员或当前账号。");
+        } finally {
+            setDeletingUsers(false);
         }
     }
 
@@ -1456,12 +1536,82 @@ export function AdminPlaceholderPage() {
                             label: "用户管理",
                             children: (
                                 <div className="admin-grid admin-grid--tab">
-                    <Card className="admin-panel-card admin-grid__table-card admin-grid__wide-card" title="用户列表">
+                    <Card
+                        className="admin-panel-card admin-grid__table-card admin-grid__wide-card"
+                        title="用户列表"
+                        extra={
+                            <Space size={8} wrap>
+                                <Input.Search
+                                    allowClear
+                                    value={userSearchQuery}
+                                    placeholder="搜索账号名 / 展示名 / 用户 ID"
+                                    style={{ width: 260 }}
+                                    onChange={(event) => {
+                                        setUserSearchQuery(event.target.value);
+                                        setUserTablePage(1);
+                                    }}
+                                />
+                                <Button
+                                    disabled={!currentPageDeletableUserIds.length}
+                                    onClick={() =>
+                                        setSelectedDeleteUserIds((current) =>
+                                            Array.from(new Set([...current, ...currentPageDeletableUserIds])),
+                                        )
+                                    }
+                                >
+                                    选择本页可删
+                                </Button>
+                                <Button
+                                    disabled={!filteredDeletableUserIds.length}
+                                    onClick={() => setSelectedDeleteUserIds(filteredDeletableUserIds)}
+                                >
+                                    选择全部筛选结果
+                                </Button>
+                                <Button disabled={!selectedDeleteUserIds.length} onClick={() => setSelectedDeleteUserIds([])}>
+                                    清空选择
+                                </Button>
+                                <Tag color={selectedDeleteUserIds.length ? "red" : "default"}>
+                                    已选 {selectedDeleteUserIds.length} 个可删除账号
+                                </Tag>
+                                <Button
+                                    danger
+                                    icon={<DeleteOutlined />}
+                                    disabled={!selectedDeleteUserIds.length}
+                                    onClick={() => setDeleteUsersModalOpen(true)}
+                                >
+                                    批量删除
+                                </Button>
+                            </Space>
+                        }
+                    >
                         <Table
                             rowKey="user_id"
+                            rowSelection={{
+                                preserveSelectedRowKeys: true,
+                                selectedRowKeys: selectedDeleteUserIds,
+                                onChange: (keys) =>
+                                    setSelectedDeleteUserIds(
+                                        keys.map(String).filter((userId) => deletableUserIds.has(userId)),
+                                    ),
+                                getCheckboxProps: (record) => ({
+                                    disabled: !deletableUserIds.has(record.user_id),
+                                    title:
+                                        record.role === "admin"
+                                            ? "管理员账号不可删除"
+                                            : record.user_id === currentUser?.user_id
+                                              ? "不能从后台删除当前账号"
+                                              : undefined,
+                                }),
+                            }}
                             columns={userColumns}
-                            dataSource={users}
-                            pagination={{ pageSize: 8, showSizeChanger: false }}
+                            dataSource={filteredUsers}
+                            pagination={{
+                                current: userTablePage,
+                                pageSize: USER_TABLE_PAGE_SIZE,
+                                showSizeChanger: false,
+                                total: filteredUsers.length,
+                                onChange: (page) => setUserTablePage(page),
+                            }}
                             scroll={{ y: 420, x: 980 }}
                             tableLayout="fixed"
                             size="small"
@@ -1474,6 +1624,38 @@ export function AdminPlaceholderPage() {
                 />
                 </>
             )}
+
+            <Modal
+                title="确认删除用户账号"
+                open={deleteUsersModalOpen}
+                okText="确认删除"
+                okButtonProps={{ danger: true, loading: deletingUsers }}
+                onOk={() => void handleDeleteSelectedUsers()}
+                onCancel={() => {
+                    if (deletingUsers) {
+                        return;
+                    }
+                    setDeleteUsersModalOpen(false);
+                    setDeleteUsersPassword("");
+                }}
+            >
+                <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                    <Alert
+                        type="warning"
+                        showIcon
+                        message="该操作会删除所选普通用户账号，并立即使其登录会话失效。管理员账号和当前账号不会被允许删除。"
+                    />
+                    <Typography.Text>
+                        本次将删除：{selectedDeleteUsers.map((item) => item.username).join("、") || "暂无"}
+                    </Typography.Text>
+                    <Input.Password
+                        value={deleteUsersPassword}
+                        placeholder="请输入当前管理员账号密码"
+                        onChange={(event) => setDeleteUsersPassword(event.target.value)}
+                        onPressEnter={() => void handleDeleteSelectedUsers()}
+                    />
+                </Space>
+            </Modal>
 
             <Modal
                 title="知识任务详情"

@@ -3,6 +3,7 @@ import type { UserRole } from "./auth";
 export interface AdminUserSummary {
     user_id: string;
     username: string;
+    display_name: string;
     role: UserRole;
     is_active: boolean;
     password_must_change: boolean;
@@ -16,6 +17,16 @@ export interface AdminUserSummary {
 export interface UpdateAdminUserRequest {
     role: UserRole;
     is_active: boolean;
+}
+
+export interface DeleteAdminUsersRequest {
+    user_ids: string[];
+    current_password: string;
+}
+
+export interface DeleteAdminUsersResponse {
+    status: "ok";
+    deleted_user_ids: string[];
 }
 
 export interface ResetPasswordResponse {

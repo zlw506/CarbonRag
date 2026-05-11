@@ -33,6 +33,10 @@ export interface ChangePasswordRequest {
     new_password: string;
 }
 
+export interface CurrentPasswordRequest {
+    current_password: string;
+}
+
 export interface UpdateProfileRequest {
     display_name?: string;
     avatar_url?: string | null;

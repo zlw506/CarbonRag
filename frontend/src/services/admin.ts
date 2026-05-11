@@ -4,6 +4,8 @@ import type {
     AdminPrivateSampleItem,
     AdminSystemStatus,
     AdminUserSummary,
+    DeleteAdminUsersRequest,
+    DeleteAdminUsersResponse,
     KnowledgeRefreshTask,
     PolicyCrawlerCandidateStatus,
     PolicyCrawlerCandidateSummary,
@@ -32,6 +34,11 @@ export async function updateAdminUser(userId: string, payload: UpdateAdminUserRe
 
 export async function resetAdminUserPassword(userId: string) {
     const response = await httpClient.post<ResetPasswordResponse>(`/v1/admin/users/${userId}/reset-password`);
+    return response.data;
+}
+
+export async function deleteAdminUsers(payload: DeleteAdminUsersRequest) {
+    const response = await httpClient.delete<DeleteAdminUsersResponse>("/v1/admin/users", { data: payload });
     return response.data;
 }
 
