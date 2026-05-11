@@ -6,10 +6,11 @@ export interface WorkbenchShellContextValue {
     activeSessionId: string | null;
     loadingSessions: boolean;
     sessionRailCollapsed: boolean;
-    createSession: () => Promise<void>;
+    createSession: () => Promise<SessionSummary | null>;
     refreshSessions: (preferredSessionId?: string | null) => Promise<SessionSummary[]>;
     selectSession: (sessionId: string) => void;
     toggleSessionRail: () => void;
+    startNewDraftSession: () => void;
 }
 
 export function useWorkbenchShellContext() {

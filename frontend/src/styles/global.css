@@ -9,11 +9,11 @@
     --cr-page-end: #eef3f8;
     --cr-focus-radial: rgba(0, 119, 182, 0.1);
     --cr-focus-end: #eef4fb;
-    --cr-sider-bg: #0f172a;
-    --cr-sider-surface: rgba(255, 255, 255, 0.08);
-    --cr-sider-text: #f8fafc;
-    --cr-sider-text-secondary: rgba(248, 250, 252, 0.82);
-    --cr-sider-trigger-border: rgba(148, 163, 184, 0.18);
+    --cr-sider-bg: #f6f7f9;
+    --cr-sider-surface: rgba(15, 23, 42, 0.045);
+    --cr-sider-text: #171717;
+    --cr-sider-text-secondary: rgba(23, 23, 23, 0.62);
+    --cr-sider-trigger-border: rgba(15, 23, 42, 0.1);
     --cr-surface: rgba(255, 255, 255, 0.88);
     --cr-surface-strong: rgba(255, 255, 255, 0.96);
     --cr-surface-muted: rgba(248, 250, 252, 0.92);
@@ -26,11 +26,11 @@
     --cr-primary-soft: rgba(22, 119, 255, 0.12);
     --cr-primary-glow: rgba(22, 119, 255, 0.22);
     --cr-session-item-bg: transparent;
-    --cr-session-item-hover-bg: rgba(15, 23, 42, 0.07);
+    --cr-session-item-hover-bg: rgba(15, 23, 42, 0.055);
     --cr-session-item-hover-border: transparent;
     --cr-session-mini-bg: linear-gradient(180deg, rgba(10, 132, 255, 0.12), rgba(37, 99, 235, 0.2));
     --cr-session-mini-text: #0f172a;
-    --cr-session-active-bg: rgba(15, 23, 42, 0.1);
+    --cr-session-active-bg: rgba(15, 23, 42, 0.085);
     --cr-assistant-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 255, 0.92));
     --cr-user-bubble: rgba(15, 23, 42, 0.055);
     --cr-user-bubble-alt: rgba(15, 23, 42, 0.075);
@@ -60,8 +60,8 @@
     --cr-page-end: #101a2a;
     --cr-focus-radial: rgba(37, 99, 235, 0.24);
     --cr-focus-end: #0c1729;
-    --cr-sider-bg: #08101d;
-    --cr-sider-surface: rgba(15, 23, 42, 0.92);
+    --cr-sider-bg: #111214;
+    --cr-sider-surface: rgba(255, 255, 255, 0.07);
     --cr-sider-text: #f8fafc;
     --cr-sider-text-secondary: rgba(248, 250, 252, 0.82);
     --cr-sider-trigger-border: rgba(96, 165, 250, 0.26);
@@ -77,11 +77,11 @@
     --cr-primary-soft: rgba(147, 197, 253, 0.18);
     --cr-primary-glow: rgba(59, 130, 246, 0.32);
     --cr-session-item-bg: transparent;
-    --cr-session-item-hover-bg: rgba(248, 250, 252, 0.08);
+    --cr-session-item-hover-bg: rgba(248, 250, 252, 0.07);
     --cr-session-item-hover-border: transparent;
     --cr-session-mini-bg: linear-gradient(180deg, rgba(30, 64, 175, 0.44), rgba(15, 23, 42, 0.92));
     --cr-session-mini-text: #eff6ff;
-    --cr-session-active-bg: rgba(248, 250, 252, 0.13);
+    --cr-session-active-bg: rgba(248, 250, 252, 0.12);
     --cr-assistant-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.94));
     --cr-user-bubble: rgba(248, 250, 252, 0.08);
     --cr-user-bubble-alt: rgba(248, 250, 252, 0.11);
@@ -165,6 +165,7 @@ body {
 
 .app-shell__sider {
     background: var(--cr-sider-bg) !important;
+    border-right: 1px solid var(--cr-border);
     height: 100dvh;
     min-height: 0;
     overflow: hidden;
@@ -258,6 +259,23 @@ body {
 .app-shell__sider-nav .ant-menu {
     background: transparent;
     border-inline-end: none !important;
+}
+
+.app-shell__sider-nav .ant-menu-item {
+    color: var(--cr-sider-text) !important;
+    border-radius: 10px;
+    margin-inline: 0;
+    width: 100%;
+}
+
+.app-shell__sider-nav .ant-menu-item-selected {
+    background: var(--cr-session-active-bg) !important;
+    color: var(--cr-sider-text) !important;
+}
+
+.app-shell__sider-nav .ant-menu-item:hover {
+    background: var(--cr-session-item-hover-bg) !important;
+    color: var(--cr-sider-text) !important;
 }
 
 .app-shell__session-region {
@@ -834,6 +852,10 @@ body {
     background: var(--cr-session-active-bg);
 }
 
+.chat-session-list__item--active .chat-session-list__title {
+    font-weight: 650;
+}
+
 .chat-session-list--collapsed .chat-session-list__item {
     display: flex;
     justify-content: center;
@@ -877,7 +899,7 @@ body {
     margin: 0;
     color: var(--cr-sider-text);
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 520;
     line-height: 22px;
 }
 
@@ -987,6 +1009,48 @@ body {
     overscroll-behavior: contain;
     padding-inline: clamp(18px, 5vw, 96px) clamp(18px, 5vw, 96px);
     padding-bottom: 132px;
+}
+
+.chat-workbench--empty-chat .chat-workbench__main {
+    justify-content: center;
+}
+
+.chat-workbench--empty-chat .chat-workbench__stream-card {
+    flex: 0 0 auto;
+    min-height: 210px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.chat-workbench--empty-chat .chat-workbench__stream-card .ant-card-head {
+    display: none;
+}
+
+.chat-workbench--empty-chat .chat-workbench__stream-card .ant-card-body {
+    padding: 0;
+}
+
+.chat-workbench--empty-chat .chat-message-stream {
+    min-height: 180px;
+    overflow: hidden;
+    padding: 0;
+}
+
+.chat-message-stream__empty--new-chat {
+    flex-direction: column;
+    gap: 10px;
+    min-height: 180px;
+    text-align: center;
+}
+
+.chat-message-stream__empty--new-chat .ant-typography {
+    margin-bottom: 0;
+}
+
+.chat-workbench--empty-chat .chat-composer-dock {
+    width: min(760px, 100%);
+    margin: 0 auto;
 }
 
 .chat-message {

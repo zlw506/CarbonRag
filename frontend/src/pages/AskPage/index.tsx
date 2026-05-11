@@ -47,6 +47,7 @@ import { uploadSessionFile } from "../../services/files";
 import { listKnowledgeBases } from "../../services/kb";
 import { listAttachableKnowledgeItems, replaceAttachedKnowledgeItems } from "../../services/knowledge";
 import {
+    createSession as createSessionRequest,
     getSession,
     submitSessionAskStreamRequest,
 } from "../../services/sessions";
@@ -162,6 +163,7 @@ export function AskPage() {
         visibleMessages.length,
         streamContextSource,
     );
+    const isNewDraftChat = !activeSession && visibleMessages.length === 0 && !loadingSessionDetail;
 
     useEffect(() => {
         void loadKnowledgeCatalog();
@@ -314,10 +316,6 @@ export function AskPage() {
     async function handleSubmit() {
         const trimmed = question.trim();
         const providerOverride = getActiveProviderOverride();
-        if (!activeSessionId) {
-            setTransportError("当前没有可用会话，请先创建会话。");
-            return;
-        }
         if (!trimmed) {
             setTransportError("问题不能为空。");
             return;
@@ -336,6 +334,18 @@ export function AskPage() {
         const now = new Date().toISOString();
         const draftQuestion = trimmed;
         setSelectedCitationMessageId(draftAssistantMessageId);
+
+        let workingSessionId = activeSessionId;
+        if (!workingSessionId) {
+            const created = await createSessionRequest();
+            if (!created) {
+                setTransportError("当前无法创建新对话，请稍后重试。");
+                setSending(false);
+                return;
+            }
+            workingSessionId = created.session_id;
+            setActiveSession(createEmptySessionDetail(created, knowledgeScope));
+        }
 
         replaceStreamDraft({
             userMessage: {
@@ -364,7 +374,7 @@ export function AskPage() {
         let committedLocally = false;
         try {
             const response = await submitSessionAskStreamRequest(
-                activeSessionId,
+                workingSessionId,
                 {
                     question: draftQuestion,
                     knowledge_scope: knowledgeScope,
@@ -379,7 +389,7 @@ export function AskPage() {
                 onMessageStart: (event) => {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
                     if (event.title_updated) {
-                        void refreshSessions(activeSessionId);
+                        void refreshSessions(workingSessionId);
                     }
                     updateStreamDraftState((draft) => ({
                         ...draft,
@@ -491,13 +501,13 @@ export function AskPage() {
                 setTransportError("模型服务当前响应失败，系统已把这次失败记录到当前会话。");
             }
 
-            commitDraftToActiveSession(activeSessionId, knowledgeScope);
+            commitDraftToActiveSession(workingSessionId, knowledgeScope);
             committedLocally = true;
             replaceStreamDraft(null);
             setDraftAttachedFileIds([]);
 
-            const sessionList = await refreshSessions(activeSessionId);
-            syncActiveSessionSummaryFromList(sessionList ?? [], activeSessionId);
+            const sessionList = await refreshSessions(workingSessionId);
+            syncActiveSessionSummaryFromList(sessionList ?? [], workingSessionId);
         } catch (error) {
             if (controller.signal.aborted || isAbortLikeError(error)) {
                 return;
@@ -507,8 +517,8 @@ export function AskPage() {
                     setTransportError(error.answer);
                 } else {
                     setTransportError("模型服务当前响应失败，系统已把这次失败记录到当前会话。");
-                    await refreshSessions(activeSessionId);
-                    await loadSessionDetail(activeSessionId);
+                    await refreshSessions(workingSessionId);
+                    await loadSessionDetail(workingSessionId);
                 }
             } else {
                 setTransportError("当前问答服务暂不可达，请确认后端已启动且模型服务可用。");
@@ -763,7 +773,7 @@ export function AskPage() {
 
     return (
         <div
-            className={`chat-workbench chat-workbench--single-column${focusModeEnabled ? " chat-workbench--focus-mode" : ""}${draggingFiles ? " chat-workbench--dragging-files" : ""}`}
+            className={`chat-workbench chat-workbench--single-column${focusModeEnabled ? " chat-workbench--focus-mode" : ""}${draggingFiles ? " chat-workbench--dragging-files" : ""}${isNewDraftChat ? " chat-workbench--empty-chat" : ""}`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
@@ -787,11 +797,13 @@ export function AskPage() {
                     title={(
                         <div className="chat-stream-card__title">
                             <Typography.Text strong className="chat-stream-card__title-text">
-                                {activeSession?.title ?? "当前对话"}
+                                {activeSession?.title ?? "CarbonRag"}
                             </Typography.Text>
-                            <Tag color={scopeColorMap[knowledgeScope]} className="chat-stream-card__scope-tag">
-                                {scopeLabelMap[knowledgeScope]}
-                            </Tag>
+                            {activeSession ? (
+                                <Tag color={scopeColorMap[knowledgeScope]} className="chat-stream-card__scope-tag">
+                                    {scopeLabelMap[knowledgeScope]}
+                                </Tag>
+                            ) : null}
                         </div>
                     )}
                     extra={
@@ -819,19 +831,22 @@ export function AskPage() {
                 >
                     {loadingSessionDetail ? (
                         <div className="chat-workbench__loading"><Spin /></div>
-                    ) : activeSession ? (
+                    ) : (
                         <>
                             <div ref={messageStreamRef} className="chat-message-stream" onScroll={handleMessageStreamScroll}>
                                 {visibleMessages.length === 0 ? (
-                                    <div className="chat-message-stream__empty">
-                                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前会话还没有消息，先问一个双碳问题试试。" />
+                                    <div className="chat-message-stream__empty chat-message-stream__empty--new-chat">
+                                        <Typography.Title level={2}>我们先从哪里开始？</Typography.Title>
+                                        <Typography.Paragraph type="secondary">
+                                            直接输入问题，系统会在首条消息发送后创建会话。
+                                        </Typography.Paragraph>
                                     </div>
                                 ) : (
                                     visibleMessages.map((message) => (
                                         <MessageBubble
                                             key={message.message_id}
                                             message={message}
-                                            sessionId={activeSession.session_id}
+                                            sessionId={activeSession?.session_id ?? "draft"}
                                             activeCitation={message.message_id === selectedCitationMessageId}
                                             expandThinkingByDefault={settings?.chat.expand_thinking_by_default ?? false}
                                             onSelectCitations={() => openCitationPanel(message.message_id)}
@@ -844,8 +859,6 @@ export function AskPage() {
                                 )}
                             </div>
                         </>
-                    ) : (
-                        <Empty description="当前没有可展示的会话内容。" />
                     )}
                 </Card>
 
@@ -1862,6 +1875,18 @@ function isAskResponse(value: unknown): value is AskResponse {
     }
     const candidate = value as Partial<AskResponse>;
     return candidate.mode === "ask" && typeof candidate.answer === "string" && typeof candidate.trace_id === "string" && Array.isArray(candidate.citations) && typeof candidate.source_summary === "object";
+}
+
+function createEmptySessionDetail(summary: SessionSummary, knowledgeScope: KnowledgeScope): SessionDetail {
+    return {
+        ...summary,
+        messages: [],
+        files: [],
+        attached_files: [],
+        knowledge_scope_last_used: knowledgeScope,
+        source_summary: null,
+        memory_state: null,
+    };
 }
 
 function extractDeltaText(payload: AskStreamDeltaEvent) {
