@@ -165,6 +165,7 @@ def _build_selected_kb_chat_request(monkeypatch, *, kb_id: str, rag_mode: str) -
     user = AuthenticatedUser(
         user_id="user-1",
         username="tester",
+        display_name="tester",
         role="user",
         is_active=True,
         password_must_change=False,

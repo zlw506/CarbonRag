@@ -70,6 +70,17 @@ import type { SessionAttachment, SessionDetail, SessionMessage, SessionSummary }
 
 type AssistantLifecycleState = "pending" | "connecting" | "thinking" | "reconnecting" | "streaming" | "done" | "error" | "failed";
 
+const NEW_CHAT_PROMPTS = [
+    "今天想问些什么？",
+    "想了解些什么？",
+    "今天你在想什么？",
+    "随时开始",
+    "有什么需要我帮你梳理？",
+    "从一个问题开始吧",
+    "今天要研究哪件事？",
+    "准备好聊聊双碳了吗？",
+];
+
 interface ChatMessageView extends SessionMessage {
     client_state?: AssistantLifecycleState;
     thinking_content?: string | null;
@@ -165,6 +176,10 @@ export function AskPage() {
         streamContextSource,
     );
     const isNewDraftChat = !activeSession && visibleMessages.length === 0 && !loadingSessionDetail;
+    const newChatPrompt = useMemo(
+        () => NEW_CHAT_PROMPTS[Math.floor(Math.random() * NEW_CHAT_PROMPTS.length)],
+        [],
+    );
 
     useEffect(() => {
         void loadKnowledgeCatalog();
@@ -837,10 +852,7 @@ export function AskPage() {
                             <div ref={messageStreamRef} className="chat-message-stream" onScroll={handleMessageStreamScroll}>
                                 {visibleMessages.length === 0 ? (
                                     <div className="chat-message-stream__empty chat-message-stream__empty--new-chat">
-                                        <Typography.Title level={2}>我们先从哪里开始？</Typography.Title>
-                                        <Typography.Paragraph type="secondary">
-                                            直接输入问题，系统会在首条消息发送后创建会话。
-                                        </Typography.Paragraph>
+                                        <Typography.Title level={2}>{newChatPrompt}</Typography.Title>
                                     </div>
                                 ) : (
                                     visibleMessages.map((message) => (

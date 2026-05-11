@@ -51,8 +51,9 @@ export function AppShell() {
     if (!user) {
         return null;
     }
+    const currentUser = user;
 
-    const navigationItems = getNavigationItems(user.role);
+    const navigationItems = getNavigationItems(currentUser.role);
     const isAskRoute = location.pathname === "/";
     const isCarbonFactorsRoute = location.pathname === "/carbon-factors";
     const routeNeedsSession = location.pathname === "/" || location.pathname === "/carbon-calc" || location.pathname === "/report";
@@ -255,11 +256,11 @@ export function AppShell() {
     const siderUserMenu = (
         <div className="app-shell__focus-user-menu">
             <Space align="start" size={12}>
-                <Avatar size={44}>{user.username.slice(0, 1).toUpperCase()}</Avatar>
+                <Avatar size={44} src={user.avatar_url ?? undefined}>{getUserInitial(user)}</Avatar>
                 <div className="app-shell__focus-user-copy">
-                    <Typography.Text strong>{user.username}</Typography.Text>
+                    <Typography.Text strong>{user.display_name || user.username}</Typography.Text>
                     <Tag color={user.role === "admin" ? "purple" : "blue"}>
-                        {user.role === "admin" ? "管理员模式" : "个人空间"}
+                        {user.role === "admin" ? "admin" : "user"}
                     </Tag>
                 </div>
             </Space>
@@ -334,11 +335,11 @@ export function AppShell() {
                             aria-label="打开当前用户菜单"
                         >
                             <span className="app-shell__focus-user-inline">
-                                <Avatar size={34}>{user.username.slice(0, 1).toUpperCase()}</Avatar>
+                                <Avatar size={34} src={user.avatar_url ?? undefined}>{getUserInitial(user)}</Avatar>
                                 {!sessionRailCollapsed ? (
                                     <span className="app-shell__focus-user-name">
                                         <Typography.Text strong ellipsis>
-                                            {user.username}
+                                            {user.display_name || user.username}
                                         </Typography.Text>
                                     </span>
                                 ) : null}
@@ -402,4 +403,9 @@ export function AppShell() {
             </Modal>
         </Layout>
     );
+}
+
+function getUserInitial(user: { display_name?: string | null; username: string }) {
+    const value = user.display_name || user.username;
+    return value.slice(0, 1).toUpperCase();
 }

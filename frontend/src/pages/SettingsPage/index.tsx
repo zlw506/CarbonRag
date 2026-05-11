@@ -1,6 +1,7 @@
-import { CloudServerOutlined, PlusOutlined, SaveOutlined } from "@ant-design/icons";
+import { CloudServerOutlined, PlusOutlined, SaveOutlined, UploadOutlined } from "@ant-design/icons";
 import {
     Alert,
+    Avatar,
     Button,
     Card,
     Empty,
@@ -11,13 +12,16 @@ import {
     Space,
     Spin,
     Switch,
+    Tabs,
     Tag,
     Typography,
     message,
 } from "antd";
-import { useEffect, useMemo, useState } from "react";
-import { useTheme } from "../../app/ThemeContext";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useAuth } from "../../app/AuthContext";
 import { useSettings } from "../../app/SettingsContext";
+import { useTheme } from "../../app/ThemeContext";
 import { discoverProviderModels, testProviderConnection } from "../../services/settings";
 import type {
     AppearanceSettings,
@@ -52,7 +56,7 @@ const providerTypeOptions = [
 
 function buildBlankProviderDraft(storageMode: CredentialStorageMode = "local_only"): ProviderDraft {
     return {
-        providerType: storageMode === "local_only" ? "openai_compatible" : "openai_compatible",
+        providerType: "openai_compatible",
         displayName: storageMode === "local_only" ? "我的本地模型" : "我的账号模型",
         baseUrl: "",
         apiKey: "",
@@ -63,6 +67,7 @@ function buildBlankProviderDraft(storageMode: CredentialStorageMode = "local_onl
 }
 
 export function SettingsPage() {
+    const { user, updateProfile } = useAuth();
     const { themeMode, themePreset, allPresets, setThemeMode, setThemePreset } = useTheme();
     const {
         settings,
@@ -80,6 +85,10 @@ export function SettingsPage() {
     const [providerDraft, setProviderDraft] = useState<ProviderDraft>(() => buildBlankProviderDraft());
     const [testingProvider, setTestingProvider] = useState(false);
     const [savingProvider, setSavingProvider] = useState(false);
+    const [profileNameDraft, setProfileNameDraft] = useState("");
+    const [profileAvatarDraft, setProfileAvatarDraft] = useState<string | null>(null);
+    const [profileSaving, setProfileSaving] = useState(false);
+    const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
     const quickThemePresets = useMemo(() => allPresets.slice(0, 4), [allPresets]);
     const extendedThemePresets = useMemo(() => allPresets.slice(4), [allPresets]);
@@ -91,6 +100,14 @@ export function SettingsPage() {
         setThemeMode(settings.appearance.theme_mode);
         setThemePreset(settings.appearance.theme_preset);
     }, [settings?.appearance.theme_mode, settings?.appearance.theme_preset]);
+
+    useEffect(() => {
+        if (!user) {
+            return;
+        }
+        setProfileNameDraft(user.display_name || user.username);
+        setProfileAvatarDraft(user.avatar_url ?? null);
+    }, [user?.user_id, user?.display_name, user?.avatar_url, user?.username]);
 
     async function handleSaveAppearance() {
         await handleSaveAppearanceDraft({
@@ -173,6 +190,50 @@ export function SettingsPage() {
             message.success("当前模型提供方已切换。");
         } catch {
             setTransportError("当前无法切换模型提供方。");
+        }
+    }
+
+    function handleAvatarFileChange(event: ChangeEvent<HTMLInputElement>) {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!file) {
+            return;
+        }
+        if (!file.type.startsWith("image/")) {
+            message.warning("请选择图片文件作为头像。");
+            return;
+        }
+        if (file.size > 180_000) {
+            message.warning("头像图片请控制在 180KB 以内。");
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            setProfileAvatarDraft(typeof reader.result === "string" ? reader.result : null);
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async function handleSaveProfile() {
+        if (!user) {
+            return;
+        }
+        const displayName = profileNameDraft.trim();
+        if (!displayName) {
+            message.warning("名称不能为空。");
+            return;
+        }
+        setProfileSaving(true);
+        try {
+            await updateProfile({
+                display_name: displayName,
+                avatar_url: profileAvatarDraft,
+            });
+            message.success("个人资料已更新。");
+        } catch (error) {
+            message.warning(extractDetailMessage(error) ?? "名称可能已重复，请换一个名称。");
+        } finally {
+            setProfileSaving(false);
         }
     }
 
@@ -297,21 +358,19 @@ export function SettingsPage() {
         });
     }
 
-    if (loading || !settings || !providerList) {
+    if (loading || !settings || !providerList || !user) {
         return (
-            <div className="settings-page settings-page--loading">
+            <div className="settings-console settings-console--loading">
                 <Spin />
             </div>
         );
     }
 
-    return (
-        <div className="settings-page">
-            {transportError ? <Alert type="warning" showIcon message={transportError} /> : null}
-
-            <Card title="外观">
+    const appearanceTab = (
+        <div className="settings-section-grid">
+            <Card className="settings-section-card" title="主题">
                 <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                    <div>
+                    <div className="settings-field">
                         <Typography.Text strong>主题模式</Typography.Text>
                         <Segmented
                             block
@@ -324,7 +383,7 @@ export function SettingsPage() {
                             onChange={(value) => handleThemeModeChange(value as typeof themeMode)}
                         />
                     </div>
-                    <div>
+                    <div className="settings-field">
                         <Typography.Text strong>快速主题</Typography.Text>
                         <div className="settings-theme-grid">
                             {quickThemePresets.map((preset) => (
@@ -347,7 +406,7 @@ export function SettingsPage() {
                             ))}
                         </div>
                     </div>
-                    <div>
+                    <div className="settings-field">
                         <Typography.Text strong>更多主题</Typography.Text>
                         <div className="settings-theme-grid settings-theme-grid--extended">
                             {extendedThemePresets.map((preset) => (
@@ -369,7 +428,15 @@ export function SettingsPage() {
                             ))}
                         </div>
                     </div>
-                    <div>
+                    <Button type="primary" icon={<SaveOutlined />} onClick={() => void handleSaveAppearance()}>
+                        保存外观设置
+                    </Button>
+                </Space>
+            </Card>
+
+            <Card className="settings-section-card" title="界面偏好">
+                <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                    <div className="settings-field">
                         <Typography.Text strong>气泡密度</Typography.Text>
                         <Segmented
                             block
@@ -386,7 +453,7 @@ export function SettingsPage() {
                             })}
                         />
                     </div>
-                    <div>
+                    <div className="settings-field">
                         <Typography.Text strong>字体大小</Typography.Text>
                         <Segmented
                             block
@@ -403,7 +470,7 @@ export function SettingsPage() {
                             })}
                         />
                     </div>
-                    <div>
+                    <div className="settings-field">
                         <Typography.Text strong>侧栏默认状态</Typography.Text>
                         <Segmented
                             block
@@ -420,15 +487,16 @@ export function SettingsPage() {
                             })}
                         />
                     </div>
-                    <Button type="primary" icon={<SaveOutlined />} onClick={() => void handleSaveAppearance()}>
-                        保存外观设置
-                    </Button>
                 </Space>
             </Card>
+        </div>
+    );
 
-            <Card title="聊天">
+    const chatTab = (
+        <div className="settings-section-grid">
+            <Card className="settings-section-card" title="发送与展示">
                 <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                    <div>
+                    <div className="settings-field">
                         <Typography.Text strong>发送方式</Typography.Text>
                         <Segmented
                             block
@@ -440,151 +508,168 @@ export function SettingsPage() {
                             onChange={(value) => void handleSaveChatSettings({ send_shortcut: value as "enter" | "ctrl_enter" })}
                         />
                     </div>
-                    <Space wrap>
-                        <Switch checked={settings.chat.expand_thinking_by_default} onChange={(checked) => void handleSaveChatSettings({ expand_thinking_by_default: checked })} />
-                        <Typography.Text>默认展开思考过程</Typography.Text>
-                    </Space>
-                    <Space wrap>
-                        <Switch checked={settings.chat.show_evidence_panel_by_default} onChange={(checked) => void handleSaveChatSettings({ show_evidence_panel_by_default: checked })} />
-                        <Typography.Text>默认显示依据面板</Typography.Text>
-                    </Space>
-                    <Space wrap>
-                        <Switch checked={settings.chat.show_context_debug_by_default} onChange={(checked) => void handleSaveChatSettings({ show_context_debug_by_default: checked })} />
-                        <Typography.Text>显示上下文调试信息</Typography.Text>
-                    </Space>
-                    <Space wrap>
-                        <Switch checked={settings.chat.auto_generate_title_for_new_session} onChange={(checked) => void handleSaveChatSettings({ auto_generate_title_for_new_session: checked })} />
-                        <Typography.Text>新会话自动生成标题</Typography.Text>
-                    </Space>
-                    <div>
-                        <Typography.Text strong>重连提示显示方式</Typography.Text>
+                    <SettingSwitch
+                        checked={settings.chat.expand_thinking_by_default}
+                        label="默认展开思考过程"
+                        onChange={(checked) => void handleSaveChatSettings({ expand_thinking_by_default: checked })}
+                    />
+                    <SettingSwitch
+                        checked={settings.chat.show_evidence_panel_by_default}
+                        label="默认显示依据面板"
+                        onChange={(checked) => void handleSaveChatSettings({ show_evidence_panel_by_default: checked })}
+                    />
+                    <SettingSwitch
+                        checked={settings.chat.show_context_debug_by_default}
+                        label="显示上下文调试信息"
+                        onChange={(checked) => void handleSaveChatSettings({ show_context_debug_by_default: checked })}
+                    />
+                    <SettingSwitch
+                        checked={settings.chat.auto_generate_title_for_new_session}
+                        label="新会话自动生成标题"
+                        onChange={(checked) => void handleSaveChatSettings({ auto_generate_title_for_new_session: checked })}
+                    />
+                </Space>
+            </Card>
+            <Card className="settings-section-card" title="可靠性提示">
+                <div className="settings-field">
+                    <Typography.Text strong>重连提示显示方式</Typography.Text>
+                    <Segmented
+                        block
+                        value={settings.chat.reconnect_notice_mode}
+                        options={[
+                            { label: "仅消息内提示", value: "message_only" },
+                            { label: "消息内 + 弹出提示", value: "toast_and_message" },
+                        ]}
+                        onChange={(value) => void handleSaveChatSettings({
+                            reconnect_notice_mode: value as "message_only" | "toast_and_message",
+                        })}
+                    />
+                </div>
+            </Card>
+        </div>
+    );
+
+    const providerTab = (
+        <Space direction="vertical" size={16} style={{ width: "100%" }}>
+            <div className="settings-provider-toolbar">
+                <Button icon={<CloudServerOutlined />} onClick={() => void handleSetActiveProvider("builtin:carbonrag-cloud")}>
+                    切回默认云端
+                </Button>
+                <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildBlankProviderDraft("local_only"))}>
+                    新建本地 Provider
+                </Button>
+                <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildBlankProviderDraft("account"))}>
+                    新建账号 Provider
+                </Button>
+                <Tag color="blue">当前：{settings.active_provider_ref}</Tag>
+            </div>
+
+            <div className="settings-provider-columns">
+                <Card className="settings-section-card" title="当前可用 Provider">
+                    <List
+                        dataSource={[
+                            { key: "builtin:carbonrag-cloud", label: "CarbonRag 默认云端", type: "builtin" as const },
+                            ...providerList.profiles.map((item) => ({ key: `account:${item.profile_id}`, label: item.display_name, type: "account" as const, profile: item })),
+                            ...localProfiles.map((item) => ({ key: `local:${item.profile_id}`, label: item.display_name, type: "local" as const, profile: item })),
+                        ]}
+                        renderItem={(item) => (
+                            <List.Item
+                                actions={[
+                                    <Button key="use" size="small" type={settings.active_provider_ref === item.key ? "primary" : "default"} onClick={() => void handleSetActiveProvider(item.key)}>
+                                        启用
+                                    </Button>,
+                                    item.type === "account" ? (
+                                        <Button key="edit" size="small" onClick={() => editAccountProfile(item.profile as ProviderProfile)}>编辑</Button>
+                                    ) : null,
+                                    item.type === "local" ? (
+                                        <Button key="edit" size="small" onClick={() => editLocalProfile(item.profile as LocalProviderProfile)}>编辑</Button>
+                                    ) : null,
+                                    item.type === "account" ? (
+                                        <Button key="delete" size="small" danger onClick={() => void deleteAccountProviderProfile((item.profile as ProviderProfile).profile_id)}>删除</Button>
+                                    ) : null,
+                                    item.type === "local" ? (
+                                        <Button key="delete" size="small" danger onClick={() => void deleteLocalProfile((item.profile as LocalProviderProfile).profile_id)}>删除</Button>
+                                    ) : null,
+                                ].filter(Boolean)}
+                            >
+                                <List.Item.Meta
+                                    title={item.label}
+                                    description={item.type === "builtin" ? "内置开箱即用" : item.key}
+                                />
+                            </List.Item>
+                        )}
+                    />
+                </Card>
+
+                <Card className="settings-section-card" title="Provider 编辑器">
+                    <Space direction="vertical" size={12} style={{ width: "100%" }}>
                         <Segmented
                             block
-                            value={settings.chat.reconnect_notice_mode}
+                            value={providerDraft.storageMode}
                             options={[
-                                { label: "仅消息内提示", value: "message_only" },
-                                { label: "消息内 + 弹出提示", value: "toast_and_message" },
+                                { label: "仅当前设备", value: "local_only" },
+                                { label: "保存到账号", value: "account" },
                             ]}
-                            onChange={(value) => void handleSaveChatSettings({
-                                reconnect_notice_mode: value as "message_only" | "toast_and_message",
-                            })}
+                            onChange={(value) => setProviderDraft({ ...buildBlankProviderDraft(value as CredentialStorageMode), profileId: undefined })}
                         />
-                    </div>
-                </Space>
-            </Card>
-
-            <Card title="模型与提供方" extra={<Tag color="blue">{settings.active_provider_ref}</Tag>}>
-                <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                    <div className="settings-provider-toolbar">
-                        <Button icon={<CloudServerOutlined />} onClick={() => void handleSetActiveProvider("builtin:carbonrag-cloud")}>
-                            切回默认云端
-                        </Button>
-                        <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildBlankProviderDraft("local_only"))}>
-                            新建本地 Provider
-                        </Button>
-                        <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildBlankProviderDraft("account"))}>
-                            新建账号 Provider
-                        </Button>
-                    </div>
-
-                    <div className="settings-provider-columns">
-                        <Card size="small" title="当前可用 Provider">
-                            <List
-                                dataSource={[
-                                    { key: "builtin:carbonrag-cloud", label: "CarbonRag 默认云端", type: "builtin" as const },
-                                    ...providerList.profiles.map((item) => ({ key: `account:${item.profile_id}`, label: item.display_name, type: "account" as const, profile: item })),
-                                    ...localProfiles.map((item) => ({ key: `local:${item.profile_id}`, label: item.display_name, type: "local" as const, profile: item })),
-                                ]}
-                                renderItem={(item) => (
-                                    <List.Item
-                                        actions={[
-                                            <Button key="use" size="small" type={settings.active_provider_ref === item.key ? "primary" : "default"} onClick={() => void handleSetActiveProvider(item.key)}>
-                                                启用
-                                            </Button>,
-                                            item.type === "account" ? (
-                                                <Button key="edit" size="small" onClick={() => editAccountProfile(item.profile as ProviderProfile)}>编辑</Button>
-                                            ) : null,
-                                            item.type === "local" ? (
-                                                <Button key="edit" size="small" onClick={() => editLocalProfile(item.profile as LocalProviderProfile)}>编辑</Button>
-                                            ) : null,
-                                            item.type === "account" ? (
-                                                <Button key="delete" size="small" danger onClick={() => void deleteAccountProviderProfile((item.profile as ProviderProfile).profile_id)}>删除</Button>
-                                            ) : null,
-                                            item.type === "local" ? (
-                                                <Button key="delete" size="small" danger onClick={() => void deleteLocalProfile((item.profile as LocalProviderProfile).profile_id)}>删除</Button>
-                                            ) : null,
-                                        ].filter(Boolean)}
-                                    >
-                                        <List.Item.Meta
-                                            title={item.label}
-                                            description={item.type === "builtin" ? "内置开箱即用" : item.key}
-                                        />
-                                    </List.Item>
-                                )}
+                        <Select
+                            value={providerDraft.providerType}
+                            options={providerTypeOptions.map((item) => ({ value: item.value, label: item.label }))}
+                            onChange={(value) => setProviderDraft((current) => ({ ...current, providerType: value }))}
+                        />
+                        <Input value={providerDraft.displayName} placeholder="显示名称" onChange={(event) => setProviderDraft((current) => ({ ...current, displayName: event.target.value }))} />
+                        <Input value={providerDraft.baseUrl} placeholder="Base URL（可选）" onChange={(event) => setProviderDraft((current) => ({ ...current, baseUrl: event.target.value }))} />
+                        <Input.Password value={providerDraft.apiKey} placeholder="API Key（可选）" onChange={(event) => setProviderDraft((current) => ({ ...current, apiKey: event.target.value }))} />
+                        <Space.Compact style={{ width: "100%" }}>
+                            <Select
+                                style={{ flex: 1 }}
+                                value={providerDraft.modelName || undefined}
+                                placeholder="选择模型或手动填写"
+                                options={providerDraft.models.map((item) => ({ label: item, value: item }))}
+                                onChange={(value) => setProviderDraft((current) => ({ ...current, modelName: value }))}
                             />
-                        </Card>
+                            <Input
+                                style={{ flex: 1 }}
+                                value={providerDraft.modelName}
+                                placeholder="模型名"
+                                onChange={(event) => setProviderDraft((current) => ({ ...current, modelName: event.target.value }))}
+                            />
+                        </Space.Compact>
+                        <Space wrap>
+                            <Button loading={testingProvider} onClick={() => void handleDiscoverModels()}>刷新模型</Button>
+                            <Button loading={testingProvider} onClick={() => void handleTestProvider()}>测试连接</Button>
+                            <Button type="primary" loading={savingProvider} icon={<SaveOutlined />} onClick={() => void handleSaveProvider()}>
+                                保存 Provider
+                            </Button>
+                        </Space>
+                    </Space>
+                </Card>
+            </div>
+        </Space>
+    );
 
-                        <Card size="small" title="Provider 编辑器">
-                            <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                                <Segmented
-                                    block
-                                    value={providerDraft.storageMode}
-                                    options={[
-                                        { label: "仅当前设备", value: "local_only" },
-                                        { label: "保存到账号", value: "account" },
-                                    ]}
-                                    onChange={(value) => setProviderDraft((current) => ({ ...buildBlankProviderDraft(value as CredentialStorageMode), profileId: undefined }))}
-                                />
-                                <Select
-                                    value={providerDraft.providerType}
-                                    options={providerTypeOptions.map((item) => ({ value: item.value, label: item.label }))}
-                                    onChange={(value) => setProviderDraft((current) => ({ ...current, providerType: value }))}
-                                />
-                                <Input value={providerDraft.displayName} placeholder="显示名称" onChange={(event) => setProviderDraft((current) => ({ ...current, displayName: event.target.value }))} />
-                                <Input value={providerDraft.baseUrl} placeholder="Base URL（可选）" onChange={(event) => setProviderDraft((current) => ({ ...current, baseUrl: event.target.value }))} />
-                                <Input.Password value={providerDraft.apiKey} placeholder="API Key（可选）" onChange={(event) => setProviderDraft((current) => ({ ...current, apiKey: event.target.value }))} />
-                                <Space.Compact style={{ width: "100%" }}>
-                                    <Select
-                                        style={{ flex: 1 }}
-                                        value={providerDraft.modelName || undefined}
-                                        placeholder="选择模型或手动填写"
-                                        options={providerDraft.models.map((item) => ({ label: item, value: item }))}
-                                        onChange={(value) => setProviderDraft((current) => ({ ...current, modelName: value }))}
-                                    />
-                                    <Input
-                                        style={{ flex: 1 }}
-                                        value={providerDraft.modelName}
-                                        placeholder="模型名"
-                                        onChange={(event) => setProviderDraft((current) => ({ ...current, modelName: event.target.value }))}
-                                    />
-                                </Space.Compact>
-                                <Space wrap>
-                                    <Button loading={testingProvider} onClick={() => void handleDiscoverModels()}>刷新模型</Button>
-                                    <Button loading={testingProvider} onClick={() => void handleTestProvider()}>测试连接</Button>
-                                    <Button type="primary" loading={savingProvider} icon={<SaveOutlined />} onClick={() => void handleSaveProvider()}>
-                                        保存 Provider
-                                    </Button>
-                                </Space>
-                            </Space>
-                        </Card>
-                    </div>
+    const privacyTab = (
+        <div className="settings-section-grid">
+            <Card className="settings-section-card" title="凭据保存">
+                <Space direction="vertical" size={14}>
+                    <SettingSwitch
+                        checked={settings.data_privacy.store_local_provider_keys_in_browser}
+                        label="允许本地私有 Provider 凭据保存在浏览器中"
+                        onChange={(checked) => void handleSaveDataPrivacy({ store_local_provider_keys_in_browser: checked })}
+                    />
+                    <SettingSwitch
+                        checked={settings.data_privacy.allow_account_saved_provider_keys}
+                        label="允许账号保存加密凭据"
+                        onChange={(checked) => void handleSaveDataPrivacy({ allow_account_saved_provider_keys: checked })}
+                    />
                 </Space>
             </Card>
+        </div>
+    );
 
-            <Card title="数据与隐私">
-                <Space direction="vertical" size={12}>
-                    <Space wrap>
-                        <Switch checked={settings.data_privacy.store_local_provider_keys_in_browser} onChange={(checked) => void handleSaveDataPrivacy({ store_local_provider_keys_in_browser: checked })} />
-                        <Typography.Text>允许本地私有 Provider 凭据保存在浏览器中</Typography.Text>
-                    </Space>
-                    <Space wrap>
-                        <Switch checked={settings.data_privacy.allow_account_saved_provider_keys} onChange={(checked) => void handleSaveDataPrivacy({ allow_account_saved_provider_keys: checked })} />
-                        <Typography.Text>允许账号保存加密凭据</Typography.Text>
-                    </Space>
-                </Space>
-            </Card>
-
-            <Card title="高级">
+    const advancedTab = (
+        <div className="settings-section-grid">
+            <Card className="settings-section-card settings-section-card--wide" title="当前运行配置">
                 <Space direction="vertical" size={12} style={{ width: "100%" }}>
                     <Typography.Text type="secondary">
                         当前生效 Provider：{settings.active_provider_ref}
@@ -600,4 +685,102 @@ export function SettingsPage() {
             </Card>
         </div>
     );
+
+    return (
+        <div className="settings-console">
+            {transportError ? <Alert type="warning" showIcon message={transportError} /> : null}
+
+            <Card className="settings-console__hero">
+                <div className="settings-console__hero-layout">
+                    <div className="settings-console__hero-copy">
+                        <Typography.Text className="settings-console__eyebrow">通用设置</Typography.Text>
+                        <Typography.Title level={2}>把账号、外观和模型配置收进一个入口</Typography.Title>
+                        <Typography.Paragraph type="secondary">
+                            这里集中管理个人资料、主题、聊天偏好、模型提供方和数据保存策略。
+                        </Typography.Paragraph>
+                    </div>
+                    <div className="settings-profile-card">
+                        <div className="settings-profile-card__identity">
+                            <Avatar size={70} src={profileAvatarDraft ?? undefined}>
+                                {profileNameDraft.trim().slice(0, 1).toUpperCase() || getUserInitial(user)}
+                            </Avatar>
+                            <div className="settings-profile-card__copy">
+                                <Typography.Text strong>{user.display_name || user.username}</Typography.Text>
+                                <Tag color={user.role === "admin" ? "purple" : "blue"}>{user.role}</Tag>
+                            </div>
+                        </div>
+                        <Space direction="vertical" size={10} style={{ width: "100%" }}>
+                            <Input
+                                value={profileNameDraft}
+                                maxLength={32}
+                                placeholder="输入展示名称"
+                                onChange={(event) => setProfileNameDraft(event.target.value)}
+                                onPressEnter={() => void handleSaveProfile()}
+                            />
+                            <Space wrap>
+                                <Button icon={<UploadOutlined />} onClick={() => avatarInputRef.current?.click()}>
+                                    上传头像
+                                </Button>
+                                <Button onClick={() => setProfileAvatarDraft(null)}>移除头像</Button>
+                                <Button type="primary" loading={profileSaving} onClick={() => void handleSaveProfile()}>
+                                    保存资料
+                                </Button>
+                            </Space>
+                            <Typography.Text type="secondary">名称不可重复；admin / user 仅作为身份标签显示。</Typography.Text>
+                            <input
+                                ref={avatarInputRef}
+                                type="file"
+                                accept="image/*"
+                                hidden
+                                onChange={handleAvatarFileChange}
+                            />
+                        </Space>
+                    </div>
+                </div>
+            </Card>
+
+            <Card className="settings-console__tabs">
+                <Tabs
+                    items={[
+                        { key: "appearance", label: "外观", children: appearanceTab },
+                        { key: "chat", label: "聊天", children: chatTab },
+                        { key: "provider", label: "模型与提供方", children: providerTab },
+                        { key: "privacy", label: "数据与隐私", children: privacyTab },
+                        { key: "advanced", label: "高级", children: advancedTab },
+                    ]}
+                />
+            </Card>
+        </div>
+    );
+}
+
+function SettingSwitch({
+    checked,
+    label,
+    onChange,
+}: {
+    checked: boolean;
+    label: string;
+    onChange: (checked: boolean) => void;
+}) {
+    return (
+        <div className="settings-switch-row">
+            <Switch checked={checked} onChange={onChange} />
+            <Typography.Text>{label}</Typography.Text>
+        </div>
+    );
+}
+
+function getUserInitial(user: { display_name?: string | null; username: string }) {
+    const value = user.display_name || user.username;
+    return value.slice(0, 1).toUpperCase();
+}
+
+function extractDetailMessage(value: unknown): string | null {
+    if (!value || typeof value !== "object") {
+        return null;
+    }
+    const candidate = value as { response?: { data?: { detail?: unknown } }; detail?: unknown };
+    const detail = candidate.response?.data?.detail ?? candidate.detail;
+    return typeof detail === "string" ? detail : null;
 }

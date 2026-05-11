@@ -9,6 +9,8 @@ UserRole = Literal["user", "admin"]
 class AuthenticatedUser(BaseModel):
     user_id: str
     username: str
+    display_name: str
+    avatar_url: str | None = None
     role: UserRole
     is_active: bool
     password_must_change: bool
@@ -64,6 +66,43 @@ class ChangePasswordRequest(BaseModel):
             raise ValueError("password must be at least 6 characters.")
         if len(normalized) > 128:
             raise ValueError("password must be 128 characters or fewer.")
+        return normalized
+
+
+class UpdateProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = None
+    avatar_url: str | None = None
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("display_name is required.")
+        if len(normalized) < 2 or len(normalized) > 32:
+            raise ValueError("display_name must be between 2 and 32 characters.")
+        return normalized
+
+    @field_validator("avatar_url")
+    @classmethod
+    def validate_avatar_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if len(normalized) > 200_000:
+            raise ValueError("avatar_url is too large.")
+        if not (
+            normalized.startswith("data:image/")
+            or normalized.startswith("https://")
+            or normalized.startswith("http://")
+        ):
+            raise ValueError("avatar_url must be an image data URL or HTTP URL.")
         return normalized
 
 
