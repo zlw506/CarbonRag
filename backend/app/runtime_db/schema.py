@@ -65,6 +65,8 @@ SQLITE_SCHEMA_SCRIPT = """
 CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
+    display_name TEXT UNIQUE,
+    avatar_url TEXT,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
@@ -803,6 +805,9 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id
     ON auth_sessions(user_id, expires_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_username
     ON users(username);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_display_name
+    ON users(display_name)
+    WHERE display_name IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_session_seq
     ON messages(session_id, message_seq);
 CREATE INDEX IF NOT EXISTS idx_user_provider_profiles_owner_updated_at
@@ -894,6 +899,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
         username TEXT NOT NULL UNIQUE,
+        display_name TEXT UNIQUE,
+        avatar_url TEXT,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL,
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1611,6 +1618,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
     )
     """,
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT",
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pinned_at TEXT",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
@@ -1668,6 +1677,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash ON auth_sessions(token_hash)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id, expires_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_display_name ON users(display_name) WHERE display_name IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, message_seq)",
     "CREATE INDEX IF NOT EXISTS idx_user_provider_profiles_owner_updated_at ON user_provider_profiles(owner_user_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_memory_notes_owner_updated_at ON memory_notes(owner_user_id, updated_at DESC)",
@@ -1715,6 +1725,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
 
 def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(SQLITE_SCHEMA_SCRIPT)
+    _ensure_sqlite_column(connection, "users", "display_name", "TEXT")
+    _ensure_sqlite_column(connection, "users", "avatar_url", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "sessions", "is_pinned", "INTEGER NOT NULL DEFAULT 0")
     _ensure_sqlite_column(connection, "sessions", "pinned_at", "TEXT")

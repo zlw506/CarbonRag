@@ -15,6 +15,7 @@ from app.auth.schemas import (
     AuthenticatedUser,
     LoginRequest,
     RegisterRequest,
+    UpdateProfileRequest,
     UserRole,
 )
 from app.core.config import get_settings
@@ -87,7 +88,17 @@ class AuthService:
         payload = dict(row)
         payload["is_active"] = bool(payload["is_active"])
         payload["password_must_change"] = bool(payload["password_must_change"])
+        payload["display_name"] = payload.get("display_name") or AuthService._default_display_name(
+            role=str(payload.get("role") or "user"),
+            user_id=str(payload.get("user_id") or ""),
+        )
         return AuthenticatedUser.model_validate(payload)
+
+    @staticmethod
+    def _default_display_name(*, role: str, user_id: str) -> str:
+        role_label = "管理员" if role == "admin" else "用户"
+        numeric = int(hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:8], 16) % 1_000_000
+        return f"{role_label}{numeric:06d}"
 
     def _fetch_user_by_username(self, username: str):
         with self._connect() as connection:
@@ -95,8 +106,9 @@ class AuthService:
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
-                        SELECT user_id, username, password_hash, role, is_active,
-                               password_must_change, created_at, updated_at, last_login_at
+                        SELECT
+                            user_id, username, display_name, avatar_url, password_hash, role, is_active,
+                            password_must_change, created_at, updated_at, last_login_at
                         FROM users
                         WHERE username = %s
                         """,
@@ -106,8 +118,9 @@ class AuthService:
 
             return connection.execute(
                 """
-                SELECT user_id, username, password_hash, role, is_active,
-                       password_must_change, created_at, updated_at, last_login_at
+                SELECT
+                    user_id, username, display_name, avatar_url, password_hash, role, is_active,
+                    password_must_change, created_at, updated_at, last_login_at
                 FROM users
                 WHERE username = ?
                 """,
@@ -120,8 +133,9 @@ class AuthService:
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
-                        SELECT user_id, username, password_hash, role, is_active,
-                               password_must_change, created_at, updated_at, last_login_at
+                        SELECT
+                            user_id, username, display_name, avatar_url, password_hash, role, is_active,
+                            password_must_change, created_at, updated_at, last_login_at
                         FROM users
                         WHERE user_id = %s
                         """,
@@ -131,12 +145,40 @@ class AuthService:
 
             return connection.execute(
                 """
-                SELECT user_id, username, password_hash, role, is_active,
-                       password_must_change, created_at, updated_at, last_login_at
+                SELECT
+                    user_id, username, display_name, avatar_url, password_hash, role, is_active,
+                    password_must_change, created_at, updated_at, last_login_at
                 FROM users
                 WHERE user_id = ?
                 """,
                 (user_id,),
+            ).fetchone()
+
+    def _fetch_user_by_display_name(self, display_name: str):
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT
+                            user_id, username, display_name, avatar_url, password_hash, role, is_active,
+                            password_must_change, created_at, updated_at, last_login_at
+                        FROM users
+                        WHERE display_name = %s
+                        """,
+                        (display_name,),
+                    )
+                    return cursor.fetchone()
+
+            return connection.execute(
+                """
+                SELECT
+                    user_id, username, display_name, avatar_url, password_hash, role, is_active,
+                    password_must_change, created_at, updated_at, last_login_at
+                FROM users
+                WHERE display_name = ?
+                """,
+                (display_name,),
             ).fetchone()
 
     def ensure_seed_admin_and_backfill(self) -> AuthenticatedUser:
@@ -164,6 +206,8 @@ class AuthService:
                         INSERT INTO users (
                             user_id,
                             username,
+                            display_name,
+                            avatar_url,
                             password_hash,
                             role,
                             is_active,
@@ -172,11 +216,13 @@ class AuthService:
                             updated_at,
                             last_login_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
                         """,
                         (
                             user_id,
                             SEED_ADMIN_USERNAME,
+                            SEED_ADMIN_USERNAME,
+                            None,
                             password_hash,
                             "admin",
                             True,
@@ -191,6 +237,8 @@ class AuthService:
                     INSERT INTO users (
                         user_id,
                         username,
+                        display_name,
+                        avatar_url,
                         password_hash,
                         role,
                         is_active,
@@ -199,11 +247,13 @@ class AuthService:
                         updated_at,
                         last_login_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                     """,
                     (
                         user_id,
                         SEED_ADMIN_USERNAME,
+                        SEED_ADMIN_USERNAME,
+                        None,
                         password_hash,
                         "admin",
                         1,
@@ -314,6 +364,8 @@ class AuthService:
                         INSERT INTO users (
                             user_id,
                             username,
+                            display_name,
+                            avatar_url,
                             password_hash,
                             role,
                             is_active,
@@ -322,11 +374,13 @@ class AuthService:
                             updated_at,
                             last_login_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
                         """,
                         (
                             user_id,
                             request.username,
+                            request.username,
+                            None,
                             password_hash,
                             "user",
                             True,
@@ -341,6 +395,8 @@ class AuthService:
                     INSERT INTO users (
                         user_id,
                         username,
+                        display_name,
+                        avatar_url,
                         password_hash,
                         role,
                         is_active,
@@ -349,11 +405,13 @@ class AuthService:
                         updated_at,
                         last_login_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                     """,
                     (
                         user_id,
                         request.username,
+                        request.username,
+                        None,
                         password_hash,
                         "user",
                         1,
@@ -475,6 +533,8 @@ class AuthService:
                         SELECT
                             u.user_id,
                             u.username,
+                            u.display_name,
+                            u.avatar_url,
                             u.role,
                             u.is_active,
                             u.password_must_change,
@@ -500,6 +560,8 @@ class AuthService:
                     SELECT
                         u.user_id,
                         u.username,
+                        u.display_name,
+                        u.avatar_url,
                         u.role,
                         u.is_active,
                         u.password_must_change,
@@ -576,6 +638,56 @@ class AuthService:
         refreshed = self._fetch_user_by_id(user_id)
         if refreshed is None:
             raise RuntimeError("Changed-password user could not be reloaded.")
+        return self._row_to_user(refreshed)
+
+    def update_profile(self, *, user_id: str, payload: UpdateProfileRequest | dict) -> AuthenticatedUser:
+        request = payload if isinstance(payload, UpdateProfileRequest) else UpdateProfileRequest.model_validate(payload)
+        current_row = self._fetch_user_by_id(user_id)
+        if current_row is None:
+            raise KeyError(user_id)
+        current_payload = dict(current_row)
+
+        fields_set = request.model_fields_set
+        next_display_name = (
+            request.display_name
+            if "display_name" in fields_set
+            else current_payload.get("display_name")
+        )
+        if next_display_name:
+            existing = self._fetch_user_by_display_name(next_display_name)
+            if existing is not None and existing["user_id"] != user_id:
+                raise UserAlreadyExistsError("display name already exists.")
+
+        next_avatar_url = request.avatar_url if "avatar_url" in fields_set else current_payload.get("avatar_url")
+        updated_at = self._utcnow().isoformat()
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE users
+                        SET display_name = %s,
+                            avatar_url = %s,
+                            updated_at = %s
+                        WHERE user_id = %s
+                        """,
+                        (next_display_name, next_avatar_url, updated_at, user_id),
+                    )
+            else:
+                connection.execute(
+                    """
+                    UPDATE users
+                    SET display_name = ?,
+                        avatar_url = ?,
+                        updated_at = ?
+                    WHERE user_id = ?
+                    """,
+                    (next_display_name, next_avatar_url, updated_at, user_id),
+                )
+
+        refreshed = self._fetch_user_by_id(user_id)
+        if refreshed is None:
+            raise RuntimeError("Updated user profile could not be reloaded.")
         return self._row_to_user(refreshed)
 
     def update_user(self, *, user_id: str, role: UserRole, is_active: bool) -> AuthenticatedUser:
@@ -660,7 +772,7 @@ class AuthService:
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
-                        SELECT user_id, username, role, is_active,
+                        SELECT user_id, username, display_name, avatar_url, role, is_active,
                                password_must_change, created_at, updated_at, last_login_at
                         FROM users
                         ORDER BY created_at ASC
@@ -670,7 +782,7 @@ class AuthService:
             else:
                 rows = connection.execute(
                     """
-                    SELECT user_id, username, role, is_active,
+                    SELECT user_id, username, display_name, avatar_url, role, is_active,
                            password_must_change, created_at, updated_at, last_login_at
                     FROM users
                     ORDER BY created_at ASC

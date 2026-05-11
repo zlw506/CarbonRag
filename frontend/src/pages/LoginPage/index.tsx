@@ -38,7 +38,7 @@ export function LoginPage() {
         setErrorMessage(null);
         try {
             const loggedInUser = await login(values);
-            message.success(`欢迎回来，${loggedInUser.username}。`);
+            message.success(`欢迎回来，${loggedInUser.display_name || loggedInUser.username}。`);
             navigate(loggedInUser.password_must_change ? "/change-password" : redirectTarget, { replace: true });
         } catch (error) {
             setErrorMessage(extractDetailMessage(error) ?? "登录失败，请检查用户名和密码。");
@@ -55,7 +55,7 @@ export function LoginPage() {
             if (createdUser.username === "admin" && createdUser.role === "admin") {
                 message.success("初始管理员已恢复，请使用 admin / 123456 登录，并在首次进入后立即修改密码。");
             } else {
-                message.success(`账号 ${createdUser.username} 已创建，请登录。`);
+                message.success(`账号 ${createdUser.display_name || createdUser.username} 已创建，请登录。`);
             }
             setActiveTab("login");
             loginForm.setFieldsValue({ username: createdUser.username, password: values.password });

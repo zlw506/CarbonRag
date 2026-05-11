@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { PropsWithChildren } from "react";
 import axios from "axios";
-import { changePassword, getCurrentUser, loginAccount, logoutAccount, registerAccount } from "../services/auth";
-import type { AuthUser, ChangePasswordRequest, LoginRequest, RegisterRequest } from "../types/auth";
+import { changePassword, getCurrentUser, loginAccount, logoutAccount, registerAccount, updateProfile } from "../services/auth";
+import type { AuthUser, ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest } from "../types/auth";
 
 interface AuthContextValue {
     user: AuthUser | null;
@@ -12,6 +12,7 @@ interface AuthContextValue {
     logout: () => Promise<void>;
     refresh: () => Promise<AuthUser | null>;
     changePassword: (payload: ChangePasswordRequest) => Promise<AuthUser>;
+    updateProfile: (payload: UpdateProfileRequest) => Promise<AuthUser>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -65,6 +66,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return response.user;
     }
 
+    async function handleUpdateProfile(payload: UpdateProfileRequest) {
+        const response = await updateProfile(payload);
+        setUser(response.user);
+        return response.user;
+    }
+
     const value = useMemo<AuthContextValue>(
         () => ({
             user,
@@ -74,6 +81,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
             logout,
             refresh,
             changePassword: handleChangePassword,
+            updateProfile: handleUpdateProfile,
         }),
         [loading, user],
     );

@@ -3,6 +3,8 @@ export type UserRole = "user" | "admin";
 export interface AuthUser {
     user_id: string;
     username: string;
+    display_name: string;
+    avatar_url: string | null;
     role: UserRole;
     is_active: boolean;
     password_must_change: boolean;
@@ -29,6 +31,11 @@ export interface LoginResponse extends AuthUserEnvelope {
 export interface ChangePasswordRequest {
     current_password: string;
     new_password: string;
+}
+
+export interface UpdateProfileRequest {
+    display_name?: string;
+    avatar_url?: string | null;
 }
 
 export interface AuthStatusResponse {

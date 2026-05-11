@@ -50,6 +50,7 @@ def test_build_chat_request_only_includes_selected_indexed_attached_files(monkey
     user = AuthenticatedUser(
         user_id="user-001",
         username="tester",
+        display_name="tester",
         role="user",
         is_active=True,
         password_must_change=False,

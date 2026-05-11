@@ -6,6 +6,7 @@ import type {
     LoginRequest,
     LoginResponse,
     RegisterRequest,
+    UpdateProfileRequest,
 } from "../types/auth";
 
 export async function registerAccount(payload: RegisterRequest) {
@@ -30,5 +31,10 @@ export async function getCurrentUser() {
 
 export async function changePassword(payload: ChangePasswordRequest) {
     const response = await httpClient.post<LoginResponse>("/v1/auth/change-password", payload);
+    return response.data;
+}
+
+export async function updateProfile(payload: UpdateProfileRequest) {
+    const response = await httpClient.patch<AuthUserEnvelope>("/v1/auth/me", payload);
     return response.data;
 }

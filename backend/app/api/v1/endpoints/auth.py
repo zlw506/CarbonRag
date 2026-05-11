@@ -9,6 +9,7 @@ from app.auth.schemas import (
     LoginRequest,
     LoginResponse,
     RegisterRequest,
+    UpdateProfileRequest,
 )
 from app.auth.service import (
     AuthenticationError,
@@ -80,6 +81,20 @@ def logout(
 @router.get("/me", response_model=AuthUserEnvelope)
 def me(current_user: AuthenticatedUser = Depends(get_current_user)) -> AuthUserEnvelope:
     return AuthUserEnvelope(user=current_user)
+
+
+@router.patch("/me", response_model=AuthUserEnvelope)
+def update_me(
+    payload: UpdateProfileRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthUserEnvelope:
+    try:
+        user = get_auth_service().update_profile(user_id=current_user.user_id, payload=payload)
+    except UserAlreadyExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return AuthUserEnvelope(user=user)
 
 
 @router.post("/change-password", response_model=LoginResponse)
