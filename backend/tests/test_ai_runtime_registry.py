@@ -15,6 +15,7 @@ def test_default_registry_contains_all_stub_tools() -> None:
         "langchain_rag_search",
         "mixed_retrieve",
         "policy_retrieve",
+        "report_carbon_extract_calc",
         "report_draft",
         "session_file_search",
     ]

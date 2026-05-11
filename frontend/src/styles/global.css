@@ -1173,9 +1173,12 @@ body {
 .chat-message__content h2,
 .chat-message__content h3,
 .chat-message__content h4 {
-    margin-top: 0.7em;
-    margin-bottom: 0.32em;
-    line-height: 1.28;
+    margin-top: 0.64em;
+    margin-bottom: 0.24em;
+    line-height: 1.42;
+    font-size: 1.08em;
+    font-weight: 760;
+    letter-spacing: 0.005em;
 }
 
 .chat-message__content h1:first-child,
@@ -1211,6 +1214,42 @@ body {
 
 .chat-message__content li + li {
     margin-top: 0.32em;
+}
+
+.chat-message__content table {
+    width: 100%;
+    margin: 0.72em 0 0.9em;
+    border-collapse: collapse;
+    border-spacing: 0;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--cr-border) 82%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--cr-surface-elevated) 72%, transparent);
+    font-size: 0.98em;
+}
+
+.chat-message__content th,
+.chat-message__content td {
+    padding: 10px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--cr-border) 72%, transparent);
+    text-align: left;
+    vertical-align: top;
+    line-height: 1.56;
+}
+
+.chat-message__content th {
+    font-weight: 760;
+    color: var(--cr-text-primary);
+    background: color-mix(in srgb, var(--cr-surface-muted) 72%, transparent);
+}
+
+.chat-message__content tr:last-child td {
+    border-bottom: 0;
+}
+
+.chat-message__content td:first-child,
+.chat-message__content th:first-child {
+    font-weight: 680;
 }
 
 .chat-message__meta {

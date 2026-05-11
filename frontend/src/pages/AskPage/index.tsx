@@ -37,6 +37,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
 import { useSettings } from "../../app/SettingsContext";
@@ -1762,7 +1763,7 @@ function renderMessageContent(message: ChatMessageView, isAssistant: boolean) {
         return <Typography.Paragraph>{content}</Typography.Paragraph>;
     }
 
-    return <ReactMarkdown>{normalizeAssistantMarkdown(content)}</ReactMarkdown>;
+    return <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizeAssistantMarkdown(content)}</ReactMarkdown>;
 }
 
 function normalizeAssistantMarkdown(content: string) {
@@ -1773,9 +1774,10 @@ function normalizeAssistantMarkdown(content: string) {
 }
 
 function normalizeMarkdownTextSegment(segment: string) {
-    return segment
+    const normalized = segment
         .replace(/(^|\n)\s*#{1,6}\s+(?=\d+\.)/g, "$1")
         .replace(/(^|\n)\s*[-*]\s*(?=\n|$)/g, "$1")
+        .replace(/([^\n])(\s+)(#{1,6})\s+(?=\S)/g, "$1\n\n$3 ")
         .replace(/([^\n])(\s*)(#{1,6})(?=\S)/g, "$1\n\n$3 ")
         .replace(/(^|\n)(#{1,6})(?=\S)/g, "$1$2 ")
         .replace(/([^\n])(\s+)-(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1\n- ")
@@ -1784,6 +1786,10 @@ function normalizeMarkdownTextSegment(segment: string) {
         .replace(/(^|\n)(\d+)\.(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1$2. ")
         .replace(/([。！？:：])(\s*)([-*]\s)/g, "$1\n$3")
         .replace(/([。！？:：])(\s*)(\d+\.\s)/g, "$1\n$3");
+    return normalized.replace(/(^|\n)\s{0,3}#{1,6}\s*([^\n]+)/g, (_match, prefix: string, title: string) => {
+        const cleanTitle = title.trim();
+        return cleanTitle ? `${prefix}**${cleanTitle}**` : prefix;
+    });
 }
 
 async function copyTextToClipboard(text: string, successMessage: string) {

@@ -12,9 +12,12 @@ def test_ask_mode_contract() -> None:
         "session_file_search",
         "langchain_rag_search",
         "langchain_rag_answer",
+        "report_carbon_extract_calc",
     )
     assert mode.default_stub_tool_sequence == ("policy_retrieve",)
     assert mode.response_schema is RuntimeResult
+    assert "Do not use Markdown # headings" in mode.prompt_policy
+    assert "tables" in mode.prompt_policy
 
 
 def test_carbon_mode_contract() -> None:

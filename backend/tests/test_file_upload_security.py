@@ -15,6 +15,11 @@ def test_file_upload_security_accepts_supported_document_types() -> None:
     service = _service()
 
     service.validate_upload(filename="bill.pdf", mime_type="application/pdf", size=128)
+    service.validate_upload(
+        filename="report.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        size=128,
+    )
     service.validate_upload(filename="ledger.xlsx", mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size=128)
     service.validate_upload(filename="notes.md", mime_type="text/markdown", size=128)
 

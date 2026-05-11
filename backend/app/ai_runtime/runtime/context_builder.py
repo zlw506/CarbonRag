@@ -28,6 +28,18 @@ def _format_file_locator(hit: dict) -> str | None:
     return " / ".join(parts) or None
 
 
+def _extract_report_carbon_outputs(tool_results: list[ToolResult] | None) -> list[dict]:
+    if not tool_results:
+        return []
+    outputs: list[dict] = []
+    for tool_result in tool_results:
+        if tool_result.name != "report_carbon_extract_calc":
+            continue
+        if isinstance(tool_result.output, dict):
+            outputs.append(tool_result.output)
+    return outputs
+
+
 def build_context_bundle(
     request: ChatRequest,
     mode: ModeSpec,
@@ -50,6 +62,7 @@ def build_context_bundle(
         kb_id = request.payload.get("kb_id")
         rag_mode = request.payload.get("rag_mode", "hybrid_rerank")
         retrieval_hits = _extract_hits(tool_results)
+        report_carbon_outputs = _extract_report_carbon_outputs(tool_results)
         public_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy"]
         demo_policy_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy_demo"]
         private_hits = [
@@ -150,11 +163,58 @@ def build_context_bundle(
                 evidence_lines.append(
                     "注意：本轮已命中用户上传文件片段。请优先基于这些片段回答用户关于报告、附件或文档内容的问题；不要再声称无法读取该文件。"
                 )
+        for carbon_output in report_carbon_outputs:
+            extracted_activities = carbon_output.get("extracted_activities") or []
+            calculation = carbon_output.get("calculation") or {}
+            warnings = carbon_output.get("warnings") or []
+            evidence_lines.append("当前已从上传报告抽取到以下碳活动数据并尝试完成核算：")
+            if extracted_activities:
+                for index, item in enumerate(extracted_activities, start=1):
+                    locator_parts = []
+                    if item.get("page_number"):
+                        locator_parts.append(f"p.{item['page_number']}")
+                    if item.get("sheet_name"):
+                        locator_parts.append(f"sheet {item['sheet_name']}")
+                    if item.get("slide_number"):
+                        locator_parts.append(f"slide {item['slide_number']}")
+                    locator = " / ".join(locator_parts) or "无"
+                    evidence_lines.extend(
+                        [
+                            f"[report-carbon-{index}] 活动：{item.get('activity_category')}/{item.get('activity_name')}",
+                            f"活动量：{item.get('activity_value')} {item.get('activity_unit')}",
+                            f"证据文件：{item.get('title')}；定位：{locator}；chunk：{item.get('chunk_id')}",
+                            f"证据片段：{item.get('snippet')}",
+                        ]
+                    )
+            else:
+                evidence_lines.append("未识别到受支持的活动量。")
+            if calculation:
+                evidence_lines.extend(
+                    [
+                        f"报告碳核算总量：{calculation.get('total_emission_kgco2e')} kgCO2e",
+                        f"核算 trace_id：{calculation.get('trace_id')}；inventory_id：{calculation.get('inventory_id')}",
+                        "核算分项："
+                    ]
+                )
+                for item in calculation.get("breakdown") or []:
+                    evidence_lines.append(
+                        f"- {item.get('activity_name')}: {item.get('activity_value')} {item.get('activity_unit')} × "
+                        f"{item.get('factor_value')} {item.get('factor_unit')} = {item.get('emission_kgco2e')} kgCO2e"
+                    )
+            if warnings:
+                evidence_lines.append("报告抽取/核算警告：" + "；".join(str(item) for item in warnings))
         if not evidence_lines:
             evidence_lines = [
                 "当前未检索到足够依据。",
                 "不得伪造引用，只能明确说明当前 scope 下未命中足够证据，并给出受限说明。",
             ]
+
+        response_style_lines = [
+            "回答格式要求：不要使用 Markdown 的 # / ## / ### 标题；用加粗短语作为小节标题即可。",
+            "复杂问题必须先给一句结论，再按“关键依据、分步分析、风险/限制、下一步建议”组织；不要把主次混在同一段。",
+            "涉及分类、对比、清单、能源类型、碳因子、活动量或核算结果时，优先使用 Markdown 表格；表格后再补充必要解释。",
+            "每段只承载一个要点，避免长段堆叠；没有依据的数据必须标注为未确认或需要补充材料。",
+        ]
 
         if knowledge_scope_effective == "public":
             scope_strategy_lines = [
@@ -188,6 +248,7 @@ def build_context_bundle(
                     f"当前知识范围实际生效：{knowledge_scope_effective}。",
                     f"当前上下文占用估算：{context_usage_estimate} / {context_budget_estimate}。",
                     f"当前压缩状态：{compaction_status}，已摘要覆盖 {compacted_message_count} 条较早消息。",
+                    *response_style_lines,
                     *evidence_lines,
                     "如果存在政策和样例两类依据，请分层表达“政策要求”与“样例现状”；如果片段不足，只能给出受限说明。",
                 ]
@@ -215,6 +276,10 @@ def build_context_bundle(
                 "source": "local_private_sample_corpus",
                 "hit_count": len(private_hits),
                 "hits": private_hits,
+            },
+            "report_carbon_context": {
+                "ready": bool(report_carbon_outputs),
+                "outputs": report_carbon_outputs,
             },
             "limitations": limitations,
             "session_state": {

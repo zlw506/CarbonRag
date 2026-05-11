@@ -1,6 +1,8 @@
 from pathlib import Path
 
 import pytest
+from docx import Document
+from reportlab.pdfgen import canvas
 
 from app.files.parser.registry import FileParserRegistry
 from app.knowledge.parsers import KnowledgeParseError
@@ -40,6 +42,45 @@ def test_parser_registry_strips_html_with_fallback(tmp_path: Path) -> None:
     assert parsed.parser_name == "carbonrag-html-fallback"
     assert "排放报告" in parsed.text
     assert "<h1>" not in parsed.text
+
+
+def test_parser_registry_parses_docx_with_fallback(tmp_path: Path) -> None:
+    file_path = tmp_path / "carbon-report.docx"
+    document = Document()
+    document.add_paragraph("企业碳排放报告摘要")
+    table = document.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "外购电力"
+    table.rows[0].cells[1].text = "1200 kWh"
+    document.save(file_path)
+
+    parsed = FileParserRegistry(docling_provider=_UnavailableDocling()).parse(
+        path=file_path,
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    assert parsed.parser_name == "carbonrag-fallback"
+    assert "企业碳排放报告摘要" in parsed.text
+    assert "外购电力" in parsed.text
+    assert "1200 kWh" in parsed.text
+
+
+def test_parser_registry_parses_text_pdf_with_fallback(tmp_path: Path) -> None:
+    file_path = tmp_path / "carbon-report.pdf"
+    pdf = canvas.Canvas(str(file_path))
+    pdf.drawString(72, 720, "Purchased electricity 1200 kWh")
+    pdf.showPage()
+    pdf.drawString(72, 720, "Natural gas 300 m3")
+    pdf.save()
+
+    parsed = FileParserRegistry(docling_provider=_UnavailableDocling()).parse(
+        path=file_path,
+        mime_type="application/pdf",
+    )
+
+    assert parsed.parser_name == "carbonrag-fallback"
+    assert parsed.page_count == 2
+    assert "Purchased electricity 1200 kWh" in parsed.text
+    assert "Natural gas 300 m3" in parsed.text
 
 
 def test_parser_registry_marks_image_as_ocr_unavailable_without_docling(tmp_path: Path) -> None:
