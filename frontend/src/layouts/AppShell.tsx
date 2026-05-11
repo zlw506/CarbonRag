@@ -81,8 +81,8 @@ export function AppShell() {
     ].filter(Boolean).join(" ");
 
     useEffect(() => {
-        void bootstrapSessionRail(routeNeedsSession);
-    }, [routeNeedsSession]);
+        void bootstrapSessionRail(true, routeNeedsSession && !isAskRoute);
+    }, [routeNeedsSession, isAskRoute]);
 
     useEffect(() => {
         if (!routeNeedsSession || !settings || typeof window === "undefined") {
@@ -95,14 +95,10 @@ export function AppShell() {
         setSessionRailCollapsed(settings.appearance.sidebar_default === "collapsed");
     }, [routeNeedsSession, settings?.appearance.sidebar_default, setSessionRailCollapsed]);
 
-    async function bootstrapSessionRail(shouldCreateSession: boolean) {
+    async function bootstrapSessionRail(shouldLoadSessions: boolean, shouldAutoSelectSession: boolean) {
         setLoadingSessions(true);
         try {
-            let sessionList = await listSessions();
-            if (!sessionList.length && shouldCreateSession) {
-                const created = await createSession();
-                sessionList = [created];
-            }
+            const sessionList = shouldLoadSessions ? await listSessions() : [];
             setSessionRailError(null);
             setSessions(sessionList);
             setActiveSessionId((current) => {
@@ -112,7 +108,7 @@ export function AppShell() {
                 if (current && sessionList.some((item) => item.session_id === current)) {
                     return current;
                 }
-                return sessionList[0].session_id;
+                return shouldAutoSelectSession ? sessionList[0].session_id : null;
             });
         } catch {
             setSessionRailError("当前无法读取对话列表。");
@@ -125,11 +121,7 @@ export function AppShell() {
 
     async function refreshSessions(preferredSessionId?: string | null) {
         try {
-            let sessionList = await listSessions();
-            if (!sessionList.length && routeNeedsSession) {
-                const created = await createSession();
-                sessionList = [created];
-            }
+            const sessionList = await listSessions();
             setSessionRailError(null);
             setSessions(sessionList);
             setActiveSessionId((current) => {
@@ -155,8 +147,20 @@ export function AppShell() {
         try {
             const created = await createSession();
             await refreshSessions(created.session_id);
+            return created;
         } catch {
             setSessionRailError("当前无法创建新对话。");
+            return null;
+        }
+    }
+
+    function handleStartNewDraftSession() {
+        setActiveSessionId(null);
+        if (location.pathname !== "/") {
+            navigate("/");
+        }
+        if (typeof window !== "undefined" && window.innerWidth <= 1200) {
+            setSessionRailCollapsed(true);
         }
     }
 
@@ -221,7 +225,7 @@ export function AppShell() {
                         activeSessionId === session.session_id ? null : activeSessionId,
                     );
                     if (!remaining.length) {
-                        message.info("当前没有会话，已准备创建新对话。");
+                        message.info("当前没有会话，可以直接开始新对话。");
                     }
                 } catch {
                     setSessionRailError("当前无法删除会话。");
@@ -240,6 +244,7 @@ export function AppShell() {
         refreshSessions,
         selectSession: handleSelectSession,
         toggleSessionRail: handleToggleSessionRail,
+        startNewDraftSession: handleStartNewDraftSession,
     };
 
     async function handleLogout() {
@@ -312,7 +317,7 @@ export function AppShell() {
                         collapsed={sessionRailCollapsed}
                         loading={loadingSessions}
                         emptyText={sessionRailError ?? "当前还没有对话。"}
-                        onCreateSession={() => void handleCreateSession()}
+                        onCreateSession={handleStartNewDraftSession}
                         onSelectSession={handleSelectSession}
                         onToggleCollapsed={handleToggleSessionRail}
                         onRenameSession={handleRequestRenameSession}
