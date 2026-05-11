@@ -69,6 +69,22 @@ class ChangePasswordRequest(BaseModel):
         return normalized
 
 
+class CurrentPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str
+
+    @field_validator("current_password")
+    @classmethod
+    def normalize_password(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 6:
+            raise ValueError("password must be at least 6 characters.")
+        if len(normalized) > 128:
+            raise ValueError("password must be 128 characters or fewer.")
+        return normalized
+
+
 class UpdateProfileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

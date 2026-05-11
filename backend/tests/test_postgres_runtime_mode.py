@@ -80,6 +80,7 @@ class FakeCursor:
         if (
             normalized.startswith("create table")
             or normalized.startswith("create index")
+            or normalized.startswith("create unique index")
             or normalized.startswith("alter table")
         ):
             self._rows = []

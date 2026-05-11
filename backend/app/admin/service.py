@@ -95,6 +95,7 @@ class AdminService:
                 AdminUserSummary(
                     user_id=user.user_id,
                     username=user.username,
+                    display_name=user.display_name,
                     role=user.role,
                     is_active=user.is_active,
                     password_must_change=user.password_must_change,
@@ -112,6 +113,19 @@ class AdminService:
 
     def reset_password(self, *, user_id: str) -> str:
         return self.auth_service.reset_password(user_id=user_id)
+
+    def delete_users(
+        self,
+        *,
+        actor_user_id: str,
+        current_password: str,
+        user_ids: list[str],
+    ) -> list[str]:
+        return self.auth_service.delete_non_admin_users(
+            actor_user_id=actor_user_id,
+            current_password=current_password,
+            target_user_ids=user_ids,
+        )
 
     def get_feedback_overview(self) -> AdminFeedbackOverview:
         with self._connect() as connection:

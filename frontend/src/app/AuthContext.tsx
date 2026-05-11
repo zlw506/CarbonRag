@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { PropsWithChildren } from "react";
 import axios from "axios";
-import { changePassword, getCurrentUser, loginAccount, logoutAccount, registerAccount, updateProfile } from "../services/auth";
-import type { AuthUser, ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest } from "../types/auth";
+import { changePassword, deleteOwnAccount, getCurrentUser, loginAccount, logoutAccount, registerAccount, updateProfile } from "../services/auth";
+import type { AuthUser, ChangePasswordRequest, CurrentPasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest } from "../types/auth";
 
 interface AuthContextValue {
     user: AuthUser | null;
@@ -10,6 +10,7 @@ interface AuthContextValue {
     login: (payload: LoginRequest) => Promise<AuthUser>;
     register: (payload: RegisterRequest) => Promise<AuthUser>;
     logout: () => Promise<void>;
+    deleteAccount: (payload: CurrentPasswordRequest) => Promise<void>;
     refresh: () => Promise<AuthUser | null>;
     changePassword: (payload: ChangePasswordRequest) => Promise<AuthUser>;
     updateProfile: (payload: UpdateProfileRequest) => Promise<AuthUser>;
@@ -60,6 +61,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
     }
 
+    async function deleteAccount(payload: CurrentPasswordRequest) {
+        await deleteOwnAccount(payload);
+        setUser(null);
+    }
+
     async function handleChangePassword(payload: ChangePasswordRequest) {
         const response = await changePassword(payload);
         setUser(response.user);
@@ -79,6 +85,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
             login,
             register,
             logout,
+            deleteAccount,
             refresh,
             changePassword: handleChangePassword,
             updateProfile: handleUpdateProfile,

@@ -17,7 +17,12 @@ class FakeCursor:
         params = params or ()
         self.rowcount = 0
 
-        if normalized.startswith("create table") or normalized.startswith("create index") or normalized.startswith("alter table"):
+        if (
+            normalized.startswith("create table")
+            or normalized.startswith("create index")
+            or normalized.startswith("create unique index")
+            or normalized.startswith("alter table")
+        ):
             self._rows = []
             return
 

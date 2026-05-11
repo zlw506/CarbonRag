@@ -14,6 +14,7 @@ PolicyCrawlerCandidateStatus = Literal["pending_review", "published", "rejected"
 class AdminUserSummary(BaseModel):
     user_id: str
     username: str
+    display_name: str
     role: UserRole
     is_active: bool
     password_must_change: bool
@@ -29,6 +30,18 @@ class UpdateAdminUserRequest(BaseModel):
 
     role: UserRole
     is_active: bool
+
+
+class DeleteAdminUsersRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_ids: list[str] = Field(min_length=1)
+    current_password: str = Field(min_length=6, max_length=128)
+
+
+class DeleteAdminUsersResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    deleted_user_ids: list[str]
 
 
 class AdminFeedbackRecentEntry(BaseModel):

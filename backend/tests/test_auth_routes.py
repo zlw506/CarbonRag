@@ -48,6 +48,45 @@ def test_auth_register_login_logout_and_me(monkeypatch, tmp_path) -> None:
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
+def test_self_account_delete_requires_current_password(monkeypatch, tmp_path) -> None:
+    session_service = build_session_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+
+    client.cookies.clear()
+    client.post(
+        "/api/v1/auth/register",
+        json={"username": "delete_me_user", "password": TEST_PASSWORD},
+    )
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "delete_me_user", "password": TEST_PASSWORD},
+    )
+    assert login_response.status_code == 200
+
+    wrong_password_response = client.request(
+        "DELETE",
+        "/api/v1/auth/me",
+        json={"current_password": "wrongpass123"},
+    )
+    assert wrong_password_response.status_code == 422
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+    delete_response = client.request(
+        "DELETE",
+        "/api/v1/auth/me",
+        json={"current_password": TEST_PASSWORD},
+    )
+    assert delete_response.status_code == 200
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+    relogin_response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "delete_me_user", "password": TEST_PASSWORD},
+    )
+    assert relogin_response.status_code == 401
+
+
 def test_seed_admin_must_change_password_before_access(monkeypatch, tmp_path) -> None:
     session_service = build_session_service(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)

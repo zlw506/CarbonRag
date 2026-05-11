@@ -10,6 +10,10 @@ import {
     updateProviderProfile,
 } from "../services/settings";
 import type {
+    AppearanceSettings,
+    ChatPreferenceSettings,
+    DataPrivacySettings,
+    AdvancedSettings,
     LocalProviderOverride,
     LocalProviderProfile,
     ProviderListResponse,
@@ -20,6 +24,33 @@ import type {
 } from "../types/settings";
 
 const LOCAL_PROVIDER_STORAGE_KEY = "carbonrag-local-provider-profiles";
+const BUILTIN_PROVIDER_REF = "builtin:carbonrag-cloud";
+
+const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
+    theme_mode: "system",
+    theme_preset: "carbon-blue",
+    bubble_density: "comfortable",
+    font_size: "default",
+    sidebar_default: "expanded",
+};
+
+const DEFAULT_CHAT_SETTINGS: ChatPreferenceSettings = {
+    send_shortcut: "enter",
+    expand_thinking_by_default: false,
+    show_evidence_panel_by_default: false,
+    show_context_debug_by_default: false,
+    auto_generate_title_for_new_session: true,
+    reconnect_notice_mode: "message_only",
+};
+
+const DEFAULT_DATA_PRIVACY_SETTINGS: DataPrivacySettings = {
+    store_local_provider_keys_in_browser: true,
+    allow_account_saved_provider_keys: true,
+};
+
+const DEFAULT_ADVANCED_SETTINGS: AdvancedSettings = {
+    local_provider_profile_ids: [],
+};
 
 interface SettingsContextValue {
     settings: UserSettingsEnvelope | null;
@@ -61,6 +92,39 @@ function writeLocalProfiles(profiles: LocalProviderProfile[]) {
     window.localStorage.setItem(LOCAL_PROVIDER_STORAGE_KEY, JSON.stringify(profiles));
 }
 
+function normalizeSettingsEnvelope(settings: UserSettingsEnvelope | null | undefined): UserSettingsEnvelope {
+    return {
+        appearance: {
+            ...DEFAULT_APPEARANCE_SETTINGS,
+            ...(settings?.appearance ?? {}),
+        },
+        chat: {
+            ...DEFAULT_CHAT_SETTINGS,
+            ...(settings?.chat ?? {}),
+        },
+        data_privacy: {
+            ...DEFAULT_DATA_PRIVACY_SETTINGS,
+            ...(settings?.data_privacy ?? {}),
+        },
+        advanced: {
+            ...DEFAULT_ADVANCED_SETTINGS,
+            ...(settings?.advanced ?? {}),
+            local_provider_profile_ids: Array.isArray(settings?.advanced?.local_provider_profile_ids)
+                ? settings.advanced.local_provider_profile_ids
+                : [],
+        },
+        active_provider_ref: settings?.active_provider_ref || BUILTIN_PROVIDER_REF,
+    };
+}
+
+function buildProviderListFallback(activeProviderRef: string): ProviderListResponse {
+    return {
+        builtin_provider_refs: [BUILTIN_PROVIDER_REF],
+        active_provider_ref: activeProviderRef || BUILTIN_PROVIDER_REF,
+        profiles: [],
+    };
+}
+
 export function SettingsProvider({ children }: PropsWithChildren) {
     const { user } = useAuth();
     const [settings, setSettings] = useState<UserSettingsEnvelope | null>(null);
@@ -90,9 +154,10 @@ export function SettingsProvider({ children }: PropsWithChildren) {
             root.dataset.sidebarDefault = "expanded";
             return;
         }
-        root.dataset.chatDensity = settings.appearance.bubble_density;
-        root.dataset.fontScale = settings.appearance.font_size;
-        root.dataset.sidebarDefault = settings.appearance.sidebar_default;
+        const normalized = normalizeSettingsEnvelope(settings);
+        root.dataset.chatDensity = normalized.appearance.bubble_density;
+        root.dataset.fontScale = normalized.appearance.font_size;
+        root.dataset.sidebarDefault = normalized.appearance.sidebar_default;
     }, [settings]);
 
     async function refresh() {
@@ -101,16 +166,27 @@ export function SettingsProvider({ children }: PropsWithChildren) {
         }
         setLoading(true);
         try {
-            const [nextSettings, nextProviders] = await Promise.all([getSettings(), listProviderProfiles()]);
+            const nextSettings = normalizeSettingsEnvelope(await getSettings());
             setSettings(nextSettings);
-            setProviderList(nextProviders);
+            try {
+                const nextProviders = await listProviderProfiles();
+                setProviderList({
+                    builtin_provider_refs: nextProviders.builtin_provider_refs?.length
+                        ? nextProviders.builtin_provider_refs
+                        : [BUILTIN_PROVIDER_REF],
+                    active_provider_ref: nextProviders.active_provider_ref || nextSettings.active_provider_ref,
+                    profiles: Array.isArray(nextProviders.profiles) ? nextProviders.profiles : [],
+                });
+            } catch {
+                setProviderList(buildProviderListFallback(nextSettings.active_provider_ref));
+            }
         } finally {
             setLoading(false);
         }
     }
 
     async function saveSettings(payload: UpdateUserSettingsRequest) {
-        const next = await patchSettings(payload);
+        const next = normalizeSettingsEnvelope(await patchSettings(payload));
         setSettings(next);
         setProviderList((current) =>
             current ? { ...current, active_provider_ref: next.active_provider_ref } : current,

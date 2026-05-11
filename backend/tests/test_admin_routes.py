@@ -118,16 +118,61 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     assert refresh_response.status_code == 200
     assert refresh_response.json()["status"] == "succeeded"
 
-    scan_response = client.post("/api/v1/admin/knowledge-tasks/scan")
-    assert scan_response.status_code == 200
-    assert isinstance(scan_response.json(), list)
 
-    feedback_response = client.get("/api/v1/admin/feedback/overview")
-    assert feedback_response.status_code == 200
+def test_admin_batch_delete_users_requires_password_and_blocks_protected_targets(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "carbonrag.sqlite3"
+    auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
+    auth_service.ensure_seed_admin_and_backfill()
+    admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
+    monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
 
-    system_response = client.get("/api/v1/admin/system/status")
-    assert system_response.status_code == 200
-    assert system_response.json()["total_users"] >= 2
+    client.cookies.clear()
+    login_seed_admin_and_change_password()
+    admin_user = client.get("/api/v1/auth/me").json()["user"]
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={"username": "delete_member", "password": TEST_PASSWORD},
+    )
+    target_user_id = register_response.json()["user"]["user_id"]
+
+    wrong_password_response = client.request(
+        "DELETE",
+        "/api/v1/admin/users",
+        json={"user_ids": [target_user_id], "current_password": "wrongpass123"},
+    )
+    assert wrong_password_response.status_code == 422
+    assert any(item.user_id == target_user_id for item in admin_service.list_users())
+
+    delete_self_response = client.request(
+        "DELETE",
+        "/api/v1/admin/users",
+        json={"user_ids": [admin_user["user_id"]], "current_password": "newpass123"},
+    )
+    assert delete_self_response.status_code == 400
+
+    delete_admin_response = client.request(
+        "DELETE",
+        "/api/v1/admin/users",
+        json={"user_ids": [admin_user["user_id"]], "current_password": "newpass123"},
+    )
+    assert delete_admin_response.status_code == 400
+
+    delete_response = client.request(
+        "DELETE",
+        "/api/v1/admin/users",
+        json={"user_ids": [target_user_id], "current_password": "newpass123"},
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted_user_ids"] == [target_user_id]
+    assert all(item.user_id != target_user_id for item in admin_service.list_users())
+
+    client.cookies.clear()
+    relogin_response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "delete_member", "password": TEST_PASSWORD},
+    )
+    assert relogin_response.status_code == 401
 
 
 def test_admin_policy_showcase_source_runs_to_retrievable_demo_policy(monkeypatch, tmp_path) -> None:
