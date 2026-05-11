@@ -1,12 +1,15 @@
 import { CloudServerOutlined, PlusOutlined, SaveOutlined, UploadOutlined } from "@ant-design/icons";
 import {
     Alert,
+    AutoComplete,
     Avatar,
     Button,
     Card,
+    Checkbox,
     Empty,
     Input,
     List,
+    Modal,
     Segmented,
     Select,
     Space,
@@ -23,6 +26,7 @@ import { useAuth } from "../../app/AuthContext";
 import { useSettings } from "../../app/SettingsContext";
 import { useTheme } from "../../app/ThemeContext";
 import { discoverProviderModels, testProviderConnection } from "../../services/settings";
+import { deleteSession, listSessions } from "../../services/sessions";
 import type {
     AppearanceSettings,
     ChatPreferenceSettings,
@@ -32,6 +36,7 @@ import type {
     ProviderProfile,
     ProviderType,
 } from "../../types/settings";
+import type { SessionSummary } from "../../types/session";
 
 type ProviderDraft = {
     profileId?: string;
@@ -88,6 +93,10 @@ export function SettingsPage() {
     const [profileNameDraft, setProfileNameDraft] = useState("");
     const [profileAvatarDraft, setProfileAvatarDraft] = useState<string | null>(null);
     const [profileSaving, setProfileSaving] = useState(false);
+    const [sessionList, setSessionList] = useState<SessionSummary[]>([]);
+    const [loadingSessionList, setLoadingSessionList] = useState(false);
+    const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
+    const [deletingSessions, setDeletingSessions] = useState(false);
     const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
     const quickThemePresets = useMemo(() => allPresets.slice(0, 4), [allPresets]);
@@ -108,6 +117,10 @@ export function SettingsPage() {
         setProfileNameDraft(user.display_name || user.username);
         setProfileAvatarDraft(user.avatar_url ?? null);
     }, [user?.user_id, user?.display_name, user?.avatar_url, user?.username]);
+
+    useEffect(() => {
+        void loadSessionListForSettings();
+    }, []);
 
     async function handleSaveAppearance() {
         await handleSaveAppearanceDraft({
@@ -235,6 +248,61 @@ export function SettingsPage() {
         } finally {
             setProfileSaving(false);
         }
+    }
+
+    async function loadSessionListForSettings() {
+        setLoadingSessionList(true);
+        try {
+            const sessions = await listSessions();
+            setSessionList(sessions);
+            setSelectedSessionIds((current) =>
+                current.filter((sessionId) => sessions.some((session) => session.session_id === sessionId)),
+            );
+        } catch {
+            setTransportError("当前无法读取会话列表。");
+        } finally {
+            setLoadingSessionList(false);
+        }
+    }
+
+    function toggleSessionSelection(sessionId: string, checked: boolean) {
+        setSelectedSessionIds((current) => {
+            if (checked) {
+                return current.includes(sessionId) ? current : [...current, sessionId];
+            }
+            return current.filter((item) => item !== sessionId);
+        });
+    }
+
+    function handleSelectAllSessions() {
+        setSelectedSessionIds(sessionList.map((session) => session.session_id));
+    }
+
+    function handleDeleteSelectedSessions() {
+        if (!selectedSessionIds.length) {
+            message.info("请先选择要删除的会话。");
+            return;
+        }
+        Modal.confirm({
+            title: "确认删除选中的会话？",
+            content: `将删除 ${selectedSessionIds.length} 个会话。该操作不可撤销。`,
+            okText: "删除",
+            okButtonProps: { danger: true },
+            cancelText: "取消",
+            async onOk() {
+                setDeletingSessions(true);
+                try {
+                    await Promise.all(selectedSessionIds.map((sessionId) => deleteSession(sessionId)));
+                    setSelectedSessionIds([]);
+                    await loadSessionListForSettings();
+                    message.success("已删除选中的会话。");
+                } catch {
+                    setTransportError("部分会话删除失败，请刷新后重试。");
+                } finally {
+                    setDeletingSessions(false);
+                }
+            },
+        });
     }
 
     async function handleDiscoverModels() {
@@ -549,6 +617,66 @@ export function SettingsPage() {
         </div>
     );
 
+    const sessionManagementTab = (
+        <div className="settings-section-grid">
+            <Card
+                className="settings-section-card settings-section-card--wide"
+                title="批量管理会话"
+                extra={<Tag color={selectedSessionIds.length ? "blue" : "default"}>已选 {selectedSessionIds.length}</Tag>}
+            >
+                <Space direction="vertical" size={14} style={{ width: "100%" }}>
+                    <Typography.Paragraph type="secondary">
+                        用于一次性清理不需要的历史会话。这里只删除会话记录，不会影响账号、主题和模型配置。
+                    </Typography.Paragraph>
+                    <div className="settings-session-toolbar">
+                        <Space wrap>
+                            <Button onClick={handleSelectAllSessions} disabled={!sessionList.length}>
+                                全选当前列表
+                            </Button>
+                            <Button onClick={() => setSelectedSessionIds([])} disabled={!selectedSessionIds.length}>
+                                清空选择
+                            </Button>
+                            <Button onClick={() => void loadSessionListForSettings()} loading={loadingSessionList}>
+                                刷新
+                            </Button>
+                        </Space>
+                        <Button
+                            danger
+                            type="primary"
+                            disabled={!selectedSessionIds.length}
+                            loading={deletingSessions}
+                            onClick={handleDeleteSelectedSessions}
+                        >
+                            删除选中
+                        </Button>
+                    </div>
+                    <List
+                        className="settings-session-bulk-list"
+                        loading={loadingSessionList}
+                        dataSource={sessionList}
+                        locale={{ emptyText: "当前没有可清理的会话。" }}
+                        renderItem={(session) => (
+                            <List.Item className="settings-session-bulk-list__item">
+                                <Checkbox
+                                    checked={selectedSessionIds.includes(session.session_id)}
+                                    onChange={(event) => toggleSessionSelection(session.session_id, event.target.checked)}
+                                />
+                                <div className="settings-session-bulk-list__copy">
+                                    <Typography.Text strong ellipsis>
+                                        {session.title || "未命名会话"}
+                                    </Typography.Text>
+                                    <Typography.Text type="secondary">
+                                        最近更新：{formatDateTime(session.updated_at)}
+                                    </Typography.Text>
+                                </div>
+                            </List.Item>
+                        )}
+                    />
+                </Space>
+            </Card>
+        </div>
+    );
+
     const providerTab = (
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <div className="settings-provider-toolbar">
@@ -620,21 +748,21 @@ export function SettingsPage() {
                         <Input value={providerDraft.displayName} placeholder="显示名称" onChange={(event) => setProviderDraft((current) => ({ ...current, displayName: event.target.value }))} />
                         <Input value={providerDraft.baseUrl} placeholder="Base URL（可选）" onChange={(event) => setProviderDraft((current) => ({ ...current, baseUrl: event.target.value }))} />
                         <Input.Password value={providerDraft.apiKey} placeholder="API Key（可选）" onChange={(event) => setProviderDraft((current) => ({ ...current, apiKey: event.target.value }))} />
-                        <Space.Compact style={{ width: "100%" }}>
-                            <Select
-                                style={{ flex: 1 }}
-                                value={providerDraft.modelName || undefined}
-                                placeholder="选择模型或手动填写"
+                        <div className="settings-field">
+                            <Typography.Text strong>模型</Typography.Text>
+                            <AutoComplete
+                                value={providerDraft.modelName}
                                 options={providerDraft.models.map((item) => ({ label: item, value: item }))}
+                                placeholder="选择或输入模型名"
+                                filterOption={(inputValue, option) =>
+                                    String(option?.value ?? "").toLowerCase().includes(inputValue.toLowerCase())
+                                }
                                 onChange={(value) => setProviderDraft((current) => ({ ...current, modelName: value }))}
                             />
-                            <Input
-                                style={{ flex: 1 }}
-                                value={providerDraft.modelName}
-                                placeholder="模型名"
-                                onChange={(event) => setProviderDraft((current) => ({ ...current, modelName: event.target.value }))}
-                            />
-                        </Space.Compact>
+                            <Typography.Text type="secondary">
+                                先点“刷新模型”可自动发现；兼容服务也可以直接手动输入模型名。
+                            </Typography.Text>
+                        </div>
                         <Space wrap>
                             <Button loading={testingProvider} onClick={() => void handleDiscoverModels()}>刷新模型</Button>
                             <Button loading={testingProvider} onClick={() => void handleTestProvider()}>测试连接</Button>
@@ -744,6 +872,7 @@ export function SettingsPage() {
                     items={[
                         { key: "appearance", label: "外观", children: appearanceTab },
                         { key: "chat", label: "聊天", children: chatTab },
+                        { key: "sessions", label: "会话管理", children: sessionManagementTab },
                         { key: "provider", label: "模型与提供方", children: providerTab },
                         { key: "privacy", label: "数据与隐私", children: privacyTab },
                         { key: "advanced", label: "高级", children: advancedTab },
@@ -774,6 +903,19 @@ function SettingSwitch({
 function getUserInitial(user: { display_name?: string | null; username: string }) {
     const value = user.display_name || user.username;
     return value.slice(0, 1).toUpperCase();
+}
+
+function formatDateTime(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return value;
+    }
+    return date.toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
 }
 
 function extractDetailMessage(value: unknown): string | null {
