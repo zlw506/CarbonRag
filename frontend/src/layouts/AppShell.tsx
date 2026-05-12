@@ -20,7 +20,7 @@ import { createSession, deleteSession, listSessions, updateSession } from "../se
 import type { SessionSummary } from "../types/session";
 import type { WorkbenchShellContextValue } from "./WorkbenchShellContext";
 
-const { Header, Content, Sider } = Layout;
+const { Content, Sider } = Layout;
 
 const iconMap = {
     "/": <SearchOutlined />,
@@ -55,10 +55,8 @@ export function AppShell() {
 
     const navigationItems = getNavigationItems(currentUser.role);
     const isAskRoute = location.pathname === "/";
-    const isCarbonFactorsRoute = location.pathname === "/carbon-factors";
     const routeNeedsSession = location.pathname === "/" || location.pathname === "/carbon-calc" || location.pathname === "/report";
     const focusModeEnabled = isAskRoute && new URLSearchParams(location.search).get("focus") !== "0";
-    const hideAskHeader = isAskRoute && focusModeEnabled;
     const mainShellClassName = [
         "app-shell__main-shell",
         isAskRoute ? "app-shell__main-shell--chat-locked" : null,
@@ -76,7 +74,7 @@ export function AppShell() {
         "app-shell__content",
         focusModeEnabled ? "app-shell__content--focus" : null,
         isAskRoute ? "app-shell__content--chat-locked" : null,
-        hideAskHeader ? "app-shell__content--headerless" : null,
+        "app-shell__content--headerless",
         routeNeedsSession ? "app-shell__content--workbench" : null,
         sessionRailCollapsed && routeNeedsSession ? "app-shell__content--workbench-collapsed" : null,
     ].filter(Boolean).join(" ");
@@ -121,6 +119,7 @@ export function AppShell() {
     }
 
     async function refreshSessions(preferredSessionId?: string | null) {
+        const hasPreferredSession = arguments.length > 0;
         try {
             const sessionList = await listSessions();
             setSessionRailError(null);
@@ -129,7 +128,7 @@ export function AppShell() {
                 if (!sessionList.length) {
                     return null;
                 }
-                const targetId = preferredSessionId ?? current;
+                const targetId = hasPreferredSession ? preferredSessionId : current;
                 if (targetId && sessionList.some((item) => item.session_id === targetId)) {
                     return targetId;
                 }
@@ -167,6 +166,9 @@ export function AppShell() {
 
     function handleSelectSession(sessionId: string) {
         setActiveSessionId(sessionId);
+        if (location.pathname !== "/") {
+            navigate("/");
+        }
         if (typeof window !== "undefined" && window.innerWidth <= 1200) {
             setSessionRailCollapsed(true);
         }
@@ -349,31 +351,6 @@ export function AppShell() {
                 </div>
             </Sider>
             <Layout className={mainShellClassName}>
-                {!hideAskHeader ? (
-                    <Header className={focusModeEnabled ? "app-shell__header app-shell__header--focus" : "app-shell__header"}>
-                        <div className={focusModeEnabled ? "app-shell__header-bar app-shell__header-bar--focus" : "app-shell__header-bar"}>
-                            <div className={focusModeEnabled ? "app-shell__header-copy app-shell__header-copy--focus" : "app-shell__header-copy"}>
-                                {focusModeEnabled ? (
-                                    <>
-                                        <Typography.Text strong>专注对话</Typography.Text>
-                                        <Typography.Text type="secondary">
-                                            对话优先，依据与系统状态按需展开。
-                                        </Typography.Text>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Typography.Title level={3}>CarbonRag 工作台</Typography.Title>
-                                        {!isCarbonFactorsRoute ? (
-                                            <Typography.Paragraph>
-                                                当前账号下的问答、知识、核算与报告工作区。
-                                            </Typography.Paragraph>
-                                        ) : null}
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </Header>
-                ) : null}
                 <Content className={contentClassName}>
                     <Outlet context={outletContext} />
                 </Content>

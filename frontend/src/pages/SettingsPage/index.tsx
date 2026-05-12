@@ -1,9 +1,12 @@
-import { CloudServerOutlined, PlusOutlined, SaveOutlined, UploadOutlined } from "@ant-design/icons";
+import { CloudServerOutlined, DeleteOutlined, FolderOpenOutlined, PlusOutlined, SaveOutlined, UploadOutlined } from "@ant-design/icons";
 import {
     Alert,
+    App as AntdApp,
+    AutoComplete,
     Avatar,
     Button,
     Card,
+    Checkbox,
     Empty,
     Input,
     List,
@@ -16,14 +19,15 @@ import {
     Tabs,
     Tag,
     Typography,
-    message,
 } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useAuth } from "../../app/AuthContext";
 import { useSettings } from "../../app/SettingsContext";
 import { useTheme } from "../../app/ThemeContext";
+import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { discoverProviderModels, testProviderConnection } from "../../services/settings";
+import { bulkDeleteSessions } from "../../services/sessions";
 import type {
     AppearanceSettings,
     ChatPreferenceSettings,
@@ -33,6 +37,7 @@ import type {
     ProviderProfile,
     ProviderType,
 } from "../../types/settings";
+import type { SessionSummary } from "../../types/session";
 
 type ProviderDraft = {
     profileId?: string;
@@ -68,7 +73,14 @@ function buildBlankProviderDraft(storageMode: CredentialStorageMode = "local_onl
 }
 
 export function SettingsPage() {
+    const { modal, message: messageApi } = AntdApp.useApp();
     const { user, updateProfile, deleteAccount } = useAuth();
+    const {
+        sessions: shellSessions,
+        activeSessionId,
+        refreshSessions,
+        selectSession,
+    } = useWorkbenchShellContext();
     const { themeMode, themePreset, allPresets, setThemeMode, setThemePreset } = useTheme();
     const {
         settings,
@@ -89,6 +101,10 @@ export function SettingsPage() {
     const [profileNameDraft, setProfileNameDraft] = useState("");
     const [profileAvatarDraft, setProfileAvatarDraft] = useState<string | null>(null);
     const [profileSaving, setProfileSaving] = useState(false);
+    const [sessionList, setSessionList] = useState<SessionSummary[]>([]);
+    const [loadingSessionList, setLoadingSessionList] = useState(false);
+    const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
+    const [deletingSessions, setDeletingSessions] = useState(false);
     const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
     const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
     const [deletingAccount, setDeletingAccount] = useState(false);
@@ -113,6 +129,17 @@ export function SettingsPage() {
         setProfileAvatarDraft(user.avatar_url ?? null);
     }, [user?.user_id, user?.display_name, user?.avatar_url, user?.username]);
 
+    useEffect(() => {
+        void loadSessionListForSettings();
+    }, []);
+
+    useEffect(() => {
+        setSessionList(shellSessions);
+        setSelectedSessionIds((current) =>
+            current.filter((sessionId) => shellSessions.some((session) => session.session_id === sessionId)),
+        );
+    }, [shellSessions]);
+
     async function handleSaveAppearance() {
         await handleSaveAppearanceDraft({
             ...settings!.appearance,
@@ -128,7 +155,7 @@ export function SettingsPage() {
                 appearance: nextAppearance,
             });
             if (showSuccess) {
-                message.success("外观设置已保存。");
+                messageApi.success("外观设置已保存。");
             }
         } catch {
             setTransportError("当前无法保存外观设置。");
@@ -191,7 +218,7 @@ export function SettingsPage() {
         try {
             setTransportError(null);
             await saveSettings({ active_provider_ref: providerRef });
-            message.success("当前模型提供方已切换。");
+            messageApi.success("当前模型提供方已切换。");
         } catch {
             setTransportError("当前无法切换模型提供方。");
         }
@@ -204,11 +231,11 @@ export function SettingsPage() {
             return;
         }
         if (!file.type.startsWith("image/")) {
-            message.warning("请选择图片文件作为头像。");
+            messageApi.warning("请选择图片文件作为头像。");
             return;
         }
         if (file.size > 180_000) {
-            message.warning("头像图片请控制在 180KB 以内。");
+            messageApi.warning("头像图片请控制在 180KB 以内。");
             return;
         }
         const reader = new FileReader();
@@ -224,7 +251,7 @@ export function SettingsPage() {
         }
         const displayName = profileNameDraft.trim();
         if (!displayName) {
-            message.warning("名称不能为空。");
+            messageApi.warning("名称不能为空。");
             return;
         }
         setProfileSaving(true);
@@ -233,25 +260,118 @@ export function SettingsPage() {
                 display_name: displayName,
                 avatar_url: profileAvatarDraft,
             });
-            message.success("个人资料已更新。");
+            messageApi.success("个人资料已更新。");
         } catch (error) {
-            message.warning(extractDetailMessage(error) ?? "名称可能已重复，请换一个名称。");
+            messageApi.warning(extractDetailMessage(error) ?? "名称可能已重复，请换一个名称。");
         } finally {
             setProfileSaving(false);
         }
     }
 
+    async function loadSessionListForSettings() {
+        setLoadingSessionList(true);
+        try {
+            const sessions = await refreshSessions(activeSessionId);
+            setSessionList(sessions);
+            setSelectedSessionIds((current) =>
+                current.filter((sessionId) => sessions.some((session) => session.session_id === sessionId)),
+            );
+        } catch {
+            setTransportError("当前无法读取会话列表。");
+        } finally {
+            setLoadingSessionList(false);
+        }
+    }
+
+    function toggleSessionSelection(sessionId: string, checked: boolean) {
+        setSelectedSessionIds((current) => {
+            if (checked) {
+                return current.includes(sessionId) ? current : [...current, sessionId];
+            }
+            return current.filter((item) => item !== sessionId);
+        });
+    }
+
+    function handleSelectAllSessions() {
+        setSelectedSessionIds(sessionList.map((session) => session.session_id));
+    }
+
+    async function executeSessionDeletion(targetSessionIds: string[]) {
+        if (!targetSessionIds.length) {
+            return;
+        }
+        setDeletingSessions(true);
+        try {
+            const result = await bulkDeleteSessions(targetSessionIds);
+            const deletedSessionIdSet = new Set(result.deleted_session_ids);
+            if (deletedSessionIdSet.size) {
+                setSessionList((current) => current.filter((session) => !deletedSessionIdSet.has(session.session_id)));
+            }
+            setSelectedSessionIds((current) =>
+                current.filter((sessionId) => !deletedSessionIdSet.has(sessionId)),
+            );
+            const nextPreferredSessionId = deletedSessionIdSet.has(activeSessionId ?? "") ? null : activeSessionId;
+            const sessions = await refreshSessions(nextPreferredSessionId);
+            setSessionList(sessions);
+            if (result.deleted_count > 0) {
+                messageApi.success(`已删除 ${result.deleted_count} 个会话。`);
+            }
+            if (result.missing_session_ids.length) {
+                messageApi.warning("部分会话已不存在，列表已同步刷新。");
+            }
+        } catch {
+            setTransportError("会话删除失败，请刷新后重试。");
+        } finally {
+            setDeletingSessions(false);
+        }
+    }
+
+    function handleDeleteSelectedSessions() {
+        const targetSelection = [...selectedSessionIds];
+        if (!targetSelection.length) {
+            messageApi.info("请先选择要删除的会话。");
+            return;
+        }
+        modal.confirm({
+            title: "确认删除选中的会话？",
+            content: `将删除 ${targetSelection.length} 个会话。该操作不可撤销。`,
+            okText: "删除",
+            okButtonProps: { danger: true },
+            cancelText: "取消",
+            async onOk() {
+                await executeSessionDeletion(targetSelection);
+            },
+        });
+    }
+
+    function handleDeleteSingleSession(session: SessionSummary) {
+        modal.confirm({
+            title: "确认删除该会话？",
+            content: `将删除“${session.title || "未命名会话"}”。该操作不可撤销。`,
+            okText: "删除",
+            okButtonProps: { danger: true },
+            cancelText: "取消",
+            async onOk() {
+                await executeSessionDeletion([session.session_id]);
+            },
+        });
+    }
+
+    function handleOpenManagedSession(sessionId: string) {
+        selectSession(sessionId);
+    }
+
     async function handleDeleteOwnAccount() {
         if (!deleteAccountPassword.trim()) {
-            message.warning("请输入当前账号密码。");
+            messageApi.warning("请输入当前账号密码。");
             return;
         }
         setDeletingAccount(true);
         try {
             await deleteAccount({ current_password: deleteAccountPassword });
-            message.success("账号已注销。");
+            messageApi.success("账号已注销。");
         } catch (error) {
-            message.warning(extractDetailMessage(error) ?? "账号注销失败，请确认当前密码。");
+            messageApi.warning(extractDetailMessage(error) ?? "账号注销失败，请确认当前密码。");
         } finally {
             setDeletingAccount(false);
         }
@@ -272,7 +392,7 @@ export function SettingsPage() {
                 models: result.models,
                 modelName: current.modelName || result.models[0] || "",
             }));
-            message.success("模型列表已刷新。");
+            messageApi.success("模型列表已刷新。");
         } catch {
             setTransportError("当前无法发现模型列表，请检查提供方配置。");
         } finally {
@@ -290,7 +410,7 @@ export function SettingsPage() {
                 model_name: providerDraft.modelName || undefined,
             });
             if (result.ok) {
-                message.success(result.message);
+                messageApi.success(result.message);
                 if (result.discovered_models.length) {
                     setProviderDraft((current) => ({
                         ...current,
@@ -344,7 +464,7 @@ export function SettingsPage() {
                 await handleSetActiveProvider(`account:${profileId}`);
             }
             setProviderDraft(buildBlankProviderDraft(providerDraft.storageMode));
-            message.success("Provider 配置已保存。");
+            messageApi.success("Provider 配置已保存。");
         } catch {
             setTransportError("当前无法保存 provider 配置。");
         } finally {
@@ -569,6 +689,114 @@ export function SettingsPage() {
         </div>
     );
 
+    const sessionManagementTab = (
+        <div className="settings-section-grid">
+            <Card
+                className="settings-section-card settings-section-card--wide"
+                title="批量管理会话"
+                extra={<Tag color={selectedSessionIds.length ? "blue" : "default"}>已选 {selectedSessionIds.length}</Tag>}
+            >
+                <Space direction="vertical" size={14} style={{ width: "100%" }}>
+                    <Typography.Paragraph type="secondary">
+                        用于一次性清理不需要的历史会话。这里只删除会话记录，不会影响账号、主题和模型配置。
+                    </Typography.Paragraph>
+                    <div className="settings-session-toolbar">
+                        <Space wrap>
+                            <Button onClick={handleSelectAllSessions} disabled={!sessionList.length}>
+                                全选当前列表
+                            </Button>
+                            <Button onClick={() => setSelectedSessionIds([])} disabled={!selectedSessionIds.length}>
+                                清空选择
+                            </Button>
+                            <Button onClick={() => void loadSessionListForSettings()} loading={loadingSessionList}>
+                                刷新
+                            </Button>
+                        </Space>
+                        <Button
+                            danger
+                            type="primary"
+                            loading={deletingSessions}
+                            onClick={handleDeleteSelectedSessions}
+                        >
+                            删除选中
+                        </Button>
+                    </div>
+                    <List
+                        className="settings-session-bulk-list"
+                        loading={loadingSessionList}
+                        dataSource={sessionList}
+                        locale={{ emptyText: "当前没有可清理的会话。" }}
+                        renderItem={(session) => (
+                            <List.Item
+                                className={[
+                                    "settings-session-bulk-list__item",
+                                    selectedSessionIds.includes(session.session_id) ? "settings-session-bulk-list__item--selected" : null,
+                                ].filter(Boolean).join(" ")}
+                                role="button"
+                                tabIndex={0}
+                                actions={[
+                                    <Button
+                                        key="open"
+                                        type="text"
+                                        size="small"
+                                        icon={<FolderOpenOutlined />}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            handleOpenManagedSession(session.session_id);
+                                        }}
+                                    >
+                                        打开
+                                    </Button>,
+                                    <Button
+                                        key="delete"
+                                        danger
+                                        type="text"
+                                        size="small"
+                                        icon={<DeleteOutlined />}
+                                        loading={deletingSessions}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            handleDeleteSingleSession(session);
+                                        }}
+                                    >
+                                        删除
+                                    </Button>,
+                                ]}
+                                onClick={() => toggleSessionSelection(
+                                    session.session_id,
+                                    !selectedSessionIds.includes(session.session_id),
+                                )}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        toggleSessionSelection(
+                                            session.session_id,
+                                            !selectedSessionIds.includes(session.session_id),
+                                        );
+                                    }
+                                }}
+                            >
+                                <Checkbox
+                                    checked={selectedSessionIds.includes(session.session_id)}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onChange={(event) => toggleSessionSelection(session.session_id, event.target.checked)}
+                                />
+                                <div className="settings-session-bulk-list__copy">
+                                    <Typography.Text strong ellipsis>
+                                        {session.title || "未命名会话"}
+                                    </Typography.Text>
+                                    <Typography.Text type="secondary">
+                                        最近更新：{formatDateTime(session.updated_at)}
+                                    </Typography.Text>
+                                </div>
+                            </List.Item>
+                        )}
+                    />
+                </Space>
+            </Card>
+        </div>
+    );
+
     const providerTab = (
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <div className="settings-provider-toolbar">
@@ -640,21 +868,21 @@ export function SettingsPage() {
                         <Input value={providerDraft.displayName} placeholder="显示名称" onChange={(event) => setProviderDraft((current) => ({ ...current, displayName: event.target.value }))} />
                         <Input value={providerDraft.baseUrl} placeholder="Base URL（可选）" onChange={(event) => setProviderDraft((current) => ({ ...current, baseUrl: event.target.value }))} />
                         <Input.Password value={providerDraft.apiKey} placeholder="API Key（可选）" onChange={(event) => setProviderDraft((current) => ({ ...current, apiKey: event.target.value }))} />
-                        <Space.Compact style={{ width: "100%" }}>
-                            <Select
-                                style={{ flex: 1 }}
-                                value={providerDraft.modelName || undefined}
-                                placeholder="选择模型或手动填写"
+                        <div className="settings-field">
+                            <Typography.Text strong>模型</Typography.Text>
+                            <AutoComplete
+                                value={providerDraft.modelName}
                                 options={providerDraft.models.map((item) => ({ label: item, value: item }))}
+                                placeholder="选择或输入模型名"
+                                filterOption={(inputValue, option) =>
+                                    String(option?.value ?? "").toLowerCase().includes(inputValue.toLowerCase())
+                                }
                                 onChange={(value) => setProviderDraft((current) => ({ ...current, modelName: value }))}
                             />
-                            <Input
-                                style={{ flex: 1 }}
-                                value={providerDraft.modelName}
-                                placeholder="模型名"
-                                onChange={(event) => setProviderDraft((current) => ({ ...current, modelName: event.target.value }))}
-                            />
-                        </Space.Compact>
+                            <Typography.Text type="secondary">
+                                先点“刷新模型”可自动发现；兼容服务也可以直接手动输入模型名。
+                            </Typography.Text>
+                        </div>
                         <Space wrap>
                             <Button loading={testingProvider} onClick={() => void handleDiscoverModels()}>刷新模型</Button>
                             <Button loading={testingProvider} onClick={() => void handleTestProvider()}>测试连接</Button>
@@ -776,6 +1004,7 @@ export function SettingsPage() {
                     items={[
                         { key: "appearance", label: "外观", children: appearanceTab },
                         { key: "chat", label: "聊天", children: chatTab },
+                        { key: "sessions", label: "会话管理", children: sessionManagementTab },
                         { key: "provider", label: "模型与提供方", children: providerTab },
                         { key: "privacy", label: "数据与隐私", children: privacyTab },
                         { key: "advanced", label: "高级", children: advancedTab },
@@ -835,6 +1064,19 @@ function SettingSwitch({
 function getUserInitial(user: { display_name?: string | null; username: string }) {
     const value = user.display_name || user.username;
     return value.slice(0, 1).toUpperCase();
+}
+
+function formatDateTime(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return value;
+    }
+    return date.toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
 }
 
 function extractDetailMessage(value: unknown): string | null {

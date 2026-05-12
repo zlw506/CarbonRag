@@ -72,6 +72,44 @@ export async function deleteSession(sessionId: string) {
     await httpClient.delete(`/v1/sessions/${sessionId}`);
 }
 
+export async function bulkDeleteSessions(sessionIds: string[]) {
+    const normalizedSessionIds = Array.from(new Set(sessionIds.map((item) => item.trim()).filter(Boolean)));
+    try {
+        const response = await httpClient.post<{
+            deleted_count: number;
+            deleted_session_ids: string[];
+            missing_session_ids: string[];
+        }>("/v1/sessions/bulk-delete", { session_ids: normalizedSessionIds });
+        return response.data;
+    } catch (error) {
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        if (status !== 404 && status !== 405) {
+            throw error;
+        }
+
+        const deletedSessionIds: string[] = [];
+        const missingSessionIds: string[] = [];
+        for (const sessionId of normalizedSessionIds) {
+            try {
+                await deleteSession(sessionId);
+                deletedSessionIds.push(sessionId);
+            } catch (deleteError) {
+                const deleteStatus = axios.isAxiosError(deleteError) ? deleteError.response?.status : undefined;
+                if (deleteStatus === 404) {
+                    missingSessionIds.push(sessionId);
+                    continue;
+                }
+                throw deleteError;
+            }
+        }
+        return {
+            deleted_count: deletedSessionIds.length,
+            deleted_session_ids: deletedSessionIds,
+            missing_session_ids: missingSessionIds,
+        };
+    }
+}
+
 export async function replaceAttachedPrivateSamples(
     sessionId: string,
     payload: ReplaceAttachedPrivateSamplesRequest,

@@ -14,7 +14,14 @@ from app.auth.dependencies import require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
 from app.schemas.ask import AskCitation, AskRequest, AskResponse, AskSourceSummary, MessageStatus
 from app.settings.service import SettingsValidationError, get_settings_service
-from app.session.schemas import CreateSessionRequest, SessionDetail, SessionSummary, UpdateSessionRequest
+from app.session.schemas import (
+    BulkDeleteSessionsRequest,
+    BulkDeleteSessionsResponse,
+    CreateSessionRequest,
+    SessionDetail,
+    SessionSummary,
+    UpdateSessionRequest,
+)
 from app.session.service import get_session_service
 from app.session.streaming import get_active_stream_registry, get_retry_delay, is_retryable_provider_error
 
@@ -479,6 +486,27 @@ def create_session(
 @router.get("", response_model=list[SessionSummary])
 def list_sessions(current_user: AuthenticatedUser = Depends(require_authenticated_user)) -> list[SessionSummary]:
     return get_session_service().list_sessions(owner_user_id=current_user.user_id)
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteSessionsResponse)
+def bulk_delete_sessions(
+    payload: BulkDeleteSessionsRequest,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> BulkDeleteSessionsResponse:
+    session_service = get_session_service()
+    deleted_session_ids: list[str] = []
+    missing_session_ids: list[str] = []
+    for session_id in payload.session_ids:
+        deleted = session_service.delete_session(owner_user_id=current_user.user_id, session_id=session_id)
+        if deleted:
+            deleted_session_ids.append(session_id)
+        else:
+            missing_session_ids.append(session_id)
+    return BulkDeleteSessionsResponse(
+        deleted_count=len(deleted_session_ids),
+        deleted_session_ids=deleted_session_ids,
+        missing_session_ids=missing_session_ids,
+    )
 
 
 @router.get("/{session_id}", response_model=SessionDetail)

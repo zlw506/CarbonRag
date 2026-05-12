@@ -115,6 +115,33 @@ class UpdateSessionRequest(BaseModel):
         return normalized
 
 
+class BulkDeleteSessionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_ids: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("session_ids")
+    @classmethod
+    def normalize_session_ids(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            session_id = str(item).strip()
+            if not session_id or session_id in seen:
+                continue
+            seen.add(session_id)
+            normalized.append(session_id)
+        if not normalized:
+            raise ValueError("至少需要选择一个会话。")
+        return normalized
+
+
+class BulkDeleteSessionsResponse(BaseModel):
+    deleted_count: int
+    deleted_session_ids: list[str] = Field(default_factory=list)
+    missing_session_ids: list[str] = Field(default_factory=list)
+
+
 class ReplaceAttachedPrivateSamplesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

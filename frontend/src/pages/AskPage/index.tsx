@@ -19,7 +19,6 @@ import {
     Card,
     Checkbox,
     Collapse,
-    type CollapseProps,
     Drawer,
     Empty,
     Input,
@@ -121,6 +120,7 @@ export function AskPage() {
     const [streamDraft, setStreamDraft] = useState<ChatDraft | null>(null);
     const [streamMemoryState, setStreamMemoryState] = useState<SessionDetail["memory_state"] | null>(null);
     const [streamContextSource, setStreamContextSource] = useState<StreamContextSource | null>(null);
+    const [selectedThinkingMessageId, setSelectedThinkingMessageId] = useState<string | null>(null);
     const [question, setQuestion] = useState("");
     const [knowledgeScope, setKnowledgeScope] = useState<KnowledgeScope>("public");
     const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
@@ -160,6 +160,7 @@ export function AskPage() {
     }, [activeSession?.messages, streamDraft, uploadedAttachments]);
 
     const selectedCitationMessage = visibleMessages.find((message) => message.message_id === selectedCitationMessageId) ?? null;
+    const selectedThinkingMessage = visibleMessages.find((message) => message.message_id === selectedThinkingMessageId) ?? null;
     const citationGroups = groupCitationsBySource(selectedCitationMessage?.citations ?? []);
     const selectedRetrievalTrace = selectedCitationMessage?.retrieval_trace ?? null;
     const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
@@ -861,7 +862,7 @@ export function AskPage() {
                                             message={message}
                                             sessionId={activeSession?.session_id ?? "draft"}
                                             activeCitation={message.message_id === selectedCitationMessageId}
-                                            expandThinkingByDefault={settings?.chat.expand_thinking_by_default ?? false}
+                                            onOpenThinking={() => setSelectedThinkingMessageId(message.message_id)}
                                             onSelectCitations={() => openCitationPanel(message.message_id)}
                                             onEditUserMessage={(content) => {
                                                 setQuestion(content);
@@ -977,6 +978,21 @@ export function AskPage() {
             </Drawer>
 
             <Drawer
+                title="思考过程"
+                width={420}
+                open={Boolean(selectedThinkingMessageId)}
+                onClose={() => setSelectedThinkingMessageId(null)}
+            >
+                {selectedThinkingMessage?.thinking_content?.trim() ? (
+                    <Typography.Paragraph className="chat-thinking-drawer__content">
+                        {selectedThinkingMessage.thinking_content}
+                    </Typography.Paragraph>
+                ) : (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这条消息没有可回看的思考过程。" />
+                )}
+            </Drawer>
+
+            <Drawer
                 title="管理当前会话的知识条目挂接"
                 width={420}
                 open={privateSampleDrawerOpen}
@@ -1019,7 +1035,7 @@ interface MessageBubbleProps {
     message: ChatMessageView;
     sessionId: string;
     activeCitation: boolean;
-    expandThinkingByDefault: boolean;
+    onOpenThinking: () => void;
     onSelectCitations: () => void;
     onEditUserMessage?: (content: string) => void;
 }
@@ -1064,59 +1080,60 @@ function MessageAttachmentStrip({ attachments }: { attachments: SessionAttachmen
     );
 }
 
-function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDefault, onSelectCitations, onEditUserMessage }: MessageBubbleProps) {
+function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onSelectCitations, onEditUserMessage }: MessageBubbleProps) {
     const isAssistant = message.role === "assistant";
     const isSystem = message.role === "system";
     const hasCitations = isAssistant && message.citations.length > 0;
-    const lifecycleTag = message.client_state ? lifecycleTagMap[message.client_state] : null;
     const hasRealThinkingContent = Boolean(message.thinking_content?.trim());
-    const shouldShowThinking = isAssistant && (message.client_state === "pending" || message.client_state === "thinking" || hasRealThinkingContent);
+    const thinkingActive = message.client_state === "pending" || message.client_state === "thinking";
+    const shouldShowThinking = isAssistant && (thinkingActive || hasRealThinkingContent);
     const messageContent = resolveMessageContent(message, isAssistant);
-    const [thinkingExpanded, setThinkingExpanded] = useState(
-        expandThinkingByDefault || message.client_state === "pending" || message.client_state === "thinking",
-    );
+    const thinkingStartedAtRef = useRef(Date.now());
+    const [thinkingElapsedSeconds, setThinkingElapsedSeconds] = useState(0);
+    const [finalThinkingElapsedSeconds, setFinalThinkingElapsedSeconds] = useState<number | null>(null);
     const previousClientStateRef = useRef<AssistantLifecycleState | undefined>(message.client_state);
 
     useEffect(() => {
         const previousState = previousClientStateRef.current;
         const currentState = message.client_state;
 
-        if (currentState === "pending" || currentState === "thinking") {
-            setThinkingExpanded(true);
-        } else if (
+        if ((currentState === "pending" || currentState === "thinking") && previousState !== currentState) {
+            thinkingStartedAtRef.current = Date.now();
+            setFinalThinkingElapsedSeconds(null);
+            setThinkingElapsedSeconds(0);
+        }
+
+        if (
             hasRealThinkingContent &&
-            (currentState === "done" || currentState === "error") &&
-            previousState !== currentState
+            !thinkingActive &&
+            (currentState === "done" || currentState === "error" || currentState === undefined) &&
+            finalThinkingElapsedSeconds === null
         ) {
-            setThinkingExpanded(false);
-        } else if (!hasRealThinkingContent) {
-            setThinkingExpanded(false);
+            const elapsed = Math.max(1, Math.round((Date.now() - thinkingStartedAtRef.current) / 1000));
+            setFinalThinkingElapsedSeconds(elapsed);
         }
 
         previousClientStateRef.current = currentState;
-    }, [expandThinkingByDefault, hasRealThinkingContent, message.client_state, message.message_id]);
+    }, [finalThinkingElapsedSeconds, hasRealThinkingContent, message.client_state, message.message_id, thinkingActive]);
 
-    const thinkingCollapseItems: CollapseProps["items"] = shouldShowThinking
-        ? [
-            {
-                key: "thinking",
-                label: (
-                    <Space size={8} wrap className="chat-message__thinking-label">
-                        <span className="chat-thinking-pulse" aria-hidden="true" />
-                        <Typography.Text strong>
-                            {message.client_state === "pending" || message.client_state === "thinking" ? "思考中" : "思考过程"}
-                        </Typography.Text>
-                        {message.client_state ? <Tag color={lifecycleTag?.color ?? "processing"}>{lifecycleTag?.label ?? "生成中"}</Tag> : null}
-                    </Space>
-                ),
-                children: (
-                    <Typography.Paragraph className="chat-message__thinking-content">
-                        {message.thinking_content || "模型正在组织上下文与回答，请稍候。"}
-                    </Typography.Paragraph>
-                ),
-            },
-        ]
-        : [];
+    useEffect(() => {
+        if (!thinkingActive) {
+            return;
+        }
+        const timer = window.setInterval(() => {
+            setThinkingElapsedSeconds(Math.max(1, Math.round((Date.now() - thinkingStartedAtRef.current) / 1000)));
+        }, 1000);
+        return () => window.clearInterval(timer);
+    }, [thinkingActive, message.message_id]);
+
+    const thinkingDurationText = thinkingActive
+        ? `思考中… ${formatDurationSeconds(thinkingElapsedSeconds)}`
+        : hasRealThinkingContent
+            ? `思考了 ${formatDurationSeconds(finalThinkingElapsedSeconds ?? 1)}`
+            : "思考中…";
+    const thinkingPreview = thinkingActive
+        ? message.status_note || "正在梳理上下文、依据和用户问题"
+        : "查看思考过程";
 
     return (
         <div
@@ -1146,13 +1163,18 @@ function MessageBubble({ message, sessionId, activeCitation, expandThinkingByDef
                         </Space>
                     ) : null}
                     {isAssistant && shouldShowThinking ? (
-                        <Collapse
-                            ghost
-                            className="chat-message__thinking"
-                            activeKey={thinkingExpanded ? ["thinking"] : []}
-                            onChange={(keys) => setThinkingExpanded(Array.isArray(keys) ? keys.includes("thinking") : keys === "thinking")}
-                            items={thinkingCollapseItems}
-                        />
+                        <button
+                            type="button"
+                            className={thinkingActive ? "chat-message__thinking-inline chat-message__thinking-inline--active" : "chat-message__thinking-inline"}
+                            onClick={hasRealThinkingContent ? onOpenThinking : undefined}
+                            disabled={!hasRealThinkingContent}
+                            aria-label={hasRealThinkingContent ? "打开思考过程" : "正在思考"}
+                        >
+                            <span className="chat-thinking-pulse" aria-hidden="true" />
+                            <span className="chat-message__thinking-time">{thinkingDurationText}</span>
+                            <span className="chat-message__thinking-preview">{thinkingPreview}</span>
+                            <span className="chat-message__thinking-chevron" aria-hidden="true">›</span>
+                        </button>
                     ) : null}
                     <div className={isAssistant ? "chat-message__content chat-message__content--assistant" : "chat-message__content"}>
                         {renderMessageContent(message, isAssistant)}
@@ -1885,6 +1907,19 @@ function formatTimestamp(value: string) {
         hour: "2-digit",
         minute: "2-digit",
     });
+}
+
+function formatDurationSeconds(value: number) {
+    if (!Number.isFinite(value) || value <= 0) {
+        return "0s";
+    }
+    const seconds = Math.max(1, Math.round(value));
+    if (seconds < 60) {
+        return `${seconds}s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
 }
 
 function isAskResponse(value: unknown): value is AskResponse {
