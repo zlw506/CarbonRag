@@ -1,6 +1,7 @@
 import { CloudServerOutlined, DeleteOutlined, FolderOpenOutlined, PlusOutlined, SaveOutlined, UploadOutlined } from "@ant-design/icons";
 import {
     Alert,
+    App as AntdApp,
     AutoComplete,
     Avatar,
     Button,
@@ -18,7 +19,6 @@ import {
     Tabs,
     Tag,
     Typography,
-    message,
 } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
@@ -73,6 +73,7 @@ function buildBlankProviderDraft(storageMode: CredentialStorageMode = "local_onl
 }
 
 export function SettingsPage() {
+    const { modal, message: messageApi } = AntdApp.useApp();
     const { user, updateProfile, deleteAccount } = useAuth();
     const {
         sessions: shellSessions,
@@ -154,7 +155,7 @@ export function SettingsPage() {
                 appearance: nextAppearance,
             });
             if (showSuccess) {
-                message.success("外观设置已保存。");
+                messageApi.success("外观设置已保存。");
             }
         } catch {
             setTransportError("当前无法保存外观设置。");
@@ -217,7 +218,7 @@ export function SettingsPage() {
         try {
             setTransportError(null);
             await saveSettings({ active_provider_ref: providerRef });
-            message.success("当前模型提供方已切换。");
+            messageApi.success("当前模型提供方已切换。");
         } catch {
             setTransportError("当前无法切换模型提供方。");
         }
@@ -230,11 +231,11 @@ export function SettingsPage() {
             return;
         }
         if (!file.type.startsWith("image/")) {
-            message.warning("请选择图片文件作为头像。");
+            messageApi.warning("请选择图片文件作为头像。");
             return;
         }
         if (file.size > 180_000) {
-            message.warning("头像图片请控制在 180KB 以内。");
+            messageApi.warning("头像图片请控制在 180KB 以内。");
             return;
         }
         const reader = new FileReader();
@@ -250,7 +251,7 @@ export function SettingsPage() {
         }
         const displayName = profileNameDraft.trim();
         if (!displayName) {
-            message.warning("名称不能为空。");
+            messageApi.warning("名称不能为空。");
             return;
         }
         setProfileSaving(true);
@@ -259,9 +260,9 @@ export function SettingsPage() {
                 display_name: displayName,
                 avatar_url: profileAvatarDraft,
             });
-            message.success("个人资料已更新。");
+            messageApi.success("个人资料已更新。");
         } catch (error) {
-            message.warning(extractDetailMessage(error) ?? "名称可能已重复，请换一个名称。");
+            messageApi.warning(extractDetailMessage(error) ?? "名称可能已重复，请换一个名称。");
         } finally {
             setProfileSaving(false);
         }
@@ -302,17 +303,21 @@ export function SettingsPage() {
         setDeletingSessions(true);
         try {
             const result = await bulkDeleteSessions(targetSessionIds);
+            const deletedSessionIdSet = new Set(result.deleted_session_ids);
+            if (deletedSessionIdSet.size) {
+                setSessionList((current) => current.filter((session) => !deletedSessionIdSet.has(session.session_id)));
+            }
             setSelectedSessionIds((current) =>
-                current.filter((sessionId) => !result.deleted_session_ids.includes(sessionId)),
+                current.filter((sessionId) => !deletedSessionIdSet.has(sessionId)),
             );
-            const nextPreferredSessionId = result.deleted_session_ids.includes(activeSessionId ?? "") ? null : activeSessionId;
+            const nextPreferredSessionId = deletedSessionIdSet.has(activeSessionId ?? "") ? null : activeSessionId;
             const sessions = await refreshSessions(nextPreferredSessionId);
             setSessionList(sessions);
             if (result.deleted_count > 0) {
-                message.success(`已删除 ${result.deleted_count} 个会话。`);
+                messageApi.success(`已删除 ${result.deleted_count} 个会话。`);
             }
             if (result.missing_session_ids.length) {
-                message.warning("部分会话已不存在，列表已同步刷新。");
+                messageApi.warning("部分会话已不存在，列表已同步刷新。");
             }
         } catch {
             setTransportError("会话删除失败，请刷新后重试。");
@@ -324,10 +329,10 @@ export function SettingsPage() {
     function handleDeleteSelectedSessions() {
         const targetSelection = [...selectedSessionIds];
         if (!targetSelection.length) {
-            message.info("请先选择要删除的会话。");
+            messageApi.info("请先选择要删除的会话。");
             return;
         }
-        Modal.confirm({
+        modal.confirm({
             title: "确认删除选中的会话？",
             content: `将删除 ${targetSelection.length} 个会话。该操作不可撤销。`,
             okText: "删除",
@@ -340,7 +345,7 @@ export function SettingsPage() {
     }
 
     function handleDeleteSingleSession(session: SessionSummary) {
-        Modal.confirm({
+        modal.confirm({
             title: "确认删除该会话？",
             content: `将删除“${session.title || "未命名会话"}”。该操作不可撤销。`,
             okText: "删除",
@@ -358,15 +363,15 @@ export function SettingsPage() {
 
     async function handleDeleteOwnAccount() {
         if (!deleteAccountPassword.trim()) {
-            message.warning("请输入当前账号密码。");
+            messageApi.warning("请输入当前账号密码。");
             return;
         }
         setDeletingAccount(true);
         try {
             await deleteAccount({ current_password: deleteAccountPassword });
-            message.success("账号已注销。");
+            messageApi.success("账号已注销。");
         } catch (error) {
-            message.warning(extractDetailMessage(error) ?? "账号注销失败，请确认当前密码。");
+            messageApi.warning(extractDetailMessage(error) ?? "账号注销失败，请确认当前密码。");
         } finally {
             setDeletingAccount(false);
         }
@@ -387,7 +392,7 @@ export function SettingsPage() {
                 models: result.models,
                 modelName: current.modelName || result.models[0] || "",
             }));
-            message.success("模型列表已刷新。");
+            messageApi.success("模型列表已刷新。");
         } catch {
             setTransportError("当前无法发现模型列表，请检查提供方配置。");
         } finally {
@@ -405,7 +410,7 @@ export function SettingsPage() {
                 model_name: providerDraft.modelName || undefined,
             });
             if (result.ok) {
-                message.success(result.message);
+                messageApi.success(result.message);
                 if (result.discovered_models.length) {
                     setProviderDraft((current) => ({
                         ...current,
@@ -459,7 +464,7 @@ export function SettingsPage() {
                 await handleSetActiveProvider(`account:${profileId}`);
             }
             setProviderDraft(buildBlankProviderDraft(providerDraft.storageMode));
-            message.success("Provider 配置已保存。");
+            messageApi.success("Provider 配置已保存。");
         } catch {
             setTransportError("当前无法保存 provider 配置。");
         } finally {
@@ -710,7 +715,6 @@ export function SettingsPage() {
                         <Button
                             danger
                             type="primary"
-                            disabled={!selectedSessionIds.length}
                             loading={deletingSessions}
                             onClick={handleDeleteSelectedSessions}
                         >
