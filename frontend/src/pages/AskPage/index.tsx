@@ -112,6 +112,7 @@ export function AskPage() {
     const streamAbortRef = useRef<AbortController | null>(null);
     const messageStreamRef = useRef<HTMLDivElement | null>(null);
     const streamDraftRef = useRef<ChatDraft | null>(null);
+    const streamingSessionIdRef = useRef<string | null>(null);
     const streamMemoryStateRef = useRef<SessionDetail["memory_state"] | null>(null);
     const streamContextSourceRef = useRef<StreamContextSource | null>(null);
     const shouldAutoFollowMessageStreamRef = useRef(true);
@@ -206,6 +207,12 @@ export function AskPage() {
     useEffect(() => {
         if (!activeSessionId) {
             setActiveSession(null);
+            return;
+        }
+        if (streamingSessionIdRef.current === activeSessionId) {
+            // A newly created chat can be selected in the shell while its SSE answer is still streaming.
+            // Keep the local draft alive; the final refresh after completion will sync persisted messages.
+            shouldAutoFollowMessageStreamRef.current = true;
             return;
         }
         streamAbortRef.current?.abort();
@@ -363,6 +370,7 @@ export function AskPage() {
             workingSessionId = created.session_id;
             setActiveSession(createEmptySessionDetail(created, knowledgeScope));
         }
+        streamingSessionIdRef.current = workingSessionId;
 
         replaceStreamDraft({
             userMessage: {
@@ -405,9 +413,6 @@ export function AskPage() {
                 {
                 onMessageStart: (event) => {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
-                    if (event.title_updated) {
-                        void refreshSessions(workingSessionId);
-                    }
                     updateStreamDraftState((draft) => ({
                         ...draft,
                         userMessage: {
@@ -543,6 +548,9 @@ export function AskPage() {
         } finally {
             setSending(false);
             streamAbortRef.current = null;
+            if (streamingSessionIdRef.current === workingSessionId) {
+                streamingSessionIdRef.current = null;
+            }
             if (!committedLocally) {
                 replaceStreamDraft(null);
             }
