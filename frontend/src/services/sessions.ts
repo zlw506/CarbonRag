@@ -310,6 +310,19 @@ export async function submitSessionAskStreamRequest(
             return buildAskResponseFromStreamState(state);
         }
 
+        if (state.answer.trim()) {
+            const recoveredResponse = buildAskResponseFromStreamState(state);
+            callbacks.onDone?.({
+                ...recoveredResponse,
+                memory_state: state.memory_state,
+                user_message_id: state.user_message_id,
+                assistant_message_id: state.assistant_message_id,
+                request_group_id: state.request_group_id,
+                provider_ref: state.provider_ref,
+            });
+            return recoveredResponse;
+        }
+
         if (attempt >= MAX_STREAM_RECOVERY_ATTEMPTS) {
             break;
         }

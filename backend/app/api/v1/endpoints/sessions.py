@@ -12,6 +12,7 @@ from app.ai_runtime.runtime.orchestrator import AIRuntimeOrchestrator
 from app.ai_runtime.schemas.chat import ChatRequest
 from app.auth.dependencies import require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
+from app.knowledge import get_knowledge_service
 from app.schemas.ask import AskCitation, AskRequest, AskResponse, AskSourceSummary, MessageStatus
 from app.settings.service import SettingsValidationError, get_settings_service
 from app.session.schemas import (
@@ -79,6 +80,14 @@ def build_chat_request(
             or item.source_ref in requested_file_ids
         )
     ]
+    attached_file_knowledge_item_ids = _merge_unique(
+        attached_file_knowledge_item_ids,
+        _resolve_indexed_upload_knowledge_item_ids(
+            owner_user_id=current_user.user_id,
+            session_id=session_id,
+            requested_file_ids=requested_file_ids,
+        ),
+    )
 
     chat_request = ChatRequest(
         mode="ask",
@@ -105,6 +114,78 @@ def build_chat_request(
         },
     )
     return chat_request, effective_knowledge_item_ids
+
+
+def _merge_unique(primary: list[str], secondary: list[str]) -> list[str]:
+    merged: list[str] = []
+    for item in [*primary, *secondary]:
+        if item and item not in merged:
+            merged.append(item)
+    return merged
+
+
+def _resolve_indexed_upload_knowledge_item_ids(
+    *,
+    owner_user_id: str,
+    session_id: str,
+    requested_file_ids: set[str],
+) -> list[str]:
+    """Resolve selected upload file ids even when session_knowledge_items is stale.
+
+    The Ask page renders upload chips from the files table, while the runtime
+    needs knowledge_item ids to retrieve parsed chunks. RAG-Pro migration made
+    this mismatch visible: a file can be shown as "可提问" but not be returned by
+    list_session_knowledge_items if the attachment link was not refreshed.
+    """
+    if not requested_file_ids:
+        return []
+
+    knowledge_service = get_knowledge_service()
+    resolved: list[str] = []
+    for identifier in sorted(requested_file_ids):
+        candidates = []
+        candidates.extend(
+            knowledge_service.list_visible_items(
+                owner_user_id=owner_user_id,
+                source_type="uploaded_file",
+                index_status="indexed",
+                is_enabled=True,
+                file_id=identifier,
+            )
+        )
+        candidates.extend(
+            knowledge_service.list_visible_items(
+                owner_user_id=owner_user_id,
+                source_type="uploaded_file",
+                index_status="indexed",
+                is_enabled=True,
+                knowledge_item_ids=[identifier],
+            )
+        )
+        item_by_source = knowledge_service.store.get_item_by_source(
+            owner_user_id=owner_user_id,
+            library_scope="personal",
+            source_type="uploaded_file",
+            source_ref=identifier,
+        )
+        if item_by_source is not None:
+            candidates.append(item_by_source)
+
+        for item in candidates:
+            if item.source_type != "uploaded_file" or item.index_status != "indexed":
+                continue
+            file_id = item.file_id or item.source_ref
+            if not file_id:
+                continue
+            file_detail = knowledge_service.store.get_uploaded_file_detail(
+                owner_user_id=owner_user_id,
+                file_id=file_id,
+            )
+            if not file_detail or file_detail.get("session_id") != session_id:
+                continue
+            if item.knowledge_item_id not in resolved:
+                resolved.append(item.knowledge_item_id)
+    return resolved
 
 
 def validate_chat_request(chat_request: ChatRequest, *, knowledge_scope: str) -> JSONResponse | None:
