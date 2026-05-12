@@ -268,7 +268,9 @@ def run_stream_worker(
         owner_user_id=current_user.user_id,
         session_id=stream_session.session_id,
         enabled=user_settings.chat.auto_generate_title_for_new_session,
-        chat_provider=chat_provider,
+        # Do not spend the answer startup path on a second LLM call just for the title.
+        # The fast fallback keeps the rail usable while the main answer starts immediately.
+        chat_provider=None,
     )
     title_updated = bool(updated_summary and updated_summary.title != previous_title)
 
@@ -589,7 +591,8 @@ def ask_in_session(
             owner_user_id=current_user.user_id,
             session_id=session_id,
             enabled=user_settings.chat.auto_generate_title_for_new_session,
-            chat_provider=chat_provider,
+            # Keep non-stream fallback behavior aligned with the streaming path.
+            chat_provider=None,
         )
         result = AIRuntimeOrchestrator(chat_provider=chat_provider).run(chat_request)
     except SettingsValidationError as exc:

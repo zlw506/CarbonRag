@@ -449,14 +449,15 @@ export function AskPage() {
                     if (!delta) {
                         return;
                     }
+                    const isSyntheticThinking = Boolean(event.synthetic);
                     updateStreamDraftState((draft) => ({
                         ...draft,
                         assistantMessage: {
                             ...draft.assistantMessage,
-                            status: "thinking",
-                            client_state: "thinking",
-                            status_note: "正在结合上下文组织回答…",
-                            thinking_content: event.synthetic ? draft.assistantMessage.thinking_content ?? "" : `${draft.assistantMessage.thinking_content ?? ""}${delta}`,
+                            status: isSyntheticThinking ? draft.assistantMessage.status ?? "thinking" : "thinking",
+                            client_state: isSyntheticThinking ? draft.assistantMessage.client_state ?? "connecting" : "thinking",
+                            status_note: isSyntheticThinking ? "正在整理问题与依据…" : "正在结合上下文组织回答…",
+                            thinking_content: isSyntheticThinking ? draft.assistantMessage.thinking_content ?? "" : `${draft.assistantMessage.thinking_content ?? ""}${delta}`,
                         },
                     }));
                 },
@@ -1093,8 +1094,13 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
     const isSystem = message.role === "system";
     const hasCitations = isAssistant && message.citations.length > 0;
     const hasRealThinkingContent = Boolean(message.thinking_content?.trim());
-    const thinkingActive = message.client_state === "pending" || message.client_state === "thinking";
-    const shouldShowThinking = isAssistant && (thinkingActive || hasRealThinkingContent);
+    const preparingActive =
+        message.client_state === "pending" ||
+        message.client_state === "connecting" ||
+        message.client_state === "reconnecting";
+    const thinkingActive = message.client_state === "thinking";
+    const activityActive = preparingActive || thinkingActive;
+    const shouldShowThinking = isAssistant && (activityActive || hasRealThinkingContent);
     const messageContent = resolveMessageContent(message, isAssistant);
     const thinkingStartedAtRef = useRef(Date.now());
     const [thinkingElapsedSeconds, setThinkingElapsedSeconds] = useState(0);
@@ -1105,7 +1111,7 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
         const previousState = previousClientStateRef.current;
         const currentState = message.client_state;
 
-        if ((currentState === "pending" || currentState === "thinking") && previousState !== currentState) {
+        if (currentState === "thinking" && previousState !== currentState) {
             thinkingStartedAtRef.current = Date.now();
             setFinalThinkingElapsedSeconds(null);
             setThinkingElapsedSeconds(0);
@@ -1136,10 +1142,12 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
 
     const thinkingDurationText = thinkingActive
         ? `思考中… ${formatDurationSeconds(thinkingElapsedSeconds)}`
-        : hasRealThinkingContent
+        : preparingActive
+            ? resolvePreparationStatusText(message.client_state)
+            : hasRealThinkingContent
             ? `思考了 ${formatDurationSeconds(finalThinkingElapsedSeconds ?? 1)}`
             : "思考中…";
-    const thinkingPreview = thinkingActive
+    const thinkingPreview = activityActive
         ? message.status_note || "正在梳理上下文、依据和用户问题"
         : "查看思考过程";
 
@@ -1173,10 +1181,10 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
                     {isAssistant && shouldShowThinking ? (
                         <button
                             type="button"
-                            className={thinkingActive ? "chat-message__thinking-inline chat-message__thinking-inline--active" : "chat-message__thinking-inline"}
+                            className={activityActive ? "chat-message__thinking-inline chat-message__thinking-inline--active" : "chat-message__thinking-inline"}
                             onClick={hasRealThinkingContent ? onOpenThinking : undefined}
                             disabled={!hasRealThinkingContent}
-                            aria-label={hasRealThinkingContent ? "打开思考过程" : "正在思考"}
+                            aria-label={hasRealThinkingContent ? "打开思考过程" : thinkingActive ? "正在思考" : "正在准备回答"}
                         >
                             <span className="chat-thinking-pulse" aria-hidden="true" />
                             <span className="chat-message__thinking-time">{thinkingDurationText}</span>
@@ -1448,7 +1456,7 @@ const lifecycleTagMap = {
 } as const;
 
 const lifecycleStatusTextMap = {
-    pending: "正在建立回答位",
+    pending: "正在准备回答",
     connecting: "正在连接模型",
     thinking: "思考中",
     reconnecting: "正在重连",
@@ -1781,7 +1789,7 @@ function resolveMessageContent(message: ChatMessageView, isAssistant: boolean) {
         return "";
     }
     if (message.client_state === "pending") {
-        return "正在为这条问题创建回答位…";
+        return "正在准备回答…";
     }
     if (message.client_state === "thinking") {
         return "正在结合上下文与依据组织回答…";
@@ -1930,6 +1938,16 @@ function formatDurationSeconds(value: number) {
     return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
 }
 
+function resolvePreparationStatusText(state: AssistantLifecycleState | undefined) {
+    if (state === "reconnecting") {
+        return "重连中";
+    }
+    if (state === "connecting") {
+        return "连接模型中";
+    }
+    return "准备回答";
+}
+
 function isAskResponse(value: unknown): value is AskResponse {
     if (!value || typeof value !== "object") {
         return false;
@@ -2012,14 +2030,14 @@ function mapLifecycleStatusToMessageState(
     const retrySuffix = attempt && maxAttempts ? `（${attempt}/${maxAttempts}）` : "";
     switch (status) {
         case "pending":
-            return { status: "pending" as const, client_state: "pending" as const, status_note: "正在准备回答位…" };
+            return { status: "pending" as const, client_state: "pending" as const, status_note: "正在准备回答…" };
         case "connecting":
             return { status: "connecting" as const, client_state: "connecting" as const, status_note: "正在连接模型…" };
         case "thinking":
             return {
                 status: "thinking" as const,
-                client_state: "thinking" as const,
-                status_note: recovered ? `第 ${attempt ?? 1} 次重连成功` : "正在组织上下文与回答…",
+                client_state: "connecting" as const,
+                status_note: recovered ? `第 ${attempt ?? 1} 次重连成功，正在等待模型输出…` : "正在等待模型开始输出…",
             };
         case "reconnecting":
             return {
