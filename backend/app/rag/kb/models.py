@@ -18,6 +18,12 @@ class KnowledgeBase(BaseModel):
     description: str | None = None
     visibility: KnowledgeBaseVisibility = "private"
     retrieval_mode: RagRetrievalMode = "hybrid"
+    embedding_model: str = "BAAI/bge-m3"
+    chunk_size: int = 512
+    chunk_overlap: int = 64
+    parent_chunk_size: int | None = None
+    rerank_top_n: int = 5
+    retrieval_top_k: int = 20
     is_default: bool = False
     created_at: datetime
     updated_at: datetime
@@ -30,8 +36,16 @@ class RagDocument(BaseModel):
     owner_user_id: str | None = None
     knowledge_item_id: str | None = None
     file_id: str | None = None
+    filename: str | None = None
+    file_type: str | None = None
+    file_size: int | None = None
+    file_path: str | None = None
     title: str
     source_type: str
+    chunk_method: str = "recursive"
+    parse_progress: int = 0
+    chunk_progress: int = 0
+    error_stage: str | None = None
     status: RagDocumentStatus = "uploaded"
     parse_status: str = "uploaded"
     chunk_status: str = "pending"
@@ -57,6 +71,10 @@ class RagChunk(BaseModel):
     chunk_index: int
     text: str
     token_estimate: int = 0
+    token_count: int = 0
+    keywords: list[str] = Field(default_factory=list)
+    questions: list[str] = Field(default_factory=list)
+    milvus_id: str | None = None
     page_number: int | None = None
     sheet_name: str | None = None
     slide_number: int | None = None
@@ -77,6 +95,12 @@ class KnowledgeBaseCreate(BaseModel):
     description: str | None = None
     visibility: KnowledgeBaseVisibility = "private"
     retrieval_mode: RagRetrievalMode = "hybrid"
+    embedding_model: str = "BAAI/bge-m3"
+    chunk_size: int = Field(default=512, ge=64, le=8192)
+    chunk_overlap: int = Field(default=64, ge=0, le=2048)
+    parent_chunk_size: int | None = Field(default=None, ge=128, le=16384)
+    rerank_top_n: int = Field(default=5, ge=1, le=50)
+    retrieval_top_k: int = Field(default=20, ge=1, le=100)
 
     @field_validator("name")
     @classmethod
@@ -94,6 +118,12 @@ class KnowledgeBaseUpdate(BaseModel):
     description: str | None = None
     visibility: KnowledgeBaseVisibility | None = None
     retrieval_mode: RagRetrievalMode | None = None
+    embedding_model: str | None = None
+    chunk_size: int | None = Field(default=None, ge=64, le=8192)
+    chunk_overlap: int | None = Field(default=None, ge=0, le=2048)
+    parent_chunk_size: int | None = Field(default=None, ge=128, le=16384)
+    rerank_top_n: int | None = Field(default=None, ge=1, le=50)
+    retrieval_top_k: int | None = Field(default=None, ge=1, le=100)
 
 
 class RagDocumentCreate(BaseModel):
@@ -104,6 +134,11 @@ class RagDocumentCreate(BaseModel):
     title: str | None = None
     text: str | None = None
     source_type: str = "manual"
+    filename: str | None = None
+    file_type: str | None = None
+    file_size: int | None = None
+    file_path: str | None = None
+    chunk_method: str = "recursive"
 
 
 class RagSearchRequest(BaseModel):
@@ -182,9 +217,33 @@ class RagSearchResult(BaseModel):
 
 class RagAnswerResult(BaseModel):
     answer: str
+    answer_mode: Literal["llm_grounded", "retrieval_only", "no_hits"] = "retrieval_only"
+    provider_name: str | None = None
+    model_name: str | None = None
+    selected_chunks: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_quality: str | None = None
+    confidence: float | None = None
     citations: list[dict[str, Any]] = Field(default_factory=list)
     hits: list[RagHit] = Field(default_factory=list)
     retrieval_trace: RagTrace = Field(default_factory=RagTrace)
+
+
+class RagEvalCase(BaseModel):
+    case_id: str
+    question: str
+    expected_chunk_keywords: list[str] = Field(default_factory=list)
+    expected_answer_keywords: list[str] = Field(default_factory=list)
+    expected_kb_id: str | None = None
+
+
+class RagEvalRun(BaseModel):
+    run_id: str
+    kb_id: str | None = None
+    owner_user_id: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    cases: list[dict[str, Any]] = Field(default_factory=list)
+    passed: bool = False
+    created_at: datetime
 
 
 class RagHealth(BaseModel):

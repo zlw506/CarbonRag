@@ -4,7 +4,7 @@ from app.ai_runtime.runtime.orchestrator import AIRuntimeOrchestrator
 from app.ai_runtime.schemas.chat import ChatRequest
 
 
-def test_ask_tool_sequence_prefers_langchain_rag_when_enabled(monkeypatch) -> None:
+def test_ask_tool_sequence_prefers_rag_pro_when_enabled(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.ai_runtime.runtime.orchestrator.get_settings",
         lambda: SimpleNamespace(rag_langchain_enabled=True),
@@ -19,7 +19,7 @@ def test_ask_tool_sequence_prefers_langchain_rag_when_enabled(monkeypatch) -> No
         },
     )
 
-    assert AIRuntimeOrchestrator._resolve_ask_tool_sequence(request) == ("langchain_rag_search",)
+    assert AIRuntimeOrchestrator._resolve_ask_tool_sequence(request) == ("rag_pro_search",)
 
 
 def test_ask_tool_sequence_adds_report_carbon_extraction_for_selected_report(monkeypatch) -> None:
@@ -38,6 +38,6 @@ def test_ask_tool_sequence_adds_report_carbon_extraction_for_selected_report(mon
     )
 
     assert AIRuntimeOrchestrator._resolve_ask_tool_sequence(request) == (
-        "langchain_rag_search",
+        "rag_pro_search",
         "report_carbon_extract_calc",
     )

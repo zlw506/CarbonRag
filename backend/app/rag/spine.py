@@ -12,6 +12,8 @@ from app.rag.kb.models import (
     RagAnswerResult,
     RagDocument,
     RagDocumentCreate,
+    RagEvalCase,
+    RagEvalRun,
     RagHealth,
     RagHit,
     RagSearchRequest,
@@ -20,7 +22,6 @@ from app.rag.kb.models import (
     RagTrace,
 )
 from app.rag.kb.storage import RagKnowledgeStore
-from app.rag.qa.answer import build_grounded_answer
 from app.rag.qa.test_qa import build_test_qa_answer
 from app.rag.retrieval.dense import dense_search
 from app.rag.retrieval.hybrid_rrf import merge_with_rrf
@@ -149,7 +150,23 @@ class RagSpineService:
 
     def answer(self, *, owner_user_id: str, request: RagSearchRequest) -> RagAnswerResult:
         result = self.search(owner_user_id=owner_user_id, request=request)
-        return build_grounded_answer(query=request.query, hits=result.hits, trace=result.trace)
+        answer = build_test_qa_answer(
+            query=request.query,
+            search_result=result,
+            chat_provider=self.chat_provider,
+        )
+        return RagAnswerResult(
+            answer=answer["answer"],
+            answer_mode=answer["answer_mode"],
+            provider_name=answer["provider_name"],
+            model_name=answer["model_name"],
+            selected_chunks=answer["selected_chunks"],
+            evidence_quality=answer["evidence_quality"],
+            confidence=answer["confidence"],
+            citations=answer["citations"],
+            hits=answer["hits"],
+            retrieval_trace=answer["retrieval_trace"],
+        )
 
     def test_qa(self, *, owner_user_id: str, request: RagSearchRequest) -> dict:
         search_result = self.search(owner_user_id=owner_user_id, request=request)
@@ -173,6 +190,102 @@ class RagSpineService:
         payload["retrieval_trace"] = payload["retrieval_trace"].model_dump()
         payload["hits"] = [hit.model_dump() for hit in payload["hits"]]
         return {"run_id": run_id, **payload}
+
+    def run_eval(
+        self,
+        *,
+        owner_user_id: str,
+        kb_id: str | None,
+        cases: list[RagEvalCase],
+        mode: str = "hybrid_rerank",
+        top_k: int = 5,
+    ) -> RagEvalRun:
+        evaluated_cases: list[dict] = []
+        hit_at_1 = 0
+        hit_at_3 = 0
+        recall_at_5_total = 0.0
+        precision_at_5_total = 0.0
+        mrr_total = 0.0
+        citation_covered = 0
+        no_hit_count = 0
+        vector_failure_count = 0
+        cross_kb_leak_count = 0
+        answer_mode_counts: dict[str, int] = {}
+
+        for case in cases:
+            result = self.answer(
+                owner_user_id=owner_user_id,
+                request=RagSearchRequest(query=case.question, kb_id=kb_id or case.expected_kb_id, mode=mode, top_k=top_k),  # type: ignore[arg-type]
+            )
+            hits = result.hits
+            keywords = case.expected_chunk_keywords or case.expected_answer_keywords
+            matched_rank = _first_matching_rank(hits=hits, keywords=keywords)
+            hit = matched_rank is not None
+            hit_at_1 += int(matched_rank == 1)
+            hit_at_3 += int(matched_rank is not None and matched_rank <= 3)
+            recall_at_5_total += 1.0 if hit else 0.0
+            precision_at_5_total += _precision_at_k(hits=hits, keywords=keywords, k=5)
+            mrr_total += (1.0 / matched_rank) if matched_rank else 0.0
+            citation_covered += int(bool(result.citations))
+            no_hit_count += int(not hits)
+            vector_failure_count += int(result.retrieval_trace.degraded or result.retrieval_trace.dense_count == 0)
+            cross_kb_leak_count += sum(1 for item in hits if kb_id and item.kb_id != kb_id)
+            answer_mode_counts[result.answer_mode] = answer_mode_counts.get(result.answer_mode, 0) + 1
+            evaluated_cases.append(
+                {
+                    "case_id": case.case_id,
+                    "question": case.question,
+                    "expected": case.model_dump(),
+                    "result": {
+                        "answer_mode": result.answer_mode,
+                        "answer": result.answer,
+                        "matched_rank": matched_rank,
+                        "citation_count": len(result.citations),
+                        "trace": result.retrieval_trace.model_dump(),
+                        "hits": [hit.model_dump() for hit in hits],
+                    },
+                    "hit": hit,
+                    "reciprocal_rank": (1.0 / matched_rank) if matched_rank else 0.0,
+                }
+            )
+
+        total = max(1, len(cases))
+        metrics = {
+            "case_count": len(cases),
+            "hit_at_1": hit_at_1 / total,
+            "hit_at_3": hit_at_3 / total,
+            "recall_at_5": recall_at_5_total / total,
+            "precision_at_5": precision_at_5_total / total,
+            "mrr": mrr_total / total,
+            "citation_coverage": citation_covered / total,
+            "answer_mode_rate": {key: value / total for key, value in answer_mode_counts.items()},
+            "no_hit_count": no_hit_count,
+            "vector_failure_count": vector_failure_count,
+            "cross_kb_leak_count": cross_kb_leak_count,
+        }
+        passed = bool(
+            metrics["hit_at_3"] >= 0.85
+            and metrics["mrr"] >= 0.75
+            and metrics["citation_coverage"] == 1.0
+            and cross_kb_leak_count == 0
+            and vector_failure_count == 0
+        )
+        return self.store.record_eval_run(
+            owner_user_id=owner_user_id,
+            kb_id=kb_id,
+            metrics=metrics,
+            cases=evaluated_cases,
+            passed=passed,
+        )
+
+    def list_eval_runs(self, *, owner_user_id: str) -> list[RagEvalRun]:
+        return self.store.list_eval_runs(owner_user_id=owner_user_id)
+
+    def get_eval_run(self, *, owner_user_id: str, run_id: str) -> RagEvalRun:
+        run = self.store.get_eval_run(owner_user_id=owner_user_id, run_id=run_id)
+        if run is None:
+            raise KeyError(run_id)
+        return run
 
     def health(self, *, owner_user_id: str | None = None) -> RagHealth:
         stats = self.store.stats(owner_user_id=owner_user_id)
@@ -222,4 +335,31 @@ class RagSpineService:
 @lru_cache(maxsize=1)
 def get_rag_spine_service() -> RagSpineService:
     return RagSpineService()
+
+
+def _first_matching_rank(*, hits: list[RagHit], keywords: list[str]) -> int | None:
+    if not hits:
+        return None
+    if not keywords:
+        return 1
+    normalized_keywords = [item.lower() for item in keywords if item.strip()]
+    for index, hit in enumerate(hits, start=1):
+        haystack = f"{hit.title}\n{hit.snippet}".lower()
+        if any(keyword in haystack for keyword in normalized_keywords):
+            return index
+    return None
+
+
+def _precision_at_k(*, hits: list[RagHit], keywords: list[str], k: int) -> float:
+    if not hits:
+        return 0.0
+    if not keywords:
+        return min(len(hits), k) / max(1, k)
+    normalized_keywords = [item.lower() for item in keywords if item.strip()]
+    candidates = hits[:k]
+    matched = 0
+    for hit in candidates:
+        haystack = f"{hit.title}\n{hit.snippet}".lower()
+        matched += int(any(keyword in haystack for keyword in normalized_keywords))
+    return matched / max(1, k)
 

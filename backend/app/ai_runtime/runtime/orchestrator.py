@@ -86,7 +86,7 @@ class AIRuntimeOrchestrator:
             return any(keyword in question for keyword in keywords)
 
         if get_settings().rag_langchain_enabled:
-            tool_sequence = ["langchain_rag_search"]
+            tool_sequence = ["rag_pro_search"]
             if should_extract_report_carbon():
                 tool_sequence.append("report_carbon_extract_calc")
             return tuple(tool_sequence)

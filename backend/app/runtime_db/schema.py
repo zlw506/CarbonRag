@@ -18,6 +18,8 @@ CORE_TABLES = (
     "rag_documents",
     "rag_chunks",
     "rag_test_qa_runs",
+    "rag_eval_runs",
+    "rag_eval_cases",
     "knowledge_graph_nodes",
     "knowledge_graph_edges",
     "knowledge_tasks",
@@ -284,6 +286,12 @@ CREATE TABLE IF NOT EXISTS rag_knowledge_bases (
     description TEXT,
     visibility TEXT NOT NULL DEFAULT 'private',
     retrieval_mode TEXT NOT NULL DEFAULT 'hybrid',
+    embedding_model TEXT NOT NULL DEFAULT 'BAAI/bge-m3',
+    chunk_size INTEGER NOT NULL DEFAULT 512,
+    chunk_overlap INTEGER NOT NULL DEFAULT 64,
+    parent_chunk_size INTEGER,
+    rerank_top_n INTEGER NOT NULL DEFAULT 5,
+    retrieval_top_k INTEGER NOT NULL DEFAULT 20,
     is_default INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -298,8 +306,16 @@ CREATE TABLE IF NOT EXISTS rag_documents (
     owner_user_id TEXT,
     knowledge_item_id TEXT,
     file_id TEXT,
+    filename TEXT,
+    file_type TEXT,
+    file_size INTEGER,
+    file_path TEXT,
     title TEXT NOT NULL,
     source_type TEXT NOT NULL,
+    chunk_method TEXT NOT NULL DEFAULT 'recursive',
+    parse_progress INTEGER NOT NULL DEFAULT 0,
+    chunk_progress INTEGER NOT NULL DEFAULT 0,
+    error_stage TEXT,
     status TEXT NOT NULL DEFAULT 'uploaded',
     parse_status TEXT NOT NULL DEFAULT 'uploaded',
     chunk_status TEXT NOT NULL DEFAULT 'pending',
@@ -327,6 +343,10 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
     chunk_index INTEGER NOT NULL,
     text TEXT NOT NULL,
     token_estimate INTEGER NOT NULL DEFAULT 0,
+    token_count INTEGER NOT NULL DEFAULT 0,
+    keywords_json TEXT NOT NULL DEFAULT '[]',
+    questions_json TEXT NOT NULL DEFAULT '[]',
+    milvus_id TEXT,
     page_number INTEGER,
     sheet_name TEXT,
     slide_number INTEGER,
@@ -355,6 +375,33 @@ CREATE TABLE IF NOT EXISTS rag_test_qa_runs (
     created_at TEXT NOT NULL,
     FOREIGN KEY (kb_id) REFERENCES rag_knowledge_bases(kb_id) ON DELETE CASCADE,
     FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_eval_runs (
+    run_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL UNIQUE,
+    kb_id TEXT,
+    owner_user_id TEXT,
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    passed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (kb_id) REFERENCES rag_knowledge_bases(kb_id) ON DELETE SET NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_eval_cases (
+    case_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    kb_id TEXT,
+    question TEXT NOT NULL,
+    expected_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    hit INTEGER NOT NULL DEFAULT 0,
+    reciprocal_rank REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    UNIQUE (run_id, case_id),
+    FOREIGN KEY (run_id) REFERENCES rag_eval_runs(run_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS knowledge_graph_nodes (
@@ -838,6 +885,10 @@ CREATE INDEX IF NOT EXISTS idx_rag_chunks_vector_status
     ON rag_chunks(kb_id, vector_status);
 CREATE INDEX IF NOT EXISTS idx_rag_test_qa_kb_created
     ON rag_test_qa_runs(kb_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rag_eval_runs_kb_created
+    ON rag_eval_runs(kb_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rag_eval_cases_run
+    ON rag_eval_cases(run_id, case_id);
 CREATE INDEX IF NOT EXISTS idx_kg_nodes_owner_type
     ON knowledge_graph_nodes(owner_user_id, node_type);
 CREATE INDEX IF NOT EXISTS idx_kg_edges_source_type
@@ -1117,6 +1168,12 @@ POSTGRES_SCHEMA_STATEMENTS = (
         description TEXT,
         visibility TEXT NOT NULL DEFAULT 'private',
         retrieval_mode TEXT NOT NULL DEFAULT 'hybrid',
+        embedding_model TEXT NOT NULL DEFAULT 'BAAI/bge-m3',
+        chunk_size INTEGER NOT NULL DEFAULT 512,
+        chunk_overlap INTEGER NOT NULL DEFAULT 64,
+        parent_chunk_size INTEGER,
+        rerank_top_n INTEGER NOT NULL DEFAULT 5,
+        retrieval_top_k INTEGER NOT NULL DEFAULT 20,
         is_default BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -1131,8 +1188,16 @@ POSTGRES_SCHEMA_STATEMENTS = (
         owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
         knowledge_item_id TEXT REFERENCES knowledge_items(knowledge_item_id) ON DELETE SET NULL,
         file_id TEXT REFERENCES files(file_id) ON DELETE SET NULL,
+        filename TEXT,
+        file_type TEXT,
+        file_size INTEGER,
+        file_path TEXT,
         title TEXT NOT NULL,
         source_type TEXT NOT NULL,
+        chunk_method TEXT NOT NULL DEFAULT 'recursive',
+        parse_progress INTEGER NOT NULL DEFAULT 0,
+        chunk_progress INTEGER NOT NULL DEFAULT 0,
+        error_stage TEXT,
         status TEXT NOT NULL DEFAULT 'uploaded',
         parse_status TEXT NOT NULL DEFAULT 'uploaded',
         chunk_status TEXT NOT NULL DEFAULT 'pending',
@@ -1157,6 +1222,10 @@ POSTGRES_SCHEMA_STATEMENTS = (
         chunk_index INTEGER NOT NULL,
         text TEXT NOT NULL,
         token_estimate INTEGER NOT NULL DEFAULT 0,
+        token_count INTEGER NOT NULL DEFAULT 0,
+        keywords_json TEXT NOT NULL DEFAULT '[]',
+        questions_json TEXT NOT NULL DEFAULT '[]',
+        milvus_id TEXT,
         page_number INTEGER,
         sheet_name TEXT,
         slide_number INTEGER,
@@ -1181,6 +1250,32 @@ POSTGRES_SCHEMA_STATEMENTS = (
         trace_json TEXT NOT NULL DEFAULT '{}',
         citations_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS rag_eval_runs (
+        run_seq BIGSERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL UNIQUE,
+        kb_id TEXT REFERENCES rag_knowledge_bases(kb_id) ON DELETE SET NULL,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        metrics_json TEXT NOT NULL DEFAULT '{}',
+        passed BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS rag_eval_cases (
+        case_seq BIGSERIAL PRIMARY KEY,
+        case_id TEXT NOT NULL,
+        run_id TEXT NOT NULL REFERENCES rag_eval_runs(run_id) ON DELETE CASCADE,
+        kb_id TEXT,
+        question TEXT NOT NULL,
+        expected_json TEXT NOT NULL DEFAULT '{}',
+        result_json TEXT NOT NULL DEFAULT '{}',
+        hit BOOLEAN NOT NULL DEFAULT FALSE,
+        reciprocal_rank REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        UNIQUE (run_id, case_id)
     )
     """,
     """
@@ -1674,6 +1769,50 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "ALTER TABLE carbon_factor_records ADD COLUMN IF NOT EXISTS method_type TEXT",
     "ALTER TABLE carbon_factor_records ADD COLUMN IF NOT EXISTS metadata_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE reports ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
+    "ALTER TABLE rag_knowledge_bases ADD COLUMN IF NOT EXISTS embedding_model TEXT NOT NULL DEFAULT 'BAAI/bge-m3'",
+    "ALTER TABLE rag_knowledge_bases ADD COLUMN IF NOT EXISTS chunk_size INTEGER NOT NULL DEFAULT 512",
+    "ALTER TABLE rag_knowledge_bases ADD COLUMN IF NOT EXISTS chunk_overlap INTEGER NOT NULL DEFAULT 64",
+    "ALTER TABLE rag_knowledge_bases ADD COLUMN IF NOT EXISTS parent_chunk_size INTEGER",
+    "ALTER TABLE rag_knowledge_bases ADD COLUMN IF NOT EXISTS rerank_top_n INTEGER NOT NULL DEFAULT 5",
+    "ALTER TABLE rag_knowledge_bases ADD COLUMN IF NOT EXISTS retrieval_top_k INTEGER NOT NULL DEFAULT 20",
+    "ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS filename TEXT",
+    "ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS file_type TEXT",
+    "ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS file_size INTEGER",
+    "ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS file_path TEXT",
+    "ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS chunk_method TEXT NOT NULL DEFAULT 'recursive'",
+    "ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS parse_progress INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS chunk_progress INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS error_stage TEXT",
+    "ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS token_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS keywords_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS questions_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS milvus_id TEXT",
+    """
+    CREATE TABLE IF NOT EXISTS rag_eval_runs (
+        run_seq BIGSERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL UNIQUE,
+        kb_id TEXT REFERENCES rag_knowledge_bases(kb_id) ON DELETE SET NULL,
+        owner_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        metrics_json TEXT NOT NULL DEFAULT '{}',
+        passed BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS rag_eval_cases (
+        case_seq BIGSERIAL PRIMARY KEY,
+        case_id TEXT NOT NULL,
+        run_id TEXT NOT NULL REFERENCES rag_eval_runs(run_id) ON DELETE CASCADE,
+        kb_id TEXT,
+        question TEXT NOT NULL,
+        expected_json TEXT NOT NULL DEFAULT '{}',
+        result_json TEXT NOT NULL DEFAULT '{}',
+        hit BOOLEAN NOT NULL DEFAULT FALSE,
+        reciprocal_rank REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        UNIQUE (run_id, case_id)
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash ON auth_sessions(token_hash)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id, expires_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
@@ -1693,6 +1832,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_rag_chunks_kb_doc_order ON rag_chunks(kb_id, doc_id, chunk_index ASC)",
     "CREATE INDEX IF NOT EXISTS idx_rag_chunks_vector_status ON rag_chunks(kb_id, vector_status)",
     "CREATE INDEX IF NOT EXISTS idx_rag_test_qa_kb_created ON rag_test_qa_runs(kb_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_rag_eval_runs_kb_created ON rag_eval_runs(kb_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_rag_eval_cases_run ON rag_eval_cases(run_id, case_id)",
     "CREATE INDEX IF NOT EXISTS idx_kg_nodes_owner_type ON knowledge_graph_nodes(owner_user_id, node_type)",
     "CREATE INDEX IF NOT EXISTS idx_kg_edges_source_type ON knowledge_graph_edges(source_node_id, edge_type)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_status_created_at ON knowledge_tasks(status, created_at ASC)",
@@ -1784,6 +1925,24 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "carbon_factor_records", "method_type", "TEXT")
     _ensure_sqlite_column(connection, "carbon_factor_records", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
     _ensure_sqlite_column(connection, "reports", "owner_user_id", "TEXT")
+    _ensure_sqlite_column(connection, "rag_knowledge_bases", "embedding_model", "TEXT NOT NULL DEFAULT 'BAAI/bge-m3'")
+    _ensure_sqlite_column(connection, "rag_knowledge_bases", "chunk_size", "INTEGER NOT NULL DEFAULT 512")
+    _ensure_sqlite_column(connection, "rag_knowledge_bases", "chunk_overlap", "INTEGER NOT NULL DEFAULT 64")
+    _ensure_sqlite_column(connection, "rag_knowledge_bases", "parent_chunk_size", "INTEGER")
+    _ensure_sqlite_column(connection, "rag_knowledge_bases", "rerank_top_n", "INTEGER NOT NULL DEFAULT 5")
+    _ensure_sqlite_column(connection, "rag_knowledge_bases", "retrieval_top_k", "INTEGER NOT NULL DEFAULT 20")
+    _ensure_sqlite_column(connection, "rag_documents", "filename", "TEXT")
+    _ensure_sqlite_column(connection, "rag_documents", "file_type", "TEXT")
+    _ensure_sqlite_column(connection, "rag_documents", "file_size", "INTEGER")
+    _ensure_sqlite_column(connection, "rag_documents", "file_path", "TEXT")
+    _ensure_sqlite_column(connection, "rag_documents", "chunk_method", "TEXT NOT NULL DEFAULT 'recursive'")
+    _ensure_sqlite_column(connection, "rag_documents", "parse_progress", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_sqlite_column(connection, "rag_documents", "chunk_progress", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_sqlite_column(connection, "rag_documents", "error_stage", "TEXT")
+    _ensure_sqlite_column(connection, "rag_chunks", "token_count", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_sqlite_column(connection, "rag_chunks", "keywords_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "rag_chunks", "questions_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_sqlite_column(connection, "rag_chunks", "milvus_id", "TEXT")
     connection.executescript(SQLITE_INDEX_SCRIPT)
 
 

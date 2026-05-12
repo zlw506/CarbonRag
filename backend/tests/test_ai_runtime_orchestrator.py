@@ -118,8 +118,8 @@ def test_orchestrator_returns_runtime_result_for_ok_request() -> None:
     assert result.context_summary["compaction_status"] == "compacted"
     assert "grounded_by_policy" in result.context_summary
     assert result.context_summary["retrieval_hit_count"] >= 0
-    assert result.tool_calls[0].name == "langchain_rag_search"
-    assert result.tool_results[0].name == "langchain_rag_search"
+    assert result.tool_calls[0].name == "rag_pro_search"
+    assert result.tool_results[0].name == "rag_pro_search"
     assert "retrieval_trace" in result.context_summary
     assert result.response.mode == "ask"
     assert result.response.status == "ok"
@@ -156,7 +156,7 @@ def test_orchestrator_returns_provider_error_when_chat_provider_fails() -> None:
     result = orchestrator.run(request)
 
     assert result.status == "provider_error"
-    assert result.tool_calls[0].name == "langchain_rag_search"
+    assert result.tool_calls[0].name == "rag_pro_search"
     assert isinstance(result.citations, list)
     assert result.response.status == "provider_error"
     assert result.response.answer == "当前问答服务暂不可用，请稍后重试。"

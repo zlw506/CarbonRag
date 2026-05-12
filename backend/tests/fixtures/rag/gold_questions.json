@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "case_id": "qingmu-electricity-total",
+      "question": "青木制造2025年第一季度合计外购电力是多少？",
+      "expected_chunk_keywords": ["217,650", "外购电力"],
+      "expected_answer_keywords": ["217,650 kWh"]
+    },
+    {
+      "case_id": "qingmu-natural-gas-plant1",
+      "question": "杭州一厂天然气消耗量是多少？",
+      "expected_chunk_keywords": ["8,420", "天然气"],
+      "expected_answer_keywords": ["8,420 m3"]
+    },
+    {
+      "case_id": "qingmu-green-certificate",
+      "question": "青木制造绿色电力凭证编号是什么？",
+      "expected_chunk_keywords": ["GEC-QM-2025-02-0007"],
+      "expected_answer_keywords": ["GEC-QM-2025-02-0007"]
+    },
+    {
+      "case_id": "qingmu-market-based-coverage",
+      "question": "market-based口径下绿电凭证覆盖哪些电量和设施？",
+      "expected_chunk_keywords": ["20,000", "杭州一厂", "2025 年 2 月"],
+      "expected_answer_keywords": ["20,000 kWh", "杭州一厂"]
+    },
+    {
+      "case_id": "qingmu-factor-official-warning",
+      "question": "燃料demo因子能不能标记为official？",
+      "expected_chunk_keywords": ["不得标记为 official"],
+      "expected_answer_keywords": ["不得标记为 official"]
+    }
+  ]
+}

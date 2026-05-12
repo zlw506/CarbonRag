@@ -8,7 +8,7 @@ import {
     PlusOutlined,
     SearchOutlined,
 } from "@ant-design/icons";
-import { Alert, Button, Card, Empty, Input, List, Select, Space, Spin, Tag, Typography } from "antd";
+import { Alert, Button, Card, Empty, Input, List, Progress, Select, Space, Spin, Tag, Typography, Upload } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -21,11 +21,12 @@ import {
     listKbDocuments,
     listKnowledgeBases,
     parseKbDocument,
+    uploadKbDocument,
 } from "../../services/kb";
 import { listAttachableKnowledgeItems } from "../../services/knowledge";
-import { runRagTestQA, searchRagSpine } from "../../services/rag";
+import { runRagEval, runRagTestQA, searchRagSpine } from "../../services/rag";
 import type { KnowledgeItem } from "../../types/knowledge";
-import type { KnowledgeBase, RagChunk, RagDocument, RagHit, RagSearchResult, RagTestQAResult } from "../../types/kb";
+import type { KnowledgeBase, RagChunk, RagDocument, RagEvalRun, RagHit, RagSearchResult, RagTestQAResult } from "../../types/kb";
 
 type StageName = "parse" | "chunk" | "index";
 
@@ -85,6 +86,7 @@ export function KnowledgeBaseWorkbench() {
     const [query, setQuery] = useState("双碳目标有哪些关键要求？");
     const [searchResult, setSearchResult] = useState<RagSearchResult | null>(null);
     const [qaResult, setQaResult] = useState<RagTestQAResult | null>(null);
+    const [evalResult, setEvalResult] = useState<RagEvalRun | null>(null);
     const [loading, setLoading] = useState(false);
     const [runningStage, setRunningStage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -156,6 +158,26 @@ export function KnowledgeBaseWorkbench() {
         setChunks([]);
     }
 
+    async function handleUploadToKb(file: File) {
+        if (!activeKbId) {
+            setError("请先选择或创建知识库。");
+            return false;
+        }
+        setRunningStage(`upload:${file.name}`);
+        setError(null);
+        try {
+            const doc = await uploadKbDocument(activeKbId, file);
+            setDocuments((current) => [doc, ...current]);
+            setActiveDocId(doc.doc_id);
+            setChunks([]);
+        } catch {
+            setError("上传到知识库失败。请确认文件格式受支持，且后端文件解析服务正常。");
+        } finally {
+            setRunningStage(null);
+        }
+        return false;
+    }
+
     async function handleLoadChunks(doc: RagDocument) {
         if (!activeKbId) {
             return;
@@ -221,6 +243,21 @@ export function KnowledgeBaseWorkbench() {
         }
     }
 
+    async function handleEval() {
+        if (!activeKbId) {
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        try {
+            setEvalResult(await runRagEval({ kb_id: activeKbId, mode: "hybrid_rerank", top_k: 5 }));
+        } catch {
+            setError("RAG 验收评分失败。请确认青木验收文档已入库并完成向量化。");
+        } finally {
+            setLoading(false);
+        }
+    }
+
     function openAskPageWithCurrentKb() {
         const params = new URLSearchParams();
         if (activeKbId) {
@@ -256,13 +293,21 @@ export function KnowledgeBaseWorkbench() {
                         />
                     </Space>
                     {activeKb ? (
-                        <Alert
-                            type="info"
-                            showIcon
-                            className="kb-workbench__tip"
-                            message={`当前知识库：${activeKb.name}`}
-                            description="AskPage 也可以选择这个知识库提问；这里主要用于检查文档是否真的完成入库、检索、重排序和引用。"
-                        />
+                        <>
+                            <Alert
+                                type="info"
+                                showIcon
+                                className="kb-workbench__tip"
+                                message={`当前知识库：${activeKb.name}`}
+                                description="AskPage 也可以选择这个知识库提问；这里主要用于检查文档是否真的完成入库、检索、重排序和引用。"
+                            />
+                            <Space wrap style={{ marginTop: 12 }}>
+                                <Tag color="geekblue">Embedding：{activeKb.embedding_model}</Tag>
+                                <Tag>分块 {activeKb.chunk_size} / overlap {activeKb.chunk_overlap}</Tag>
+                                <Tag>召回 topK {activeKb.retrieval_top_k}</Tag>
+                                <Tag>重排 topN {activeKb.rerank_top_n}</Tag>
+                            </Space>
+                        </>
                     ) : null}
                 </Card>
 
@@ -275,6 +320,17 @@ export function KnowledgeBaseWorkbench() {
                         description="解析文档：读取正文；生成片段：切成可检索小段；写入向量库：把片段写入 Milvus。只有完成写入向量库，下面的检索和 Test QA 才可能命中。"
                     />
                     <Space wrap style={{ marginBottom: 16 }}>
+                        <Upload
+                            showUploadList={false}
+                            beforeUpload={(file) => {
+                                void handleUploadToKb(file);
+                                return false;
+                            }}
+                        >
+                            <Button icon={<CloudUploadOutlined />} loading={Boolean(runningStage?.startsWith("upload:"))}>
+                                直接上传到当前知识库
+                            </Button>
+                        </Upload>
                         <Select
                             showSearch
                             value={selectedKnowledgeItemId}
@@ -286,6 +342,9 @@ export function KnowledgeBaseWorkbench() {
                         />
                         <Button onClick={handleImportKnowledgeItem} disabled={!activeKbId || !selectedKnowledgeItemId}>导入到知识库</Button>
                     </Space>
+                    <Typography.Paragraph type="secondary">
+                        推荐验收路径：直接上传报告文件到 KB，然后依次点击“解析文档、生成片段、写入向量库”。旧的“导入知识条目”只保留兼容。
+                    </Typography.Paragraph>
                     {documents.length ? (
                         <List
                             dataSource={documents}
@@ -367,6 +426,7 @@ export function KnowledgeBaseWorkbench() {
                         <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入一个能在文档中找到依据的问题" />
                         <Button icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>只测检索</Button>
                         <Button icon={<PlayCircleOutlined />} type="primary" onClick={handleTestQA} loading={loading}>生成测试回答</Button>
+                        <Button onClick={handleEval} loading={loading}>运行验收评分</Button>
                         <Button onClick={openAskPageWithCurrentKb}>去 AskPage 用大模型问</Button>
                     </Space.Compact>
                     {searchResult ? <TracePanel mode="search" hits={searchResult.hits} trace={searchResult.trace} /> : null}
@@ -388,6 +448,7 @@ export function KnowledgeBaseWorkbench() {
                             <TracePanel mode="qa" hits={qaResult.hits} trace={qaResult.retrieval_trace} />
                         </Card>
                     ) : null}
+                    {evalResult ? <EvalPanel evalResult={evalResult} /> : null}
                 </Card>
             </Space>
         </div>
@@ -413,6 +474,12 @@ function DocumentStatusSummary({ doc }: { doc: RagDocument }) {
             {doc.index_warnings?.length ? (
                 <Alert type="warning" showIcon message={doc.index_warnings.map(humanizeWarning).join("；")} />
             ) : null}
+            <Space wrap>
+                <Progress size="small" percent={doc.parse_progress ?? parseProgressFromStatus(doc.parse_status)} style={{ width: 160 }} />
+                <Typography.Text type="secondary">解析进度</Typography.Text>
+                <Progress size="small" percent={doc.chunk_progress ?? chunkProgressFromStatus(doc.chunk_status)} style={{ width: 160 }} />
+                <Typography.Text type="secondary">分块进度</Typography.Text>
+            </Space>
         </Space>
     );
 }
@@ -466,12 +533,43 @@ function TracePanel({ hits, trace, mode }: { hits: RagHit[]; trace: RagSearchRes
     );
 }
 
+function EvalPanel({ evalResult }: { evalResult: RagEvalRun }) {
+    const metrics = evalResult.metrics;
+    return (
+        <Card size="small" title="验收评分" style={{ marginTop: 12 }}>
+            <Space wrap>
+                <Tag color={evalResult.passed ? "green" : "red"}>{evalResult.passed ? "通过" : "未通过"}</Tag>
+                <Tag>Hit@3 {formatPercent(metrics.hit_at_3)}</Tag>
+                <Tag>MRR {formatPercent(metrics.mrr)}</Tag>
+                <Tag>引用覆盖 {formatPercent(metrics.citation_coverage)}</Tag>
+                <Tag>跨库泄漏 {String(metrics.cross_kb_leak_count ?? 0)}</Tag>
+                <Tag>向量失败 {String(metrics.vector_failure_count ?? 0)}</Tag>
+            </Space>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
+                通过线：Milvus Standalone、无降级、Hit@3 ≥ 85%、MRR ≥ 75%、引用覆盖 100%、跨库泄漏 0。
+            </Typography.Paragraph>
+        </Card>
+    );
+}
+
 function canRunChunk(doc: RagDocument) {
     return ["parsed", "chunked", "indexed"].includes(doc.parse_status) || doc.chunk_count > 0;
 }
 
 function canRunIndex(doc: RagDocument) {
     return ["chunked", "indexed"].includes(doc.chunk_status) || doc.chunk_count > 0;
+}
+
+function parseProgressFromStatus(status?: string | null) {
+    if (status === "parsed" || status === "indexed" || status === "chunked") return 100;
+    if (status === "failed" || status === "parse_failed") return 0;
+    return 0;
+}
+
+function chunkProgressFromStatus(status?: string | null) {
+    if (status === "chunked" || status === "indexed") return 100;
+    if (status === "failed" || status === "chunk_failed") return 0;
+    return 0;
 }
 
 function documentReadableSummary(doc: RagDocument) {
@@ -592,9 +690,16 @@ function evidenceQualityColor(value?: string | null) {
 }
 
 function humanizeWarning(value: string) {
+    if (value.includes("BGE reranker local model is missing")) {
+        const target = value.split("pre-download to ")[1];
+        return target
+            ? `BGE 重排序模型缺失；请先下载或解压到 ${target}`
+            : "BGE 重排序模型缺失；请先下载或解压本地 reranker 模型。";
+    }
     return value
         .replace(/no_hits/g, "没有命中片段")
-        .replace(/rerank/g, "重排序")
+        .replace(/rerank_disabled/g, "重排序已禁用")
+        .replace(/bge_reranker_unavailable/g, "BGE 重排序不可用")
         .replace(/vector unavailable/g, "向量检索不可用")
         .replace(/fallback/g, "降级")
         .replace(/BGE/g, "BGE")
@@ -603,4 +708,8 @@ function humanizeWarning(value: string) {
 
 function formatScore(value?: number | null) {
     return typeof value === "number" ? value.toFixed(3) : "-";
+}
+
+function formatPercent(value: unknown) {
+    return typeof value === "number" ? `${Math.round(value * 100)}%` : "-";
 }

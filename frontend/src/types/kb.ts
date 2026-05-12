@@ -8,6 +8,12 @@ export interface KnowledgeBase {
     description?: string | null;
     visibility: "private" | "shared" | "public";
     retrieval_mode: RagRetrievalMode;
+    embedding_model: string;
+    chunk_size: number;
+    chunk_overlap: number;
+    parent_chunk_size?: number | null;
+    rerank_top_n: number;
+    retrieval_top_k: number;
     is_default: boolean;
     created_at: string;
     updated_at: string;
@@ -20,8 +26,16 @@ export interface RagDocument {
     owner_user_id?: string | null;
     knowledge_item_id?: string | null;
     file_id?: string | null;
+    filename?: string | null;
+    file_type?: string | null;
+    file_size?: number | null;
+    file_path?: string | null;
     title: string;
     source_type: string;
+    chunk_method?: string;
+    parse_progress?: number;
+    chunk_progress?: number;
+    error_stage?: string | null;
     status: RagDocumentStatus;
     parse_status: string;
     chunk_status: string;
@@ -45,6 +59,10 @@ export interface RagChunk {
     chunk_index: number;
     text: string;
     token_estimate: number;
+    token_count?: number;
+    keywords?: string[];
+    questions?: string[];
+    milvus_id?: string | null;
     page_number?: number | null;
     sheet_name?: string | null;
     slide_number?: number | null;
@@ -100,5 +118,15 @@ export interface RagTestQAResult {
     citations: Record<string, unknown>[];
     hits: RagHit[];
     retrieval_trace: RagTrace;
+}
+
+export interface RagEvalRun {
+    run_id: string;
+    kb_id?: string | null;
+    owner_user_id?: string | null;
+    metrics: Record<string, number | string | boolean | Record<string, number>>;
+    cases: Record<string, unknown>[];
+    passed: boolean;
+    created_at: string;
 }
 

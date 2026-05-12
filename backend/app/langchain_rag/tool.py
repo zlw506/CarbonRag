@@ -9,14 +9,15 @@ from app.rag.spine import RagSpineService, get_rag_spine_service
 
 
 class LangChainRagSearchTool(BaseTool):
-    def __init__(self, rag_service: RagSpineService | None = None) -> None:
+    def __init__(self, rag_service: RagSpineService | None = None, *, tool_name: str = "langchain_rag_search") -> None:
         self.rag_service = rag_service or get_rag_spine_service()
+        self.tool_name = tool_name
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
-            name="langchain_rag_search",
-            description="Search CarbonRag knowledge through LangChain hybrid RAG.",
+            name=self.tool_name,
+            description="Search CarbonRag knowledge through the RAG-Pro spine.",
             category="rag_retrieval",
         )
 
@@ -69,14 +70,15 @@ class LangChainRagSearchTool(BaseTool):
 
 
 class LangChainRagAnswerTool(BaseTool):
-    def __init__(self, rag_service: RagSpineService | None = None) -> None:
+    def __init__(self, rag_service: RagSpineService | None = None, *, tool_name: str = "langchain_rag_answer") -> None:
         self.rag_service = rag_service or get_rag_spine_service()
+        self.tool_name = tool_name
 
     @property
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
-            name="langchain_rag_answer",
-            description="Generate a grounded answer from CarbonRag LangChain RAG.",
+            name=self.tool_name,
+            description="Generate a grounded answer from the CarbonRag RAG-Pro spine.",
             category="rag_answer",
         )
 
@@ -115,6 +117,12 @@ class LangChainRagAnswerTool(BaseTool):
             status="success",
             output={
                 "answer": result.answer,
+                "answer_mode": result.answer_mode,
+                "provider_name": result.provider_name,
+                "model_name": result.model_name,
+                "selected_chunks": result.selected_chunks,
+                "evidence_quality": result.evidence_quality,
+                "confidence": result.confidence,
                 "hits": [hit.to_tool_hit() for hit in result.hits],
                 "citations": result.citations,
                 "retrieval_trace": result.retrieval_trace.model_dump(),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,12 +9,14 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.config import get_settings
+from app.files.parser import get_file_parser_registry
+from app.knowledge.parsers import KnowledgeParseError
 from app.knowledge import get_knowledge_service
 from app.knowledge.schemas import KnowledgeItemListFilters
 from app.rag.documents.chunking import recursive_chunk_text
 from app.rag.documents.status import resolve_document_status
 from app.rag.embeddings import RagEmbeddingUnavailable, embed_documents
-from app.rag.kb.models import KnowledgeBase, KnowledgeBaseCreate, KnowledgeBaseUpdate, RagChunk, RagDocument
+from app.rag.kb.models import KnowledgeBase, KnowledgeBaseCreate, KnowledgeBaseUpdate, RagChunk, RagDocument, RagEvalRun
 from app.rag.retrieval.dense import get_vector_store
 from app.rag.vector_backend.base import VectorIndexResult
 from app.rag.vector_backend.runtime import is_milvus_backend, resolve_vector_runtime
@@ -55,9 +58,10 @@ class RagKnowledgeStore:
             """
             INSERT INTO rag_knowledge_bases (
                 kb_id, owner_user_id, name, description, visibility, retrieval_mode,
-                is_default, created_at, updated_at, metadata_json
+                embedding_model, chunk_size, chunk_overlap, parent_chunk_size,
+                rerank_top_n, retrieval_top_k, is_default, created_at, updated_at, metadata_json
             )
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
             """,
             [
                 kb_id,
@@ -66,6 +70,12 @@ class RagKnowledgeStore:
                 payload.description,
                 payload.visibility,
                 payload.retrieval_mode,
+                payload.embedding_model,
+                payload.chunk_size,
+                payload.chunk_overlap,
+                payload.parent_chunk_size,
+                payload.rerank_top_n,
+                payload.retrieval_top_k,
                 is_default,
                 now,
                 now,
@@ -124,7 +134,9 @@ class RagKnowledgeStore:
         self._execute(
             """
             UPDATE rag_knowledge_bases
-            SET name = {p}, description = {p}, visibility = {p}, retrieval_mode = {p}, updated_at = {p}
+            SET name = {p}, description = {p}, visibility = {p}, retrieval_mode = {p},
+                embedding_model = {p}, chunk_size = {p}, chunk_overlap = {p}, parent_chunk_size = {p},
+                rerank_top_n = {p}, retrieval_top_k = {p}, updated_at = {p}
             WHERE kb_id = {p} AND owner_user_id = {p}
             """,
             [
@@ -132,6 +144,12 @@ class RagKnowledgeStore:
                 payload.description if payload.description is not None else kb.description,
                 payload.visibility or kb.visibility,
                 payload.retrieval_mode or kb.retrieval_mode,
+                payload.embedding_model or kb.embedding_model,
+                payload.chunk_size if payload.chunk_size is not None else kb.chunk_size,
+                payload.chunk_overlap if payload.chunk_overlap is not None else kb.chunk_overlap,
+                payload.parent_chunk_size if payload.parent_chunk_size is not None else kb.parent_chunk_size,
+                payload.rerank_top_n if payload.rerank_top_n is not None else kb.rerank_top_n,
+                payload.retrieval_top_k if payload.retrieval_top_k is not None else kb.retrieval_top_k,
                 now,
                 kb_id,
                 owner_user_id,
@@ -155,6 +173,11 @@ class RagKnowledgeStore:
         file_id = _optional_str(payload.get("file_id"))
         title = _optional_str(payload.get("title"))
         source_type = _optional_str(payload.get("source_type")) or "manual"
+        filename = _optional_str(payload.get("filename"))
+        file_type = _optional_str(payload.get("file_type"))
+        file_size = _optional_int(payload.get("file_size"))
+        file_path = _optional_str(payload.get("file_path"))
+        chunk_method = _optional_str(payload.get("chunk_method")) or "recursive"
         metadata: dict[str, Any] = {}
 
         if knowledge_item_id:
@@ -173,22 +196,30 @@ class RagKnowledgeStore:
                     "source": item.source,
                 }
             )
+            filename = filename or item.title
+            file_type = file_type or Path(item.storage_path).suffix.lower().lstrip(".")
+            file_path = file_path or item.storage_path
         elif payload.get("text"):
             metadata["text"] = str(payload["text"])
             for key in ("source", "source_url", "library_scope", "region", "doc_type"):
                 if payload.get(key) is not None:
                     metadata[key] = payload[key]
+        elif file_path:
+            metadata["file_path"] = file_path
+            metadata["filename"] = filename
+            metadata["file_type"] = file_type
 
         if not title:
-            title = "未命名文档"
+            title = filename or "未命名文档"
         self._execute(
             """
             INSERT INTO rag_documents (
-                doc_id, kb_id, owner_user_id, knowledge_item_id, file_id, title, source_type,
+                doc_id, kb_id, owner_user_id, knowledge_item_id, file_id,
+                filename, file_type, file_size, file_path, title, source_type, chunk_method,
                 status, parse_status, chunk_status, index_status, chunk_count, indexed_chunk_count,
-                error_message, created_at, updated_at, metadata_json
+                error_message, parse_progress, chunk_progress, error_stage, created_at, updated_at, metadata_json
             )
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
             """,
             [
                 doc_id,
@@ -196,12 +227,20 @@ class RagKnowledgeStore:
                 owner_user_id,
                 knowledge_item_id,
                 file_id,
+                filename,
+                file_type,
+                file_size,
+                file_path,
                 title,
                 source_type,
+                chunk_method,
                 "uploaded",
                 "uploaded",
                 "pending",
                 "pending",
+                0,
+                0,
+                None,
                 0,
                 0,
                 None,
@@ -229,27 +268,70 @@ class RagKnowledgeStore:
         doc = self._require_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
         parse_status = "parsed"
         error = None
+        metadata = dict(doc.metadata)
+        parse_progress = 100
+        error_stage = None
         if doc.knowledge_item_id:
             item = get_knowledge_service().store.get_visible_item(owner_user_id=owner_user_id, knowledge_item_id=doc.knowledge_item_id)
             if item is None:
                 parse_status = "failed"
                 error = "linked knowledge item is not visible"
+                parse_progress = 0
+                error_stage = "parse"
             elif item.parse_status not in {"parsed"} and item.index_status != "indexed":
                 parse_status = "failed"
                 error = f"linked knowledge item parse_status={item.parse_status}"
+                parse_progress = 0
+                error_stage = "parse"
         elif not doc.metadata.get("text"):
-            parse_status = "failed"
-            error = "document has no linked knowledge item or text payload"
+            file_path = doc.file_path or _optional_str(doc.metadata.get("file_path"))
+            if file_path:
+                try:
+                    parsed = get_file_parser_registry().parse(path=Path(file_path), mime_type=_mime_from_doc(doc))
+                    metadata.update(
+                        {
+                            "text": parsed.text,
+                            "parsed_markdown": parsed.markdown,
+                            "summary": parsed.summary,
+                            "parser_name": parsed.parser_name,
+                            "parser_version": parsed.parser_version,
+                            "ocr_used": parsed.ocr_used,
+                            "page_count": parsed.page_count,
+                            "sheet_count": parsed.sheet_count,
+                            "slide_count": parsed.slide_count,
+                            "chunk_metadata": [item.model_dump() for item in parsed.chunk_metadata],
+                            "parser_metadata": parsed.metadata,
+                        }
+                    )
+                    self._update_document_metadata(doc_id=doc.doc_id, metadata=metadata)
+                except KnowledgeParseError as exc:
+                    parse_status = "failed"
+                    error = str(exc)
+                    parse_progress = 0
+                    error_stage = "parse"
+                except Exception as exc:  # noqa: BLE001
+                    parse_status = "failed"
+                    error = f"{type(exc).__name__}: {exc}"
+                    parse_progress = 0
+                    error_stage = "parse"
+            else:
+                parse_status = "failed"
+                error = "document has no linked knowledge item, text payload, or file path"
+                parse_progress = 0
+                error_stage = "parse"
         return self._mark_document(
             doc=doc,
             parse_status=parse_status,
             chunk_status=doc.chunk_status,
             index_status=doc.index_status,
             error_message=error,
+            parse_progress=parse_progress,
+            error_stage=error_stage,
         )
 
     def chunk_document(self, *, owner_user_id: str, kb_id: str, doc_id: str) -> RagDocument:
         doc = self._require_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        kb = self.require_kb(owner_user_id=owner_user_id, kb_id=kb_id)
         texts: list[tuple[str, dict[str, Any], str | None]] = []
         if doc.knowledge_item_id:
             chunks = get_knowledge_service().store.list_chunks(doc.knowledge_item_id)
@@ -271,7 +353,10 @@ class RagKnowledgeStore:
                     )
                 )
         elif doc.metadata.get("text"):
-            for chunk in recursive_chunk_text(str(doc.metadata["text"])):
+            chunk_metadata = doc.metadata.get("chunk_metadata")
+            meta_by_index = chunk_metadata if isinstance(chunk_metadata, list) else []
+            for chunk in recursive_chunk_text(str(doc.metadata["text"]), chunk_size=kb.chunk_size, overlap=kb.chunk_overlap):
+                parsed_meta = meta_by_index[chunk.chunk_index] if chunk.chunk_index < len(meta_by_index) and isinstance(meta_by_index[chunk.chunk_index], dict) else {}
                 texts.append(
                     (
                         chunk.text,
@@ -283,6 +368,10 @@ class RagKnowledgeStore:
                             "source_url": doc.metadata.get("source_url"),
                             "region": doc.metadata.get("region"),
                             "doc_type": doc.metadata.get("doc_type"),
+                            "page_number": parsed_meta.get("page_number"),
+                            "sheet_name": parsed_meta.get("sheet_name"),
+                            "slide_number": parsed_meta.get("slide_number"),
+                            "section_title": parsed_meta.get("section_title"),
                         },
                         None,
                     )
@@ -295,20 +384,26 @@ class RagKnowledgeStore:
                 chunk_status="failed",
                 index_status=doc.index_status,
                 error_message="no chunks available",
+                chunk_progress=0,
+                error_stage="chunk",
             )
 
         self._execute("DELETE FROM rag_chunks WHERE doc_id = {p}", [doc_id])
         now = self.utcnow().isoformat()
         for index, (text, metadata, knowledge_chunk_id) in enumerate(texts):
             payload = _chunk_metadata(metadata)
+            keywords = _extract_keywords(text)
+            questions = _generate_questions(text)
+            token_count = max(1, len(text) // 2)
             self._execute(
                 """
                 INSERT INTO rag_chunks (
                     rag_chunk_id, kb_id, doc_id, owner_user_id, knowledge_chunk_id, parent_chunk_id,
-                    chunk_index, text, token_estimate, page_number, sheet_name, slide_number, section_title,
+                    chunk_index, text, token_estimate, token_count, keywords_json, questions_json, milvus_id,
+                    page_number, sheet_name, slide_number, section_title,
                     status, vector_status, dense_vector_json, sparse_vector_json, created_at, updated_at, metadata_json
                 )
-                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
                 """,
                 [
                     f"rag-chunk-{uuid4().hex[:12]}",
@@ -319,7 +414,11 @@ class RagKnowledgeStore:
                     None,
                     index,
                     text,
-                    max(1, len(text) // 2),
+                    token_count,
+                    token_count,
+                    json.dumps(keywords, ensure_ascii=False),
+                    json.dumps(questions, ensure_ascii=False),
+                    None,
                     payload.get("page_number"),
                     payload.get("sheet_name"),
                     payload.get("slide_number"),
@@ -341,6 +440,8 @@ class RagKnowledgeStore:
             chunk_count=len(texts),
             indexed_chunk_count=0,
             error_message=None,
+            chunk_progress=100,
+            error_stage=None,
         )
 
     def index_document(self, *, owner_user_id: str, kb_id: str, doc_id: str, vector_backend: str = "memory") -> RagDocument:
@@ -412,6 +513,7 @@ class RagKnowledgeStore:
                     """
                     UPDATE rag_chunks
                     SET vector_status = {p}, dense_vector_json = {p}, sparse_vector_json = {p}, updated_at = {p}
+                    , milvus_id = {p}
                     WHERE rag_chunk_id = {p}
                     """,
                     [
@@ -419,6 +521,7 @@ class RagKnowledgeStore:
                         json.dumps(dense_vector, ensure_ascii=False) if dense_vector is not None else None,
                         json.dumps(sparse_vector, ensure_ascii=False) if sparse_vector is not None else None,
                         now,
+                        chunk.rag_chunk_id if vector_result.backend.startswith("milvus") else None,
                         chunk.rag_chunk_id,
                     ],
                 )
@@ -442,6 +545,9 @@ class RagKnowledgeStore:
             index_status="indexed",
             indexed_chunk_count=vector_result.indexed_count,
             error_message=None,
+            parse_progress=100,
+            chunk_progress=100,
+            error_stage=None,
         )
 
     def list_chunks(self, *, owner_user_id: str, kb_id: str, doc_id: str | None = None) -> list[RagChunk]:
@@ -609,14 +715,18 @@ class RagKnowledgeStore:
                     "section_title": chunk.section_title,
                 }
             )
+            keywords = _extract_keywords(chunk.snippet)
+            questions = _generate_questions(chunk.snippet)
+            token_count = max(1, len(chunk.snippet) // 2)
             self._execute(
                 """
                 INSERT INTO rag_chunks (
                     rag_chunk_id, kb_id, doc_id, owner_user_id, knowledge_chunk_id, parent_chunk_id,
-                    chunk_index, text, token_estimate, page_number, sheet_name, slide_number, section_title,
+                    chunk_index, text, token_estimate, token_count, keywords_json, questions_json, milvus_id,
+                    page_number, sheet_name, slide_number, section_title,
                     status, vector_status, dense_vector_json, sparse_vector_json, created_at, updated_at, metadata_json
                 )
-                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
                 """,
                 [
                     f"rag-chunk-{uuid4().hex[:12]}",
@@ -627,7 +737,11 @@ class RagKnowledgeStore:
                     None,
                     index,
                     chunk.snippet,
-                    max(1, len(chunk.snippet) // 2),
+                    token_count,
+                    token_count,
+                    json.dumps(keywords, ensure_ascii=False),
+                    json.dumps(questions, ensure_ascii=False),
+                    None,
                     chunk.page_number,
                     chunk.sheet_name,
                     chunk.slide_number,
@@ -682,6 +796,78 @@ class RagKnowledgeStore:
         )
         return run_id
 
+    def record_eval_run(
+        self,
+        *,
+        owner_user_id: str,
+        kb_id: str | None,
+        metrics: dict[str, Any],
+        cases: list[dict[str, Any]],
+        passed: bool,
+    ) -> RagEvalRun:
+        if kb_id is not None:
+            self.require_kb(owner_user_id=owner_user_id, kb_id=kb_id)
+        now = self.utcnow().isoformat()
+        run_id = f"rag-eval-{uuid4().hex[:12]}"
+        self._execute(
+            """
+            INSERT INTO rag_eval_runs (run_id, kb_id, owner_user_id, metrics_json, passed, created_at)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p})
+            """,
+            [run_id, kb_id, owner_user_id, json.dumps(metrics, ensure_ascii=False), passed, now],
+        )
+        for case in cases:
+            self._execute(
+                """
+                INSERT INTO rag_eval_cases (
+                    case_id, run_id, kb_id, question, expected_json, result_json, hit, reciprocal_rank, created_at
+                )
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                """,
+                [
+                    str(case.get("case_id") or f"case-{uuid4().hex[:8]}"),
+                    run_id,
+                    kb_id,
+                    str(case.get("question") or ""),
+                    json.dumps(case.get("expected") or {}, ensure_ascii=False),
+                    json.dumps(case.get("result") or {}, ensure_ascii=False),
+                    bool(case.get("hit")),
+                    float(case.get("reciprocal_rank") or 0.0),
+                    now,
+                ],
+            )
+        return RagEvalRun(run_id=run_id, kb_id=kb_id, owner_user_id=owner_user_id, metrics=metrics, cases=cases, passed=passed, created_at=datetime.fromisoformat(now))
+
+    def list_eval_runs(self, *, owner_user_id: str) -> list[RagEvalRun]:
+        rows = self._select(
+            """
+            SELECT * FROM rag_eval_runs
+            WHERE owner_user_id = {p}
+            ORDER BY created_at DESC
+            LIMIT 50
+            """,
+            [owner_user_id],
+        )
+        return [self._row_to_eval_run(row, cases=[]) for row in rows]
+
+    def get_eval_run(self, *, owner_user_id: str, run_id: str) -> RagEvalRun | None:
+        rows = self._select("SELECT * FROM rag_eval_runs WHERE owner_user_id = {p} AND run_id = {p}", [owner_user_id, run_id])
+        if not rows:
+            return None
+        case_rows = self._select("SELECT * FROM rag_eval_cases WHERE run_id = {p} ORDER BY case_seq ASC", [run_id])
+        cases = [
+            {
+                "case_id": row["case_id"],
+                "question": row["question"],
+                "expected": _parse_json_object(row.get("expected_json")),
+                "result": _parse_json_object(row.get("result_json")),
+                "hit": bool(row.get("hit")),
+                "reciprocal_rank": float(row.get("reciprocal_rank") or 0.0),
+            }
+            for row in case_rows
+        ]
+        return self._row_to_eval_run(rows[0], cases=cases)
+
     def stats(self, *, owner_user_id: str | None = None) -> dict[str, int]:
         owner_clause = ""
         params: list[object] = []
@@ -724,6 +910,9 @@ class RagKnowledgeStore:
         chunk_count: int | None = None,
         indexed_chunk_count: int | None = None,
         error_message: str | None = None,
+        parse_progress: int | None = None,
+        chunk_progress: int | None = None,
+        error_stage: str | None = None,
     ) -> RagDocument:
         now = self.utcnow().isoformat()
         status = resolve_document_status(parse_status=parse_status, chunk_status=chunk_status, index_status=index_status)
@@ -731,7 +920,8 @@ class RagKnowledgeStore:
             """
             UPDATE rag_documents
             SET status = {p}, parse_status = {p}, chunk_status = {p}, index_status = {p},
-                chunk_count = {p}, indexed_chunk_count = {p}, error_message = {p}, updated_at = {p}
+                chunk_count = {p}, indexed_chunk_count = {p}, error_message = {p},
+                parse_progress = {p}, chunk_progress = {p}, error_stage = {p}, updated_at = {p}
             WHERE doc_id = {p}
             """,
             [
@@ -742,6 +932,9 @@ class RagKnowledgeStore:
                 doc.chunk_count if chunk_count is None else chunk_count,
                 doc.indexed_chunk_count if indexed_chunk_count is None else indexed_chunk_count,
                 error_message,
+                doc.parse_progress if parse_progress is None else parse_progress,
+                doc.chunk_progress if chunk_progress is None else chunk_progress,
+                error_stage,
                 now,
                 doc.doc_id,
             ],
@@ -835,7 +1028,19 @@ class RagKnowledgeStore:
         payload["metadata"] = _parse_json_object(payload.pop("metadata_json", None))
         payload["dense_vector"] = _parse_json_list(payload.pop("dense_vector_json", None))
         payload["sparse_vector"] = _parse_json_object(payload.pop("sparse_vector_json", None)) or None
+        payload["keywords"] = _parse_json_str_list(payload.pop("keywords_json", None))
+        payload["questions"] = _parse_json_str_list(payload.pop("questions_json", None))
+        if not payload.get("token_count"):
+            payload["token_count"] = payload.get("token_estimate") or 0
         return RagChunk.model_validate(payload)
+
+    @staticmethod
+    def _row_to_eval_run(row: dict[str, Any], *, cases: list[dict[str, Any]]) -> RagEvalRun:
+        payload = dict(row)
+        payload["metrics"] = _parse_json_object(payload.pop("metrics_json", None))
+        payload["passed"] = bool(payload.get("passed"))
+        payload["cases"] = cases
+        return RagEvalRun.model_validate(payload)
 
 
 def _chunk_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -860,6 +1065,15 @@ def _optional_str(value: Any) -> str | None:
     return normalized or None
 
 
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _parse_json_object(value: Any) -> dict[str, Any]:
     if not value:
         return {}
@@ -882,4 +1096,58 @@ def _parse_json_list(value: Any) -> list[float] | None:
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, list) else None
+
+
+def _parse_json_str_list(value: Any) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    try:
+        parsed = json.loads(str(value))
+    except json.JSONDecodeError:
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []
+
+
+def _mime_from_doc(doc: RagDocument) -> str:
+    file_type = (doc.file_type or Path(doc.file_path or "").suffix.lower().lstrip(".")).lower()
+    return {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "csv": "text/csv",
+        "md": "text/markdown",
+        "html": "text/html",
+        "txt": "text/plain",
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+    }.get(file_type, "application/octet-stream")
+
+
+def _extract_keywords(text: str, top_k: int = 5) -> list[str]:
+    words = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z]{3,}", text[:5000])
+    freq: dict[str, int] = {}
+    for word in words:
+        token = word.lower()
+        freq[token] = freq.get(token, 0) + 1
+    return [word for word, _ in sorted(freq.items(), key=lambda item: item[1], reverse=True)[:top_k]]
+
+
+def _generate_questions(text: str, count: int = 3) -> list[str]:
+    sentences = [part.strip() for part in re.split(r"[。！？!?\.]+", text[:2000]) if len(part.strip()) > 10]
+    questions: list[str] = []
+    for sentence in sentences[:count]:
+        preview = sentence[:30]
+        if "如何" in sentence or "怎么" in sentence:
+            questions.append(f"{preview} 的具体做法是什么？")
+        elif "是" in sentence or "为" in sentence:
+            questions.append(f"{preview} 具体指的是什么？")
+        else:
+            questions.append(f"这段内容中提到的“{preview}”是什么意思？")
+    while len(questions) < count:
+        questions.append("这段内容的核心观点是什么？")
+    return questions[:count]
 

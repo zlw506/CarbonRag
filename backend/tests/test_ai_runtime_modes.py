@@ -10,6 +10,8 @@ def test_ask_mode_contract() -> None:
         "enterprise_retrieve",
         "mixed_retrieve",
         "session_file_search",
+        "rag_pro_search",
+        "rag_pro_answer",
         "langchain_rag_search",
         "langchain_rag_answer",
         "report_carbon_extract_calc",

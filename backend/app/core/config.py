@@ -104,3 +104,10 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+def resolve_repo_path(path_value: str | Path) -> Path:
+    """Resolve relative runtime paths against the repository root, not process cwd."""
+
+    path = Path(path_value)
+    return path if path.is_absolute() else REPO_ROOT / path

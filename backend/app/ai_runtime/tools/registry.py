@@ -41,6 +41,8 @@ def build_default_registry() -> ToolRegistry:
         EnterpriseRetrieveTool(),
         MixedRetrieveTool(),
         SessionFileSearchTool(),
+        LangChainRagSearchTool(tool_name="rag_pro_search"),
+        LangChainRagAnswerTool(tool_name="rag_pro_answer"),
         LangChainRagSearchTool(),
         LangChainRagAnswerTool(),
         ReportCarbonExtractCalcTool(),

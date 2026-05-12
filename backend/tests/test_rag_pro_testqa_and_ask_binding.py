@@ -50,12 +50,12 @@ class CaptureRagTool(BaseTool):
 
     @property
     def definition(self) -> ToolDefinition:
-        return ToolDefinition(name="langchain_rag_search", description="capture RAG tool")
+        return ToolDefinition(name="rag_pro_search", description="capture RAG-Pro tool")
 
     def invoke(self, *, arguments: Mapping[str, Any], context: Mapping[str, Any], trace_id: str) -> ToolResult:
         self.last_arguments = dict(arguments)
         return ToolResult(
-            name="langchain_rag_search",
+            name="rag_pro_search",
             status="success",
             output={
                 "hits": [],

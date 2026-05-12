@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from app.core.config import get_settings
+from app.core.config import get_settings, resolve_repo_path
 from app.rag.kb.models import RagHit
 
 
@@ -47,8 +47,9 @@ class BgeReranker:
             return False
         if settings.rag_hf_endpoint and not os.environ.get("HF_ENDPOINT"):
             os.environ["HF_ENDPOINT"] = settings.rag_hf_endpoint
-        os.environ.setdefault("HF_HOME", str(Path(settings.rag_model_cache_dir).parent / "hf-cache"))
-        os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(Path(settings.rag_model_cache_dir).parent / "hf-cache" / "hub"))
+        model_cache_dir = resolve_repo_path(settings.rag_model_cache_dir)
+        os.environ.setdefault("HF_HOME", str(model_cache_dir.parent / "hf-cache"))
+        os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(model_cache_dir.parent / "hf-cache" / "hub"))
         try:
             import builtins
             from typing import Optional
@@ -59,7 +60,7 @@ class BgeReranker:
         except Exception as exc:  # noqa: BLE001
             self._error = f"FlagEmbedding is not installed; real rerank unavailable: {exc}"
             return False
-        local_path = Path(settings.rag_model_cache_dir) / "BAAI" / "bge-reranker-v2-m3"
+        local_path = model_cache_dir / "BAAI" / "bge-reranker-v2-m3"
         if not _looks_like_model_dir(local_path) and not settings.rag_model_auto_download:
             self._error = (
                 "BGE reranker local model is missing and auto-download is disabled; "

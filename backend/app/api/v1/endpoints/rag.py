@@ -1,4 +1,6 @@
 import logging
+import json
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,7 +9,7 @@ from app.auth.dependencies import require_admin, require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
 from app.knowledge import get_knowledge_service
 from app.knowledge.schemas import KnowledgeItemListFilters
-from app.rag.kb.models import RagAnswerResult, RagHealth, RagSearchRequest, RagSearchResult, RagStats
+from app.rag.kb.models import RagAnswerResult, RagEvalCase, RagEvalRun, RagHealth, RagSearchRequest, RagSearchResult, RagStats
 from app.rag.schemas import (
     RagExperimentalRetrievalStrategy,
     RagGraphMode,
@@ -58,6 +60,15 @@ class RagRebuildRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scope: str = "all"
+
+
+class RagEvalRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kb_id: str | None = None
+    mode: str = "hybrid_rerank"
+    top_k: int = Field(default=5, ge=1, le=20)
+    cases: list[RagEvalCase] | None = None
 
 def _resolve_visible_knowledge_item_ids(
     *,
@@ -236,3 +247,56 @@ def rag_test_qa(
             }
         ),
     )
+
+
+@router.post("/eval/run", response_model=RagEvalRun)
+def rag_eval_run(
+    payload: RagEvalRunRequest,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> RagEvalRun:
+    cases = payload.cases or _load_default_eval_cases(kb_id=payload.kb_id)
+    if not cases:
+        raise HTTPException(status_code=422, detail="No RAG eval cases were provided or found.")
+    return get_rag_spine_service().run_eval(
+        owner_user_id=current_user.user_id,
+        kb_id=payload.kb_id,
+        cases=cases,
+        mode=payload.mode,
+        top_k=payload.top_k,
+    )
+
+
+@router.get("/eval/runs", response_model=list[RagEvalRun])
+def rag_eval_runs(
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> list[RagEvalRun]:
+    return get_rag_spine_service().list_eval_runs(owner_user_id=current_user.user_id)
+
+
+@router.get("/eval/runs/{run_id}", response_model=RagEvalRun)
+def rag_eval_run_detail(
+    run_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> RagEvalRun:
+    try:
+        return get_rag_spine_service().get_eval_run(owner_user_id=current_user.user_id, run_id=run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="RAG eval run not found") from exc
+
+
+def _load_default_eval_cases(*, kb_id: str | None) -> list[RagEvalCase]:
+    path = Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "rag" / "gold_questions.json"
+    if not path.exists():
+        return []
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    records = raw.get("cases", raw) if isinstance(raw, dict) else raw
+    if not isinstance(records, list):
+        return []
+    cases: list[RagEvalCase] = []
+    for record in records:
+        if isinstance(record, dict):
+            payload = dict(record)
+            if kb_id and not payload.get("expected_kb_id"):
+                payload["expected_kb_id"] = kb_id
+            cases.append(RagEvalCase.model_validate(payload))
+    return cases

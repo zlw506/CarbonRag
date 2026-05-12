@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.auth.dependencies import require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
+from app.core.config import REPO_ROOT, get_settings
+from app.files.service import FileService
 from app.rag.kb.models import KnowledgeBase, KnowledgeBaseCreate, KnowledgeBaseUpdate, RagChunk, RagDocument, RagDocumentCreate
 from app.rag.spine import get_rag_spine_service
 
@@ -81,8 +85,64 @@ def list_documents(
         raise HTTPException(status_code=404, detail="knowledge base not found") from exc
 
 
+@router.post("/{kb_id}/documents/upload", response_model=RagDocument)
+async def upload_document_to_kb(
+    kb_id: str,
+    file: UploadFile = File(...),
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> RagDocument:
+    """Upload a file directly into the RAG-Pro knowledge-base document pipeline."""
+
+    content = await file.read()
+    filename = file.filename or "upload.bin"
+    mime_type = file.content_type or "application/octet-stream"
+    try:
+        FileService().validate_upload(filename=filename, mime_type=mime_type, size=len(content))
+        suffix = Path(filename).suffix.lower()
+        stored_name = f"kb-upload-{uuid4().hex[:12]}{suffix}"
+        root = Path(get_settings().upload_dir)
+        upload_root = root if root.is_absolute() else REPO_ROOT / root
+        target_dir = upload_root / "kb" / kb_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_path = target_dir / stored_name
+        target_path.write_bytes(content)
+        return get_rag_spine_service().create_document(
+            owner_user_id=current_user.user_id,
+            kb_id=kb_id,
+            payload=RagDocumentCreate(
+                title=filename,
+                filename=filename,
+                file_type=suffix.lstrip("."),
+                file_size=len(content),
+                file_path=str(target_path),
+                source_type="private_upload",
+                chunk_method="recursive",
+            ),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="knowledge base not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except TypeError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+    finally:
+        await file.close()
+
+
 @router.get("/{kb_id}/documents/{doc_id}", response_model=RagDocument)
 def get_document(
+    kb_id: str,
+    doc_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> RagDocument:
+    try:
+        return get_rag_spine_service().get_document(owner_user_id=current_user.user_id, kb_id=kb_id, doc_id=doc_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="document not found") from exc
+
+
+@router.get("/{kb_id}/documents/{doc_id}/status", response_model=RagDocument)
+def get_document_status(
     kb_id: str,
     doc_id: str,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),

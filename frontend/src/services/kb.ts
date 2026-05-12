@@ -6,7 +6,16 @@ export async function listKnowledgeBases() {
     return response.data;
 }
 
-export async function createKnowledgeBase(payload: { name: string; description?: string }) {
+export async function createKnowledgeBase(payload: {
+    name: string;
+    description?: string;
+    embedding_model?: string;
+    chunk_size?: number;
+    chunk_overlap?: number;
+    parent_chunk_size?: number | null;
+    rerank_top_n?: number;
+    retrieval_top_k?: number;
+}) {
     const response = await httpClient.post<KnowledgeBase>("/v1/kb", payload);
     return response.data;
 }
@@ -18,6 +27,20 @@ export async function createKbDocument(kbId: string, payload: { knowledge_item_i
 
 export async function listKbDocuments(kbId: string) {
     const response = await httpClient.get<RagDocument[]>(`/v1/kb/${encodeURIComponent(kbId)}/documents`);
+    return response.data;
+}
+
+export async function uploadKbDocument(kbId: string, file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await httpClient.post<RagDocument>(`/v1/kb/${encodeURIComponent(kbId)}/documents/upload`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data;
+}
+
+export async function getKbDocumentStatus(kbId: string, docId: string) {
+    const response = await httpClient.get<RagDocument>(`/v1/kb/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/status`);
     return response.data;
 }
 
