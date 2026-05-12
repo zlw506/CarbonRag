@@ -15,6 +15,6 @@ def test_system_info() -> None:
     assert response.status_code == 200
     assert payload["app_name"] == "CarbonRag"
     assert payload["api_prefix"] == "/api/v1"
-    assert payload["model_provider_mode"] == "openai_compatible"
+    assert payload["model_provider_mode"] == "ollama"
     assert payload["model_name"] == get_chat_provider().describe().default_model
     assert "timestamp" in payload

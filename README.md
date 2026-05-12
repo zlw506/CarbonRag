@@ -1,6 +1,6 @@
 # CarbonRag
 
-当前状态：`V1.6.16 本地开源 LLM Runtime / RAG-Pro 主脊柱由 #1 负责推进 / #2/#3 继续按 PR 并线`
+当前状态：`V1.6.17 本地 Ollama / DeepSeek Provider Runtime / RAG-Pro 主脊柱由 #1 负责推进 / #2/#3 继续按 PR 并线`
 
 CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标不是做一个泛用聊天壳，而是把“政策问答、私有知识、碳核算、报告生成、反馈闭环、多人治理”整合成一套可试用、可部署、可协作演进的垂直系统。
 
@@ -12,7 +12,7 @@ CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标
 - GitNexus + Codex MCP 怎么跑：看 [docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md](docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md)
 - Mattermost + Codex 多 Agent 协同怎么跑：看 [docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md](docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md)
 - RAG-Pro / Milvus / BGE-M3 怎么跑：看 [docs/architecture/RAG_RUNTIME_PROFILES.md](docs/architecture/RAG_RUNTIME_PROFILES.md)
-- 本地 DeepSeek / Ollama / vLLM / LM Studio 怎么接：看 [docs/architecture/LOCAL_LLM_RUNTIME_PROFILES.md](docs/architecture/LOCAL_LLM_RUNTIME_PROFILES.md)
+- 本地 Ollama / DeepSeek-R1 / vLLM / LM Studio 怎么接：看 [docs/architecture/LOCAL_LLM_RUNTIME_PROFILES.md](docs/architecture/LOCAL_LLM_RUNTIME_PROFILES.md) 和 [docs/architecture/LOCAL_LLM_PROVIDER_ARCHITECTURE.md](docs/architecture/LOCAL_LLM_PROVIDER_ARCHITECTURE.md)
 - PR 怎么审：看 [docs/governance/PR_REVIEW_RUNBOOK.md](docs/governance/PR_REVIEW_RUNBOOK.md)
 - 本地怎么跑：看 [docs/DEVELOPMENT_BOOTSTRAP.md](docs/DEVELOPMENT_BOOTSTRAP.md)
 - 云端怎么部署：看 [docs/deploy/VPS_BACKEND_DEPLOY.md](docs/deploy/VPS_BACKEND_DEPLOY.md) 和 [docs/deploy/NETLIFY_FRONTEND.md](docs/deploy/NETLIFY_FRONTEND.md)
@@ -63,7 +63,7 @@ V1.4.x 初步方向：
 - private / mixed 检索以当前 session 已挂接知识条目为边界。
 - V1.6.x 正在迁移 RAG-Pro 主脊柱：KnowledgeBase、Document、Chunk、RRF hybrid、BGE-M3、bge reranker、Milvus runtime 和 test QA。
 - Windows 默认 RAG 向量库为 Docker Milvus Standalone：`RAG_VECTOR_BACKEND=milvus`、`RAG_MILVUS_URI=http://127.0.0.1:19530`；WSL/Linux/macOS 才使用 `milvus_lite + .db`。
-- V1.6.16 起，开发默认聊天生成路线切向本地 OpenAI-compatible LLM：`MODEL_API_BASE_URL=http://127.0.0.1:11434/v1`、`MODEL_NAME=deepseek-r1:8b`。RAG-Pro 不自带聊天模型权重，离线聊天模型包由 #1 单独分发，放在 `data/outputs/models/LLM/<model-name>/`。
+- V1.6.17 起，local-dev 默认聊天生成路线切向 Ollama native API：`AI_CHAT_PROVIDER=ollama`、`OLLAMA_BASE_URL=http://localhost:11434`、`OLLAMA_MODEL=deepseek-r1:8b`。OpenAI-compatible `http://localhost:11434/v1` 只作为兼容路线；云端 VPS 默认不能访问用户本机 Ollama。RAG-Pro 不自带聊天模型权重，离线聊天模型包由 #1 单独分发，放在 `data/outputs/models/LLM/<model-name>/`。
 
 ### 会话文件读取
 

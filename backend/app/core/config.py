@@ -15,15 +15,25 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     api_prefix: str = "/api/v1"
-    model_provider_mode: str = "openai_compatible"
+    ai_chat_provider: str = "ollama"
+    model_provider_mode: str = "ollama"
 
-    model_api_base_url: str = "http://127.0.0.1:11434/v1"
-    model_api_key: str = "ollama-local-key"
+    model_api_base_url: str = "http://127.0.0.1:11434"
+    model_api_key: str = ""
     model_name: str = "deepseek-r1:8b"
     model_temperature: float = 0.2
     model_max_tokens: int = 4096
-    model_timeout_seconds: float = 120.0
-    model_max_retries: int = 2
+    model_timeout_seconds: float = 180.0
+    model_max_retries: int = 1
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "deepseek-r1:8b"
+    ollama_timeout_seconds: float = 180.0
+    ollama_max_retries: int = 1
+    ollama_num_ctx: int = 8192
+    ollama_keep_alive: str = "10m"
+    ollama_think: bool = True
+    rag_generation_provider: str = "ollama"
+    rag_generation_model: str = "deepseek-r1:8b"
 
     embedding_api_base_url: str = "https://api.example.com/v1"
     embedding_api_key: str = "replace-with-embedding-api-key"

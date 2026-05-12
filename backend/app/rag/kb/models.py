@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.settings.schemas import LocalProviderOverride
 
 
 KnowledgeBaseVisibility = Literal["private", "shared", "public"]
@@ -150,6 +151,7 @@ class RagSearchRequest(BaseModel):
     mode: RagRetrievalMode = "hybrid_rerank"
     top_k: int = Field(default=5, ge=1, le=50)
     allowed_knowledge_item_ids: list[str] = Field(default_factory=list)
+    provider_override: LocalProviderOverride | None = None
 
     @field_validator("query")
     @classmethod
@@ -206,6 +208,10 @@ class RagTrace(BaseModel):
     retrieval_mode: RagRetrievalMode = "hybrid_rerank"
     kb_id: str | None = None
     knowledge_scope: str = "mixed"
+    generation_provider: str | None = None
+    generation_model: str | None = None
+    provider_ref: str | None = None
+    thinking_content: str | None = None
 
 
 class RagSearchResult(BaseModel):

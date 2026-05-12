@@ -48,6 +48,7 @@ type ProviderDraft = {
     modelName: string;
     storageMode: CredentialStorageMode;
     models: string[];
+    configJson: Record<string, unknown>;
 };
 
 const providerTypeOptions = [
@@ -69,6 +70,27 @@ function buildBlankProviderDraft(storageMode: CredentialStorageMode = "local_onl
         modelName: "",
         storageMode,
         models: [],
+        configJson: {},
+    };
+}
+
+function buildOllamaDeepSeekDraft(storageMode: CredentialStorageMode = "local_only"): ProviderDraft {
+    return {
+        providerType: "ollama",
+        displayName: "本地 DeepSeek-R1 8B",
+        baseUrl: "http://localhost:11434",
+        apiKey: "",
+        modelName: "deepseek-r1:8b",
+        storageMode,
+        models: ["deepseek-r1:8b"],
+        configJson: {
+            timeout_seconds: 180,
+            max_retries: 1,
+            temperature: 0.2,
+            num_ctx: 8192,
+            keep_alive: "10m",
+            think: true,
+        },
     };
 }
 
@@ -385,6 +407,7 @@ export function SettingsPage() {
                 base_url: providerDraft.baseUrl || undefined,
                 api_key: providerDraft.apiKey || undefined,
                 model_name: providerDraft.modelName || undefined,
+                config_json: providerDraft.configJson,
             });
             setProviderDraft((current) => ({
                 ...current,
@@ -408,6 +431,7 @@ export function SettingsPage() {
                 base_url: providerDraft.baseUrl || undefined,
                 api_key: providerDraft.apiKey || undefined,
                 model_name: providerDraft.modelName || undefined,
+                config_json: providerDraft.configJson,
             });
             if (result.ok) {
                 messageApi.success(result.message);
@@ -441,7 +465,7 @@ export function SettingsPage() {
                     base_url: providerDraft.baseUrl || undefined,
                     api_key: providerDraft.apiKey || undefined,
                     model_name: providerDraft.modelName || undefined,
-                    config_json: {},
+                    config_json: providerDraft.configJson,
                 });
                 await handleSetActiveProvider(`local:${profileId}`);
             } else {
@@ -451,7 +475,7 @@ export function SettingsPage() {
                     base_url: providerDraft.baseUrl || undefined,
                     api_key: providerDraft.apiKey || undefined,
                     model_name: providerDraft.modelName || undefined,
-                    config_json: {},
+                    config_json: providerDraft.configJson,
                     storage_mode: "account" as const,
                 };
                 let profileId = providerDraft.profileId;
@@ -482,6 +506,7 @@ export function SettingsPage() {
             modelName: profile.model_name ?? "",
             storageMode: "account",
             models: [],
+            configJson: profile.config_json ?? {},
         });
     }
 
@@ -495,6 +520,7 @@ export function SettingsPage() {
             modelName: profile.model_name ?? "",
             storageMode: "local_only",
             models: [],
+            configJson: profile.config_json ?? {},
         });
     }
 
@@ -803,6 +829,9 @@ export function SettingsPage() {
                 <Button icon={<CloudServerOutlined />} onClick={() => void handleSetActiveProvider("builtin:carbonrag-cloud")}>
                     切回默认云端
                 </Button>
+                <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildOllamaDeepSeekDraft("local_only"))}>
+                    一键填充 Ollama / DeepSeek-R1 8B
+                </Button>
                 <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildBlankProviderDraft("local_only"))}>
                     新建本地 Provider
                 </Button>
@@ -884,12 +913,24 @@ export function SettingsPage() {
                             </Typography.Text>
                         </div>
                         <Space wrap>
-                            <Button loading={testingProvider} onClick={() => void handleDiscoverModels()}>刷新模型</Button>
-                            <Button loading={testingProvider} onClick={() => void handleTestProvider()}>测试连接</Button>
+                            <Button loading={testingProvider} onClick={() => void handleDiscoverModels()}>
+                                {providerDraft.providerType === "ollama" ? "刷新本地模型" : "刷新模型"}
+                            </Button>
+                            <Button loading={testingProvider} onClick={() => void handleTestProvider()}>
+                                {providerDraft.providerType === "ollama" ? "测试 Ollama" : "测试连接"}
+                            </Button>
                             <Button type="primary" loading={savingProvider} icon={<SaveOutlined />} onClick={() => void handleSaveProvider()}>
                                 保存 Provider
                             </Button>
                         </Space>
+                        {providerDraft.providerType === "ollama" ? (
+                            <Alert
+                                type="info"
+                                showIcon
+                                message="Ollama 本地模型只保证 local-dev"
+                                description="后端必须和 Ollama 在同一台机器上，默认访问 http://localhost:11434。公网 VPS 不能直接访问你电脑上的 localhost。"
+                            />
+                        ) : null}
                     </Space>
                 </Card>
             </div>

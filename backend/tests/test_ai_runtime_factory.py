@@ -18,8 +18,8 @@ def test_provider_factory_returns_chat_and_embedding_descriptors() -> None:
     rerank_descriptor = rerank_provider.describe()
 
     assert chat_descriptor.provider_type == "chat"
-    assert chat_descriptor.mode == "openai_compatible"
-    assert chat_descriptor.default_model == "gpt-5.4"
+    assert chat_descriptor.mode == "ollama"
+    assert chat_descriptor.default_model == "deepseek-r1:8b"
     assert embedding_descriptor.provider_type == "embedding"
     assert embedding_descriptor.mode == "openai_compatible"
     assert embedding_descriptor.default_model is not None

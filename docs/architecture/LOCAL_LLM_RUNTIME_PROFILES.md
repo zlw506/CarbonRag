@@ -1,8 +1,6 @@
 # Local LLM Runtime Profiles
 
-CarbonRag V1.6.16 switches the default chat runtime direction from a slow cloud proxy to a local open-source chat model profile.
-
-Current status: the local DeepSeek chat model package and Ollama runtime are not yet prepared. This document freezes the supported integration profiles and smoke path; it does not claim that a local chat model is already available on every developer machine.
+CarbonRag V1.6.17 promotes Ollama native chat API to the default local-dev generation route.
 
 ## Decision
 
@@ -12,41 +10,61 @@ RAG-Pro provides:
 
 - local retrieval model defaults: `BAAI/bge-m3`
 - local reranker defaults: `BAAI/bge-reranker-v2-m3`
-- configurable chat LLM providers: OpenAI-compatible, DeepSeek API, Ollama, vLLM, and similar provider endpoints
+- configurable chat LLM providers: OpenAI-compatible, DeepSeek API, Ollama, vLLM, LM Studio, and similar endpoints
 
-CarbonRag therefore keeps BGE-M3 for retrieval and uses a local OpenAI-compatible chat endpoint for answer generation.
+CarbonRag therefore keeps BGE-M3 for retrieval and uses Ollama `deepseek-r1:8b` for local answer generation.
 
-## Recommended Route: Ollama + DeepSeek
+## Recommended Route: Ollama Native API
 
-Use Ollama when the target machine needs the lowest-friction local model runtime.
+Use this profile when the backend and Ollama run on the same developer machine.
 
 ```env
-MODEL_PROVIDER_MODE=openai_compatible
-MODEL_API_BASE_URL=http://127.0.0.1:11434/v1
-MODEL_API_KEY=ollama-local-key
-MODEL_NAME=deepseek-r1:8b
-MODEL_TIMEOUT_SECONDS=120
+AI_CHAT_PROVIDER=ollama
+MODEL_PROVIDER_MODE=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=deepseek-r1:8b
+OLLAMA_TIMEOUT_SECONDS=180
+OLLAMA_NUM_CTX=8192
+OLLAMA_KEEP_ALIVE=10m
+OLLAMA_THINK=true
+RAG_GENERATION_PROVIDER=ollama
+RAG_GENERATION_MODEL=deepseek-r1:8b
 ```
 
 Profile file:
 
 ```text
-.env.llm.ollama-deepseek.example
+.env.llm.ollama-local.example
 ```
 
 Smoke test:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/llm-smoke-openai-compatible.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/llm-ollama-smoke.ps1
 ```
 
-If Ollama is used through the Settings page instead of `.env`, choose `Ollama`, base URL `http://localhost:11434/api`, and model `deepseek-r1:8b`.
+The smoke checks `/api/tags` and `/api/chat`, and verifies that the model tag `deepseek-r1:8b` exists.
+
+## Ollama OpenAI-Compatible Route
+
+Use this only when a tool requires OpenAI-compatible `/v1/chat/completions`.
+
+```env
+AI_CHAT_PROVIDER=openai_compatible
+MODEL_PROVIDER_MODE=openai_compatible
+MODEL_API_BASE_URL=http://127.0.0.1:11434/v1
+MODEL_API_KEY=ollama
+MODEL_NAME=deepseek-r1:8b
+```
+
+Native Ollama is still preferred because CarbonRag can preserve `message.thinking`, `keep_alive`, and `num_ctx` more directly.
 
 ## vLLM Route
 
 Use vLLM when the machine has enough GPU memory and serves a local model through an OpenAI-compatible endpoint.
 
 ```env
+AI_CHAT_PROVIDER=openai_compatible
 MODEL_PROVIDER_MODE=openai_compatible
 MODEL_API_BASE_URL=http://127.0.0.1:8001/v1
 MODEL_API_KEY=vllm-local-key
@@ -64,6 +82,7 @@ Profile file:
 Use LM Studio when a GUI-managed local model is preferred.
 
 ```env
+AI_CHAT_PROVIDER=openai_compatible
 MODEL_PROVIDER_MODE=openai_compatible
 MODEL_API_BASE_URL=http://127.0.0.1:1234/v1
 MODEL_API_KEY=lm-studio-local-key
@@ -75,6 +94,13 @@ Profile file:
 ```text
 .env.llm.lmstudio.example
 ```
+
+## Local-Dev vs Cloud
+
+- Local-dev: backend and Ollama are on the same machine, so `http://localhost:11434` works.
+- Cloud: Netlify + VPS cannot access a user's local `localhost`; switch active provider back to `carbonrag_cloud` / `openai_compatible`, or deploy a reachable remote Ollama endpoint.
+
+Do not test cloud behavior by pointing the VPS backend to a developer laptop's localhost. It cannot work.
 
 ## Offline Model Package Placement
 
@@ -106,12 +132,13 @@ data/outputs/models/BAAI/bge-reranker-v2-m3
 
 Before claiming local LLM readiness:
 
-1. Start the local model server.
-2. Confirm `MODEL_API_BASE_URL` points to the local OpenAI-compatible endpoint.
-3. Run `scripts/llm-smoke-openai-compatible.ps1`.
-4. Run a KnowledgeBaseWorkbench Test QA that returns `answer_mode=llm_grounded`.
+1. Start Ollama.
+2. Confirm `ollama list` includes `deepseek-r1:8b`.
+3. Run `scripts/llm-ollama-smoke.ps1`.
+4. Run a KnowledgeBaseWorkbench Test QA and confirm `answer_mode=llm_grounded`.
 5. Run AskPage with a selected KB and confirm citations plus retrieval trace.
+6. Confirm trace includes `provider=ollama` and `model=deepseek-r1:8b`.
 
-Cloud chat API fallback is allowed for emergency comparison only. It is not the V1.6.16 default route.
+Cloud chat API fallback is allowed for emergency comparison only. It is not the V1.6.17 local-dev default route.
 
 If the project chooses an embedded model-loading route instead of an external local HTTP endpoint, update this document and the `.env.llm.*.example` profiles before asking other teams to reproduce it.

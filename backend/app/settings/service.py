@@ -11,6 +11,7 @@ from app.ai_runtime.providers.base import BaseChatProvider
 from app.ai_runtime.providers.chat_openai_compatible import OpenAICompatibleChatProvider
 from app.ai_runtime.providers.gemini_chat import GeminiChatProvider
 from app.ai_runtime.providers.ollama_chat import OllamaChatProvider
+from app.ai_runtime.providers.ollama_client import OllamaClient
 from app.core.config import get_settings
 from app.settings.crypto import decrypt_secret, encrypt_secret
 from app.settings.schemas import (
@@ -252,10 +253,7 @@ def discover_models_for_connection(*, provider_type: str, base_url: str | None, 
     if provider_type == "ollama":
         if not base_url:
             raise SettingsValidationError("Ollama 需要 Base URL。")
-        response = httpx.get(f"{base_url.rstrip('/')}/tags", timeout=15.0)
-        response.raise_for_status()
-        payload = response.json()
-        return [item["name"] for item in payload.get("models", []) if isinstance(item, dict) and item.get("name")]
+        return OllamaClient(base_url=base_url, timeout_seconds=15.0).list_models()
 
     if provider_type in {"openai_compatible", "openai", "deepseek"}:
         if not base_url:
@@ -298,6 +296,9 @@ def build_chat_provider_from_resolved(resolved: ResolvedProviderConfig) -> BaseC
     max_tokens = int(resolved.config_json.get("max_tokens") or get_settings().model_max_tokens)
     temperature = float(resolved.config_json.get("temperature") or get_settings().model_temperature)
     max_retries = int(resolved.config_json.get("max_retries") or get_settings().model_max_retries)
+    num_ctx = resolved.config_json.get("num_ctx")
+    keep_alive = resolved.config_json.get("keep_alive")
+    think = resolved.config_json.get("think")
 
     if resolved.provider_type in {"carbonrag_cloud", "openai_compatible", "openai", "deepseek"}:
         runtime = get_ai_runtime_config().chat_provider
@@ -313,10 +314,16 @@ def build_chat_provider_from_resolved(resolved: ResolvedProviderConfig) -> BaseC
         )
 
     if resolved.provider_type == "ollama":
+        settings = get_settings()
         return OllamaChatProvider(
-            base_url=resolved.base_url or _normalize_base_url("ollama", None) or "http://localhost:11434/api",
-            model_name=resolved.model_name or "llama3.1:8b",
+            base_url=resolved.base_url or settings.ollama_base_url or _normalize_base_url("ollama", None) or "http://localhost:11434",
+            model_name=resolved.model_name or settings.ollama_model or "deepseek-r1:8b",
+            temperature=temperature,
             timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            num_ctx=int(num_ctx) if num_ctx is not None else settings.ollama_num_ctx,
+            keep_alive=str(keep_alive) if keep_alive is not None else settings.ollama_keep_alive,
+            think=_coerce_bool(think) if think is not None else settings.ollama_think,
         )
 
     if resolved.provider_type == "anthropic":
@@ -348,3 +355,11 @@ def build_chat_provider_from_resolved(resolved: ResolvedProviderConfig) -> BaseC
 
 def get_settings_service() -> SettingsService:
     return SettingsService()
+
+
+def _coerce_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)

@@ -39,9 +39,11 @@ class RagSpineService:
         *,
         store: RagKnowledgeStore | None = None,
         chat_provider: BaseChatProvider | None = None,
+        provider_ref: str | None = None,
     ) -> None:
         self.store = store or RagKnowledgeStore()
         self.chat_provider = chat_provider or get_chat_provider()
+        self.provider_ref = provider_ref
         self.reranker = BgeReranker()
 
     def list_kbs(self, *, owner_user_id: str) -> list[KnowledgeBase]:
@@ -154,6 +156,7 @@ class RagSpineService:
             query=request.query,
             search_result=result,
             chat_provider=self.chat_provider,
+            provider_ref=self.provider_ref,
         )
         return RagAnswerResult(
             answer=answer["answer"],
@@ -174,6 +177,7 @@ class RagSpineService:
             query=request.query,
             search_result=search_result,
             chat_provider=self.chat_provider,
+            provider_ref=self.provider_ref,
         )
         kb_id = request.kb_id or result["retrieval_trace"].kb_id
         run_id = None

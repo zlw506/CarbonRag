@@ -27,6 +27,14 @@ class FakeChatProvider(BaseChatProvider):
         return ChatCompletionResult(content="双碳目标包括碳达峰和碳中和。", metadata={"fake": True})
 
 
+class FakeSettingsService:
+    def __init__(self, chat_provider: BaseChatProvider) -> None:
+        self.chat_provider = chat_provider
+
+    def build_chat_provider(self, **kwargs):  # noqa: ANN003
+        return SimpleNamespace(provider_ref="test:fake-provider"), self.chat_provider
+
+
 def build_rag_service(tmp_path):
     return RagSpineService(
         store=RagKnowledgeStore(sqlite_db_path=tmp_path / "carbonrag.sqlite3"),
@@ -39,6 +47,7 @@ def test_kb_document_status_and_test_qa(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("app.rag.spine.get_settings", lambda: SimpleNamespace(rag_vector_backend="memory"))
     monkeypatch.setattr("app.api.v1.endpoints.kb.get_rag_spine_service", lambda: service)
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_spine_service", lambda: service)
+    monkeypatch.setattr("app.api.v1.endpoints.rag.get_settings_service", lambda: FakeSettingsService(service.chat_provider))
     patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
     register_and_login(client, prefix="rag-spine")
@@ -91,6 +100,7 @@ def test_kb_defaults_upload_status_answer_and_eval(monkeypatch, tmp_path) -> Non
     monkeypatch.setattr("app.rag.spine.get_settings", lambda: SimpleNamespace(rag_vector_backend="memory"))
     monkeypatch.setattr("app.api.v1.endpoints.kb.get_rag_spine_service", lambda: service)
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_spine_service", lambda: service)
+    monkeypatch.setattr("app.api.v1.endpoints.rag.get_settings_service", lambda: FakeSettingsService(service.chat_provider))
     patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
     register_and_login(client, prefix="rag-parity")

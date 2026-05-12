@@ -1,6 +1,7 @@
 import { httpClient } from "./http";
 import type { RagRetrievalResult, RagRetrieveRequest } from "../types/rag";
 import type { RagEvalRun, RagSearchResult, RagTestQAResult, RagRetrievalMode } from "../types/kb";
+import type { LocalProviderOverride } from "../types/settings";
 
 export async function retrieveRagEvidence(payload: RagRetrieveRequest) {
     const response = await httpClient.post<RagRetrievalResult>("/v1/rag/retrieve", payload);
@@ -29,6 +30,7 @@ export async function runRagTestQA(payload: {
     mode?: RagRetrievalMode;
     top_k?: number;
     knowledge_scope?: "public" | "private_sample" | "mixed";
+    provider_override?: LocalProviderOverride;
 }) {
     const response = await httpClient.post<RagTestQAResult>("/v1/rag/test-qa", {
         knowledge_scope: "mixed",

@@ -249,6 +249,7 @@ def run_stream_worker(
             provider_override=provider_override,
         )
         stream_session.provider_ref = resolved_provider.provider_ref
+        chat_request.payload["provider_ref"] = resolved_provider.provider_ref
     except Exception:
         emit_terminal_stream_error(
             stream_session=stream_session,
@@ -573,10 +574,11 @@ def ask_in_session(
     try:
         settings_service = get_settings_service()
         user_settings = settings_service.get_user_settings(owner_user_id=current_user.user_id)
-        _, chat_provider = settings_service.build_chat_provider(
+        resolved_provider, chat_provider = settings_service.build_chat_provider(
             owner_user_id=current_user.user_id,
             provider_override=payload.provider_override,
         )
+        chat_request.payload["provider_ref"] = resolved_provider.provider_ref
         _, assistant_placeholder = session_service.begin_exchange(
             owner_user_id=current_user.user_id,
             session_id=session_id,

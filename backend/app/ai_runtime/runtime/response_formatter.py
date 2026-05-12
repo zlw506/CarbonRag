@@ -79,6 +79,16 @@ def format_runtime_result(
     )
     source_summary = _build_source_summary(knowledge_scope=knowledge_scope, citations=citations)
     retrieval_traces = _extract_retrieval_traces(tool_results)
+    latest_retrieval_trace = dict(retrieval_traces[-1]) if retrieval_traces else None
+    if latest_retrieval_trace is not None:
+        latest_retrieval_trace.update(
+            {
+                "generation_provider": provider_descriptor.name,
+                "generation_model": provider_descriptor.default_model,
+                "provider_ref": request.payload.get("provider_ref"),
+                "thinking_content": provider_result.metadata.get("thinking_content"),
+            }
+        )
     context_summary = {
         "payload_keys": context_bundle.get("payload_keys", []),
         "memory_reserved": not context_bundle.get("memory_slot", {}).get("implemented", False),
@@ -101,7 +111,7 @@ def format_runtime_result(
                 "grounded_by_demo_showcase": source_summary["public_policy_demo_count"] > 0,
                 "grounded_by_private_sample": source_summary["private_sample_count"] > 0,
                 "retrieval_hit_count": len(citations),
-                "retrieval_trace": retrieval_traces[-1] if retrieval_traces else None,
+                "retrieval_trace": latest_retrieval_trace,
                 "citation_count": len(citations),
                 "source_summary": source_summary,
                 "kb_id": context_bundle.get("session_state", {}).get("kb_id"),

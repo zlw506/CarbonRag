@@ -94,7 +94,7 @@ bash scripts/dev-local.sh
 - `APP_ENV=development`
 - `DATABASE_URL=` 为空，避免误连云端 PostgreSQL
 - `MEMORY_BACKEND=sqlite`
-- `MODEL_API_BASE_URL=http://127.0.0.1:11434/v1`、`MODEL_NAME=deepseek-r1:8b`，默认走本地 OpenAI-compatible LLM；如没有本地模型，先按 `docs/architecture/LOCAL_LLM_RUNTIME_PROFILES.md` 配置。
+- `AI_CHAT_PROVIDER=ollama`、`OLLAMA_BASE_URL=http://localhost:11434`、`OLLAMA_MODEL=deepseek-r1:8b`，local-dev 默认走本机 Ollama native API；如没有本地模型，先按 `docs/architecture/LOCAL_LLM_RUNTIME_PROFILES.md` 配置。
 - `RAG_ENGINE_ENABLED=true`、`RAG_VECTOR_ENABLED=true`、`RAG_VECTOR_BACKEND=milvus`、`RAG_MILVUS_URI=http://127.0.0.1:19530`，Windows 默认使用 Docker Milvus Standalone。
 - `PUBLIC_DATA_DIR` / `PRIVATE_SAMPLE_DIR` / `FACTOR_DATA_DIR` 指向仓库内 `data/`
 
@@ -105,6 +105,14 @@ data/outputs/models/BAAI/bge-m3
 data/outputs/models/BAAI/bge-reranker-v2-m3
 data/outputs/models/LLM/<model-name>
 ```
+
+V1.6.17 的 Ollama smoke：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/llm-ollama-smoke.ps1
+```
+
+注意：Netlify + VPS 云端后端默认不能访问开发者电脑的 `localhost:11434`。本地 Ollama 能力只保证 `local-dev`；云端要用本地模型，必须另行部署可被 VPS 访问的远程 Ollama endpoint。
 
 ### V1.6 RAG-Pro 本地验证开关
 

@@ -12,12 +12,20 @@ def build_test_qa_answer(
     query: str,
     search_result: RagSearchResult,
     chat_provider: BaseChatProvider,
+    provider_ref: str | None = None,
 ) -> dict[str, Any]:
     """Generate a workbench-only grounded answer from retrieved RAG evidence."""
 
     if not search_result.hits:
         warning = "no_hits: 没有检索到可引用片段，Test QA 不调用大模型，也不编造答案。"
-        trace = _append_trace_warning(trace=search_result.trace, warning=warning, degraded=True)
+        descriptor = chat_provider.describe()
+        trace = _with_generation_metadata(
+            trace=_append_trace_warning(trace=search_result.trace, warning=warning, degraded=True),
+            provider_name=descriptor.name,
+            model_name=descriptor.default_model,
+            provider_ref=provider_ref,
+            thinking_content=None,
+        )
         return {
             "answer": "没有检索到可引用片段，无法生成有依据的 RAG 测试回答。",
             "answer_mode": "no_hits",
@@ -41,7 +49,13 @@ def build_test_qa_answer(
         provider_result = chat_provider.generate_response(system_prompt=system_prompt, user_input=user_input)
     except ChatProviderError as exc:
         warning = f"provider_error:{exc.reason}"
-        trace = _append_trace_warning(trace=search_result.trace, warning=warning, degraded=True)
+        trace = _with_generation_metadata(
+            trace=_append_trace_warning(trace=search_result.trace, warning=warning, degraded=True),
+            provider_name=descriptor.name,
+            model_name=descriptor.default_model,
+            provider_ref=provider_ref,
+            thinking_content=None,
+        )
         return {
             "answer": f"检索已完成，但大模型生成失败：{exc.reason}",
             "answer_mode": "retrieval_only",
@@ -56,7 +70,13 @@ def build_test_qa_answer(
         }
     except Exception as exc:  # noqa: BLE001
         warning = f"provider_error:{type(exc).__name__}"
-        trace = _append_trace_warning(trace=search_result.trace, warning=warning, degraded=True)
+        trace = _with_generation_metadata(
+            trace=_append_trace_warning(trace=search_result.trace, warning=warning, degraded=True),
+            provider_name=descriptor.name,
+            model_name=descriptor.default_model,
+            provider_ref=provider_ref,
+            thinking_content=None,
+        )
         return {
             "answer": f"检索已完成，但大模型生成失败：{type(exc).__name__}",
             "answer_mode": "retrieval_only",
@@ -71,6 +91,13 @@ def build_test_qa_answer(
         }
 
     answer = provider_result.content.strip() or "大模型已调用，但没有生成有效回答。"
+    trace = _with_generation_metadata(
+        trace=search_result.trace,
+        provider_name=descriptor.name,
+        model_name=descriptor.default_model,
+        provider_ref=provider_ref,
+        thinking_content=_metadata_text(provider_result.metadata.get("thinking_content")),
+    )
     return {
         "answer": answer,
         "answer_mode": "llm_grounded",
@@ -81,7 +108,7 @@ def build_test_qa_answer(
         "confidence": confidence,
         "citations": citations,
         "hits": selected_hits,
-        "retrieval_trace": search_result.trace,
+        "retrieval_trace": trace,
     }
 
 
@@ -139,4 +166,28 @@ def _append_trace_warning(*, trace: RagTrace, warning: str, degraded: bool) -> R
     if warning not in warnings:
         warnings.append(warning)
     return trace.model_copy(update={"warnings": warnings, "degraded": bool(degraded or trace.degraded)})
+
+
+def _with_generation_metadata(
+    *,
+    trace: RagTrace,
+    provider_name: str | None,
+    model_name: str | None,
+    provider_ref: str | None,
+    thinking_content: str | None,
+) -> RagTrace:
+    return trace.model_copy(
+        update={
+            "generation_provider": provider_name,
+            "generation_model": model_name,
+            "provider_ref": provider_ref,
+            "thinking_content": thinking_content,
+        }
+    )
+
+
+def _metadata_text(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
 

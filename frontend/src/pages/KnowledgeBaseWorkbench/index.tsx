@@ -12,6 +12,7 @@ import { Alert, Button, Card, Empty, Input, List, Progress, Select, Space, Spin,
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { useSettings } from "../../app/SettingsContext";
 import {
     chunkKbDocument,
     createKbDocument,
@@ -75,6 +76,7 @@ const sourceTypeLabelMap: Record<string, string> = {
 
 export function KnowledgeBaseWorkbench() {
     const navigate = useNavigate();
+    const { getActiveProviderOverride } = useSettings();
     const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
     const [activeKbId, setActiveKbId] = useState<string | undefined>();
     const [activeDocId, setActiveDocId] = useState<string | undefined>();
@@ -233,7 +235,12 @@ export function KnowledgeBaseWorkbench() {
         setLoading(true);
         setError(null);
         try {
-            const result = await runRagTestQA({ query, kb_id: activeKbId, mode: "hybrid_rerank" });
+            const result = await runRagTestQA({
+                query,
+                kb_id: activeKbId,
+                mode: "hybrid_rerank",
+                provider_override: getActiveProviderOverride(),
+            });
             setQaResult(result);
             setSearchResult(null);
         } catch {

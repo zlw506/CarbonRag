@@ -3,12 +3,25 @@ from app.settings.schemas import ResolvedProviderConfig
 from app.settings.service import build_chat_provider_from_resolved
 
 
-def test_default_settings_use_local_openai_compatible_llm() -> None:
+def test_default_settings_use_local_ollama_llm(monkeypatch) -> None:
+    for key in (
+        "AI_CHAT_PROVIDER",
+        "MODEL_PROVIDER_MODE",
+        "MODEL_API_BASE_URL",
+        "MODEL_API_KEY",
+        "MODEL_NAME",
+        "OLLAMA_BASE_URL",
+        "OLLAMA_MODEL",
+    ):
+        monkeypatch.delenv(key, raising=False)
     settings = Settings(_env_file=None)
 
-    assert settings.model_api_base_url == "http://127.0.0.1:11434/v1"
-    assert settings.model_api_key == "ollama-local-key"
+    assert settings.ai_chat_provider == "ollama"
+    assert settings.model_provider_mode == "ollama"
+    assert settings.model_api_base_url == "http://127.0.0.1:11434"
+    assert settings.model_api_key == ""
     assert settings.model_name == "deepseek-r1:8b"
+    assert settings.ollama_model == "deepseek-r1:8b"
 
 
 def test_ollama_profile_builds_native_ollama_provider() -> None:
@@ -20,7 +33,7 @@ def test_ollama_profile_builds_native_ollama_provider() -> None:
             base_url="http://localhost:11434/api",
             model_name="deepseek-r1:8b",
             api_key=None,
-            config_json={"timeout_seconds": 120},
+            config_json={"timeout_seconds": 120, "num_ctx": 8192, "keep_alive": "10m", "think": True},
         )
     )
 

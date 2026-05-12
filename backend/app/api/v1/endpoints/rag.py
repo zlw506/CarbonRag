@@ -19,7 +19,8 @@ from app.rag.schemas import (
     RagRetrievalResult,
 )
 from app.rag.service import get_rag_engine_service
-from app.rag.spine import get_rag_spine_service
+from app.rag.spine import RagSpineService, get_rag_spine_service
+from app.settings.service import SettingsValidationError, get_settings_service
 
 router = APIRouter(prefix="/rag")
 logger = logging.getLogger(__name__)
@@ -216,18 +217,11 @@ def langchain_rag_answer(
     payload: RagSearchRequest,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> RagAnswerResult:
-    return get_rag_spine_service().answer(
-        owner_user_id=current_user.user_id,
-        request=payload.model_copy(
-            update={
-                "allowed_knowledge_item_ids": _resolve_visible_knowledge_item_ids(
-                    owner_user_id=current_user.user_id,
-                    knowledge_scope=payload.knowledge_scope,
-                    requested_ids=payload.allowed_knowledge_item_ids,
-                )
-            }
-        ),
-    )
+    try:
+        service = _build_user_generation_rag_service(current_user=current_user, payload=payload)
+        return service.answer(owner_user_id=current_user.user_id, request=_with_visible_knowledge_ids(current_user=current_user, payload=payload))
+    except SettingsValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/test-qa")
@@ -235,18 +229,11 @@ def rag_test_qa(
     payload: RagSearchRequest,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> dict:
-    return get_rag_spine_service().test_qa(
-        owner_user_id=current_user.user_id,
-        request=payload.model_copy(
-            update={
-                "allowed_knowledge_item_ids": _resolve_visible_knowledge_item_ids(
-                    owner_user_id=current_user.user_id,
-                    knowledge_scope=payload.knowledge_scope,
-                    requested_ids=payload.allowed_knowledge_item_ids,
-                )
-            }
-        ),
-    )
+    try:
+        service = _build_user_generation_rag_service(current_user=current_user, payload=payload)
+        return service.test_qa(owner_user_id=current_user.user_id, request=_with_visible_knowledge_ids(current_user=current_user, payload=payload))
+    except SettingsValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/eval/run", response_model=RagEvalRun)
@@ -300,3 +287,24 @@ def _load_default_eval_cases(*, kb_id: str | None) -> list[RagEvalCase]:
                 payload["expected_kb_id"] = kb_id
             cases.append(RagEvalCase.model_validate(payload))
     return cases
+
+
+def _with_visible_knowledge_ids(*, current_user: AuthenticatedUser, payload: RagSearchRequest) -> RagSearchRequest:
+    return payload.model_copy(
+        update={
+            "allowed_knowledge_item_ids": _resolve_visible_knowledge_item_ids(
+                owner_user_id=current_user.user_id,
+                knowledge_scope=payload.knowledge_scope,
+                requested_ids=payload.allowed_knowledge_item_ids,
+            )
+        }
+    )
+
+
+def _build_user_generation_rag_service(*, current_user: AuthenticatedUser, payload: RagSearchRequest) -> RagSpineService:
+    resolved, chat_provider = get_settings_service().build_chat_provider(
+        owner_user_id=current_user.user_id,
+        provider_override=payload.provider_override,
+    )
+    base_service = get_rag_spine_service()
+    return RagSpineService(store=base_service.store, chat_provider=chat_provider, provider_ref=resolved.provider_ref)
