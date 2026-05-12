@@ -105,6 +105,57 @@ def test_context_builder_orders_summary_recent_messages_memory_and_grounding() -
     assert bundle["session_state"]["compacted_message_count"] == 4
 
 
+def test_context_builder_keeps_selected_upload_hits_with_rag_pro_enabled() -> None:
+    request = ChatRequest(
+        mode="ask",
+        user_input="你看不见我上传的文件吗？",
+        payload={
+            "session_id": "session-upload",
+            "recent_messages": [],
+            "knowledge_scope_requested": "public",
+            "knowledge_scope_effective": "public",
+            "attached_file_knowledge_item_ids": ["file-knowledge-1"],
+            "kb_id": "kb-default",
+            "rag_mode": "hybrid_rerank",
+        },
+    )
+    tool_results = [
+        ToolResult(
+            name="rag_pro_search",
+            status="success",
+            output={"hits": [], "retrieval_trace": {"kb_id": "kb-default", "merged_count": 0}},
+        ),
+        ToolResult(
+            name="session_file_search",
+            status="success",
+            output={
+                "hits": [
+                    {
+                        "doc_id": "file-knowledge-1",
+                        "knowledge_item_id": "file-knowledge-1",
+                        "title": "按项目生命周期描述我经历的一个项目.docx",
+                        "source_type": "private_upload",
+                        "source": "用户上传文件",
+                        "source_url": None,
+                        "snippet": "项目经历包括需求分析、方案设计、实现与验收。",
+                        "chunk_id": "chunk-upload-1",
+                        "file_id": "file-1",
+                    }
+                ],
+            },
+        ),
+    ]
+
+    bundle = build_context_bundle(request, resolve_mode("ask"), tool_results=tool_results)
+    system_prompt = bundle["system_prompt"]
+
+    assert "当前已检索到以下私有知识或上传文件片段" in system_prompt
+    assert "项目经历包括需求分析、方案设计、实现与验收" in system_prompt
+    assert "不要再声称无法读取该文件" in system_prompt
+    assert "当前未检索到足够依据。" not in system_prompt
+    assert bundle["enterprise_context"]["hit_count"] == 1
+
+
 def test_chat_provider_stream_response_emits_thinking_and_answer_chunks(monkeypatch) -> None:
     def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
         del method, url, headers, json, timeout

@@ -87,6 +87,11 @@ class AIRuntimeOrchestrator:
 
         if get_settings().rag_langchain_enabled:
             tool_sequence = ["rag_pro_search"]
+            if request.payload.get("attached_file_knowledge_item_ids"):
+                # Session uploads are not necessarily part of the selected KB yet.
+                # Keep the explicit per-turn file retriever so parsed attachment chunks
+                # still reach the grounded prompt after the RAG-Pro spine became primary.
+                tool_sequence.append("session_file_search")
             if should_extract_report_carbon():
                 tool_sequence.append("report_carbon_extract_calc")
             return tuple(tool_sequence)
