@@ -9,6 +9,7 @@ import type {
     AskStreamLifecycleStatus,
     AskStreamMetadataEvent,
     AskStreamMessageStartEvent,
+    AskStreamSessionTitleEvent,
     AskStreamStatusEvent,
 } from "../types/ask";
 import type {
@@ -456,6 +457,10 @@ function applyStreamEvent(
             state.user_message_id = start.user_message_id ?? state.user_message_id;
             state.assistant_message_id = start.assistant_message_id ?? state.assistant_message_id;
             callbacks.onMessageStart?.(start);
+            return;
+        }
+        case "session_title": {
+            callbacks.onSessionTitle?.(payload as AskStreamSessionTitleEvent);
             return;
         }
         case "status": {

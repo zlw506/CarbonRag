@@ -8,6 +8,7 @@ export type AskStreamLifecycleStatus = "pending" | "connecting" | "thinking" | "
 export type MessageStatus = AskStatus | AskStreamLifecycleStatus;
 export type AskStreamEventName =
     | "message_start"
+    | "session_title"
     | "status"
     | "thinking_delta"
     | "answer_delta"
@@ -67,6 +68,14 @@ export interface AskResponse {
 export interface AskStreamMessageStartEvent {
     user_message_id?: string | null;
     assistant_message_id?: string | null;
+    trace_id?: string | null;
+    request_group_id?: string | null;
+    title_updated?: boolean | null;
+    session_title?: string | null;
+    event_seq?: number | null;
+}
+
+export interface AskStreamSessionTitleEvent {
     trace_id?: string | null;
     request_group_id?: string | null;
     title_updated?: boolean | null;
@@ -139,6 +148,7 @@ export interface AskStreamErrorEvent {
 
 export interface AskStreamCallbacks {
     onMessageStart?: (event: AskStreamMessageStartEvent) => void;
+    onSessionTitle?: (event: AskStreamSessionTitleEvent) => void;
     onStatus?: (event: AskStreamStatusEvent) => void;
     onThinkingDelta?: (event: AskStreamDeltaEvent) => void;
     onAnswerDelta?: (event: AskStreamDeltaEvent) => void;

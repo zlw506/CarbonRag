@@ -171,6 +171,46 @@ def build_stream_status_payload(
     }
 
 
+def start_async_title_update(
+    *,
+    stream_session,
+    session_service,
+    owner_user_id: str,
+    enabled: bool,
+    chat_provider,
+) -> None:
+    if not enabled:
+        return
+
+    previous_session = session_service.get_session(owner_user_id=owner_user_id, session_id=stream_session.session_id)
+    previous_title = previous_session.title if previous_session else ""
+
+    def _worker() -> None:
+        try:
+            updated_summary = session_service.maybe_generate_title_on_user_turn(
+                owner_user_id=owner_user_id,
+                session_id=stream_session.session_id,
+                enabled=True,
+                chat_provider=chat_provider,
+            )
+        except Exception:
+            return
+        if not updated_summary or updated_summary.title == previous_title:
+            return
+        stream_session.title_updated = True
+        stream_session.append(
+            event="session_title",
+            data={
+                "trace_id": stream_session.trace_id,
+                "request_group_id": stream_session.request_group_id,
+                "title_updated": True,
+                "session_title": updated_summary.title,
+            },
+        )
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 def emit_terminal_stream_error(
     *,
     stream_session,
@@ -262,17 +302,8 @@ def run_stream_worker(
         )
         return
 
-    previous_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=stream_session.session_id)
-    previous_title = previous_session.title if previous_session else ""
-    updated_summary = session_service.maybe_generate_title_on_user_turn(
-        owner_user_id=current_user.user_id,
-        session_id=stream_session.session_id,
-        enabled=user_settings.chat.auto_generate_title_for_new_session,
-        # Do not spend the answer startup path on a second LLM call just for the title.
-        # The fast fallback keeps the rail usable while the main answer starts immediately.
-        chat_provider=None,
-    )
-    title_updated = bool(updated_summary and updated_summary.title != previous_title)
+    current_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=stream_session.session_id)
+    current_title = current_session.title if current_session else ""
 
     stream_session.append(
         event="message_start",
@@ -281,12 +312,13 @@ def run_stream_worker(
             "user_message_id": stream_session.user_message_id,
             "assistant_message_id": stream_session.assistant_message_id,
             "request_group_id": stream_session.request_group_id,
-            "title_updated": title_updated,
-            "session_title": updated_summary.title if updated_summary else previous_title,
+            "title_updated": False,
+            "session_title": current_title,
         },
     )
 
     attempt = 1
+    title_update_started = False
     while attempt <= max_attempts:
         stream_session.attempt = attempt
         synthetic_thinking_emitted = False
@@ -345,6 +377,15 @@ def run_stream_worker(
                     continue
 
                 if event.kind == "answer_delta":
+                    if not title_update_started:
+                        title_update_started = True
+                        start_async_title_update(
+                            stream_session=stream_session,
+                            session_service=session_service,
+                            owner_user_id=current_user.user_id,
+                            enabled=user_settings.chat.auto_generate_title_for_new_session,
+                            chat_provider=chat_provider,
+                        )
                     if not streaming_announced:
                         streaming_announced = True
                         stream_session.has_first_answer_token = True
@@ -428,7 +469,7 @@ def run_stream_worker(
                 "context_source": context_source,
                 "request_group_id": stream_session.request_group_id,
                 "provider_ref": stream_session.provider_ref,
-                "title_updated": False,
+                "title_updated": stream_session.title_updated,
             }
             stream_session.append(event="metadata", data=metadata_payload)
             stream_session.append(

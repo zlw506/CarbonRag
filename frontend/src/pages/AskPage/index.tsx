@@ -429,6 +429,19 @@ export function AskPage() {
                         },
                     }));
                 },
+                onSessionTitle: (event) => {
+                    if (!event.title_updated || !event.session_title) {
+                        return;
+                    }
+                    setActiveSession((current) =>
+                        current?.session_id === workingSessionId
+                            ? { ...current, title: event.session_title ?? current.title }
+                            : current,
+                    );
+                    void refreshSessions(workingSessionId).then((sessionList) => {
+                        syncActiveSessionSummaryFromList(sessionList ?? [], workingSessionId);
+                    });
+                },
                 onStatus: (event) => {
                     maybeShowReconnectToast(event, reconnectNoticeMode);
                     updateStreamDraftState((draft) => {
@@ -490,6 +503,11 @@ export function AskPage() {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
                     replaceStreamMemoryState(normalizeAskStreamMemoryState(event.memory_state));
                     replaceStreamContextSource(event.context_source ?? null);
+                    window.setTimeout(() => {
+                        void refreshSessions().then((sessionList) => {
+                            syncActiveSessionSummaryFromList(sessionList ?? [], workingSessionId);
+                        });
+                    }, 12_000);
                     updateStreamDraftState((draft) => ({
                         ...draft,
                         assistantMessage: {
@@ -1117,12 +1135,8 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
             setThinkingElapsedSeconds(0);
         }
 
-        if (
-            hasRealThinkingContent &&
-            !thinkingActive &&
-            (currentState === "done" || currentState === "error" || currentState === undefined) &&
-            finalThinkingElapsedSeconds === null
-        ) {
+        const justFinishedThinking = previousState === "thinking" && currentState !== "thinking";
+        if (hasRealThinkingContent && !thinkingActive && finalThinkingElapsedSeconds === null && justFinishedThinking) {
             const elapsed = Math.max(1, Math.round((Date.now() - thinkingStartedAtRef.current) / 1000));
             setFinalThinkingElapsedSeconds(elapsed);
         }
@@ -1140,12 +1154,13 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
         return () => window.clearInterval(timer);
     }, [thinkingActive, message.message_id]);
 
+    const resolvedFinalThinkingSeconds = finalThinkingElapsedSeconds ?? (thinkingElapsedSeconds || 1);
     const thinkingDurationText = thinkingActive
         ? `思考中… ${formatDurationSeconds(thinkingElapsedSeconds)}`
         : preparingActive
             ? resolvePreparationStatusText(message.client_state)
             : hasRealThinkingContent
-            ? `思考了 ${formatDurationSeconds(finalThinkingElapsedSeconds ?? 1)}`
+            ? `思考了 ${formatDurationSeconds(resolvedFinalThinkingSeconds)}`
             : "思考中…";
     const thinkingPreview = activityActive
         ? message.status_note || "正在梳理上下文、依据和用户问题"
