@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.ai_runtime.providers.factory import get_chat_provider
 from app.main import app
 from tests.test_helpers import register_and_login
 
@@ -15,5 +16,5 @@ def test_system_info() -> None:
     assert payload["app_name"] == "CarbonRag"
     assert payload["api_prefix"] == "/api/v1"
     assert payload["model_provider_mode"] == "openai_compatible"
-    assert payload["model_name"] == "gpt-5.4"
+    assert payload["model_name"] == get_chat_provider().describe().default_model
     assert "timestamp" in payload

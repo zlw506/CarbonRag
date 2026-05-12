@@ -59,6 +59,16 @@ data/outputs/models/BAAI/bge-m3
 data/outputs/models/BAAI/bge-reranker-v2-m3
 ```
 
+These two are retrieval/rerank models, not chat LLMs.
+
+Local chat LLM packages supplied by #1 belong here:
+
+```text
+data/outputs/models/LLM/<model-name>/
+```
+
+The default V1.6.16 local chat endpoint is documented in [LOCAL_LLM_RUNTIME_PROFILES.md](LOCAL_LLM_RUNTIME_PROFILES.md).
+
 Do not put models in the source tree or Hugging Face's default C-drive cache. If Docker Desktop stores images on C drive and space is low, move Docker Desktop/WSL data to a larger disk before starting Milvus.
 
 ## Docker Data Location On #1 Windows Host

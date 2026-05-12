@@ -17,12 +17,12 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     model_provider_mode: str = "openai_compatible"
 
-    model_api_base_url: str = "https://api.example.com/v1"
-    model_api_key: str = "replace-with-model-api-key"
-    model_name: str = "gpt-5.4"
+    model_api_base_url: str = "http://127.0.0.1:11434/v1"
+    model_api_key: str = "ollama-local-key"
+    model_name: str = "deepseek-r1:8b"
     model_temperature: float = 0.2
     model_max_tokens: int = 4096
-    model_timeout_seconds: float = 30.0
+    model_timeout_seconds: float = 120.0
     model_max_retries: int = 2
 
     embedding_api_base_url: str = "https://api.example.com/v1"

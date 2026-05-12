@@ -90,29 +90,35 @@ bash scripts/dev-local.sh
 ## 环境变量口径
 
 ### 根目录 `.env`
-用于后端本地开发配置。当前本地安全默认值是：
+用于后端本地开发配置。当前 V1.6.x 本地默认值是：
 - `APP_ENV=development`
 - `DATABASE_URL=` 为空，避免误连云端 PostgreSQL
 - `MEMORY_BACKEND=sqlite`
-- `RAG_ENGINE_ENABLED=false`、`RAG_VECTOR_ENABLED=false`、`RAG_RERANK_ENABLED=false`，默认保留现有 BM25 检索 fallback
+- `MODEL_API_BASE_URL=http://127.0.0.1:11434/v1`、`MODEL_NAME=deepseek-r1:8b`，默认走本地 OpenAI-compatible LLM；如没有本地模型，先按 `docs/architecture/LOCAL_LLM_RUNTIME_PROFILES.md` 配置。
+- `RAG_ENGINE_ENABLED=true`、`RAG_VECTOR_ENABLED=true`、`RAG_VECTOR_BACKEND=milvus`、`RAG_MILVUS_URI=http://127.0.0.1:19530`，Windows 默认使用 Docker Milvus Standalone。
 - `PUBLIC_DATA_DIR` / `PRIVATE_SAMPLE_DIR` / `FACTOR_DATA_DIR` 指向仓库内 `data/`
 
-### V1.3 RAG 实验开关
+V1.6.x 的 BGE-M3 / reranker 模型包与本地聊天模型包不进入 Git：
 
-V1.3 的 LightRAG-style RAG 骨架是安全默认关闭的。未配置向量、图谱、embedding 或 rerank 后端时，后端仍应启动并继续使用现有 public/private/mixed BM25 检索。
-
-```env
-RAG_ENGINE_ENABLED=false
-RAG_VECTOR_ENABLED=false
-RAG_RERANK_ENABLED=false
-RAG_DEFAULT_MODE=mix
+```text
+data/outputs/models/BAAI/bge-m3
+data/outputs/models/BAAI/bge-reranker-v2-m3
+data/outputs/models/LLM/<model-name>
 ```
 
-含义：
-- `RAG_ENGINE_ENABLED`：启用新的内部 RAG engine 边界；关闭时只记录 fallback metadata。
-- `RAG_VECTOR_ENABLED`：允许 RAG engine 尝试向量 chunk 检索；关闭时走 BM25 fallback。
-- `RAG_RERANK_ENABLED`：允许 RAG engine 调用 M1 rerank provider；当前默认 provider 为 disabled。
-- `RAG_DEFAULT_MODE`：内部检索模式，当前只接受 `naive` 和 `mix`，异常值会回退到 `mix`。
+### V1.6 RAG-Pro 本地验证开关
+
+V1.6 的 RAG-Pro 主脊柱默认要求真实向量链路。Windows 开发者需先启动 Docker Desktop 和 Milvus Standalone：
+
+```env
+RAG_ENGINE_ENABLED=true
+RAG_VECTOR_ENABLED=true
+RAG_VECTOR_BACKEND=milvus
+RAG_MILVUS_URI=http://127.0.0.1:19530
+RAG_REQUIRE_REAL_VECTOR=true
+```
+
+`memory` 只允许 UI/API 开发降级，不允许作为 RAG-Pro 验收。
 
 ### V1.3 RAG Lab 本地验证
 
