@@ -5,6 +5,8 @@ from app.ai_runtime.runtime.context_builder import build_context_bundle
 from app.ai_runtime.schemas.chat import ChatRequest
 from app.ai_runtime.schemas.tool import ToolResult
 from app.carbon.report_extraction import ReportCarbonActivityExtractor, ReportCarbonCalculationService
+from app.carbon.factors.registry import FactorRegistry
+from app.carbon.factors.schema import FactorRecord
 from app.carbon.schemas import (
     CalcCarbonResponse,
     CarbonBreakdownItem,
@@ -52,6 +54,119 @@ def test_report_carbon_extractor_reads_common_activity_quantities() -> None:
     assert activities["diesel"].activity_value == 120
     assert activities["electricity"].entry_method == "file_upload"
     assert activities["electricity"].source_document_id == "chunk-report-1"
+
+
+def test_report_carbon_extractor_reads_table_value_unit_pairs() -> None:
+    result = ReportCarbonActivityExtractor().extract(
+        [
+            _chunk(
+                "[Table docx row 1]\n指标=外购电力 | 数值=7800 | 单位=MWh | 占比=65%\n"
+                "[Table docx row 2]\n指标=天然气 | 单位=m3 | 数量=3200"
+            )
+        ]
+    )
+
+    activities = {item.activity.activity_name: item.activity for item in result.extracted_activities}
+
+    assert activities["electricity"].activity_value == 7800
+    assert activities["electricity"].activity_unit == "MWh"
+    assert activities["natural_gas"].activity_value == 3200
+    assert activities["natural_gas"].activity_unit == "m3"
+
+
+class _FakeFactorLoader:
+    def __init__(self, records: list[FactorRecord]) -> None:
+        self.records = records
+
+    def load_registry(self) -> FactorRegistry:
+        return FactorRegistry(self.records)
+
+
+def test_report_carbon_extractor_matches_local_factor_database_records() -> None:
+    factor = FactorRecord(
+        factor_id="carbonstop-ccdb-passenger-car",
+        factor_version="carbonstop-public-2023",
+        source_type="public_dataset",
+        source_name="CarbonStop CCDB / 北京生态环境局 / 北京普惠型资源碳减排项目要求",
+        source_url="https://www.carbonstop.com/ccdb",
+        scope="scope3",
+        activity_category="陆上交通",
+        activity_name="载客汽车",
+        region="中国",
+        region_level="区域排放因子",
+        region_name="中国",
+        year=2023,
+        effective_year=2023,
+        source_priority=80,
+        applicable_industry="交通",
+        quality_level="public_ccdb",
+        factor_value=0.00024,
+        factor_unit="tCO₂e/km",
+        activity_unit="km",
+        result_unit="tCO₂e",
+        tags=["CarbonStop CCDB", "交通", "陆上交通", "0~6m"],
+    )
+    extractor = ReportCarbonActivityExtractor(factor_loader=_FakeFactorLoader([factor]))  # type: ignore[arg-type]
+
+    result = extractor.extract([_chunk("差旅明细：载客汽车行驶 1,200 km，用于客户现场调研。")])
+
+    assert len(result.extracted_activities) == 1
+    activity = result.extracted_activities[0].activity
+    assert activity.activity_name == "载客汽车"
+    assert activity.activity_category == "陆上交通"
+    assert activity.activity_value == 1200
+    assert activity.activity_unit == "km"
+    assert activity.requested_factor_id == "carbonstop-ccdb-passenger-car"
+    assert activity.metadata["match_method"] == "local_carbon_factor_database"
+
+
+def test_report_carbon_extractor_maps_common_business_alias_to_factor() -> None:
+    factor = FactorRecord(
+        factor_id="carbonstop-ccdb-truck",
+        factor_version="carbonstop-public-2023",
+        source_type="public_dataset",
+        source_name="CarbonStop CCDB / 北京生态环境局",
+        scope="scope3",
+        activity_category="陆上交通",
+        activity_name="载货汽车（含挂车）",
+        source_priority=80,
+        factor_value=0.000324,
+        factor_unit="tCO₂e/km",
+        activity_unit="km",
+        result_unit="tCO₂e",
+        tags=["交通", "陆上交通"],
+    )
+    extractor = ReportCarbonActivityExtractor(factor_loader=_FakeFactorLoader([factor]))  # type: ignore[arg-type]
+
+    result = extractor.extract([_chunk("物流运输：货车配送距离 560 公里。")])
+
+    assert len(result.extracted_activities) == 1
+    activity = result.extracted_activities[0].activity
+    assert activity.activity_name == "载货汽车（含挂车）"
+    assert activity.activity_value == 560
+    assert activity.activity_unit == "km"
+    assert activity.requested_factor_id == "carbonstop-ccdb-truck"
+
+
+def test_report_carbon_extractor_ignores_factor_values_as_activity_data() -> None:
+    factor = FactorRecord(
+        factor_id="carbonstop-ccdb-passenger-car",
+        factor_version="carbonstop-public-2023",
+        source_type="public_dataset",
+        source_name="CarbonStop CCDB",
+        scope="scope3",
+        activity_category="陆上交通",
+        activity_name="载客汽车",
+        factor_value=0.00024,
+        factor_unit="tCO₂e/km",
+        activity_unit="km",
+        result_unit="tCO₂e",
+    )
+    extractor = ReportCarbonActivityExtractor(factor_loader=_FakeFactorLoader([factor]))  # type: ignore[arg-type]
+
+    result = extractor.extract([_chunk("因子表：载客汽车 0.00024 tCO₂e/km。")])
+
+    assert result.extracted_activities == []
 
 
 class _FakeCarbonService:

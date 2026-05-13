@@ -149,6 +149,15 @@ class CarbonFactorLoader:
     def load_registry(self) -> FactorRegistry:
         records_by_id: dict[str, FactorRecord] = {record.factor_id: record for record in self.load_records()}
         try:
+            from app.carbon_factors.service import get_carbon_factor_database_service
+
+            get_carbon_factor_database_service().ensure_seeded()
+        except Exception:
+            # Runtime factor seeding is best effort for calc-carbon. If the
+            # database is unavailable in isolated tests, file seeds remain the
+            # deterministic fallback.
+            pass
+        try:
             from app.carbon_factors.store import get_carbon_factor_store
 
             for record in get_carbon_factor_store().list_enabled_factor_records():

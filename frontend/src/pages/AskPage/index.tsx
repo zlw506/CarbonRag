@@ -166,6 +166,7 @@ export function AskPage() {
     const selectedRetrievalTrace = selectedCitationMessage?.retrieval_trace ?? null;
     const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
     const pendingUploadSignature = getPendingUploadSignature(uploadedAttachments);
+    const effectiveSessionId = activeSessionId ?? activeSession?.session_id ?? null;
     const currentSourceSummary = buildPanelSourceSummary(selectedCitationMessage?.citations ?? [], activeSession?.source_summary);
     const effectiveMemoryState = streamMemoryState ?? activeSession?.memory_state ?? null;
     const currentStreamState = streamDraft?.assistantMessage.client_state ?? null;
@@ -177,7 +178,7 @@ export function AskPage() {
         visibleMessages.length,
         streamContextSource,
     );
-    const isNewDraftChat = !activeSession && visibleMessages.length === 0 && !loadingSessionDetail;
+    const isNewDraftChat = visibleMessages.length === 0 && !loadingSessionDetail;
     const newChatPrompt = useMemo(
         () => NEW_CHAT_PROMPTS[Math.floor(Math.random() * NEW_CHAT_PROMPTS.length)],
         [],
@@ -239,17 +240,17 @@ export function AskPage() {
     }, [settings?.chat.show_evidence_panel_by_default]);
 
     useEffect(() => {
-        if (!activeSessionId || !pendingUploadSignature) {
+        if (!effectiveSessionId || !pendingUploadSignature) {
             return;
         }
         const timer = window.setInterval(() => {
-            void loadSessionDetail(activeSessionId, {
+            void loadSessionDetail(effectiveSessionId, {
                 silent: true,
                 preserveDraftSelections: true,
             });
         }, 2500);
         return () => window.clearInterval(timer);
-    }, [activeSessionId, pendingUploadSignature, dismissedUploadedFileIds]);
+    }, [effectiveSessionId, pendingUploadSignature, dismissedUploadedFileIds]);
 
     useEffect(() => {
         const container = messageStreamRef.current;
@@ -319,16 +320,17 @@ export function AskPage() {
     }
 
     async function handleSaveAttachedSamples() {
-        if (!activeSessionId) {
+        const workingSessionId = activeSessionId ?? activeSession?.session_id ?? null;
+        if (!workingSessionId) {
             return;
         }
         setSavingAttachedSamples(true);
         setTransportError(null);
         try {
-            const detail = await replaceAttachedKnowledgeItems(activeSessionId, draftAttachedDocIds);
+            const detail = await replaceAttachedKnowledgeItems(workingSessionId, draftAttachedDocIds);
             setActiveSession(detail);
             setDraftAttachedDocIds(getAttachedPrivateSampleIds(detail.attached_files));
-            await refreshSessions(activeSessionId);
+            await refreshSessions(workingSessionId);
             setPrivateSampleDrawerOpen(false);
         } catch (error) {
             setTransportError(extractDetailMessage(error) ?? "当前无法保存知识条目挂接状态。");
@@ -606,15 +608,22 @@ export function AskPage() {
         await handleUploadFiles(files);
     }
 
-    async function handleUploadFiles(files: File[]) {
+    async function handleUploadFiles(files: File[], targetSessionId?: string | null) {
         if (!files.length) {
+            return;
+        }
+
+        let workingSessionId: string;
+        try {
+            workingSessionId = targetSessionId ?? (await ensureComposerSession());
+        } catch {
+            setUploadError("当前无法创建新对话，请稍后重试。");
             return;
         }
 
         setUploading(true);
         setUploadError(null);
         try {
-            const workingSessionId = await ensureComposerSession();
             const uploadedFileIds: string[] = [];
             for (const file of files) {
                 const uploaded = await uploadSessionFile(workingSessionId, file);
@@ -927,7 +936,12 @@ export function AskPage() {
                 <div className="chat-composer-dock">
                     <div className="chat-composer-dock__main">
                         <Tooltip title="添加附件">
-                            <Button className="chat-composer-dock__action" icon={<PaperClipOutlined />} onClick={() => fileInputRef.current?.click()} loading={uploading} />
+                            <Button
+                                className="chat-composer-dock__action"
+                                icon={<PaperClipOutlined />}
+                                onClick={() => fileInputRef.current?.click()}
+                                loading={uploading}
+                            />
                         </Tooltip>
                         <Input.TextArea
                             className="chat-composer-dock__input"

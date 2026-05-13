@@ -1306,6 +1306,38 @@ body {
 .chat-workbench--empty-chat .chat-composer-dock {
     width: min(760px, 100%);
     margin: 0 auto;
+    padding: 14px;
+    border-radius: 28px;
+}
+
+.chat-workbench--empty-chat .chat-composer-dock__meta {
+    order: -1;
+    width: calc(100% - 124px);
+    max-width: calc(100% - 124px);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 2px 2px;
+    scrollbar-width: thin;
+}
+
+.chat-workbench--empty-chat .chat-composer-dock__chips {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    width: max-content;
+    max-width: none;
+    min-width: 0;
+}
+
+.chat-workbench--empty-chat .chat-composer-attachment {
+    flex: 0 0 auto;
+    width: min(360px, 58vw);
+    min-height: 48px;
+    padding: 10px 12px;
+    border-radius: 14px;
+}
+
+.chat-workbench--empty-chat .chat-composer-attachment__name {
+    max-width: 220px;
 }
 
 .chat-message {

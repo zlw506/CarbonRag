@@ -156,6 +156,80 @@ def test_context_builder_keeps_selected_upload_hits_with_rag_pro_enabled() -> No
     assert bundle["enterprise_context"]["hit_count"] == 1
 
 
+def test_context_builder_injects_selected_upload_file_overview() -> None:
+    request = ChatRequest(
+        mode="ask",
+        user_input="根据上传报告回答表格中的排放数据。",
+        payload={
+            "session_id": "session-upload",
+            "recent_messages": [],
+            "knowledge_scope_requested": "public",
+            "knowledge_scope_effective": "public",
+            "attached_file_knowledge_item_ids": ["file-knowledge-1"],
+        },
+    )
+    tool_results = [
+        ToolResult(
+            name="session_file_search",
+            status="success",
+            output={
+                "hits": [],
+                "file_overviews": [
+                    {
+                        "knowledge_item_id": "file-knowledge-1",
+                        "title": "企业双碳评估报告.docx",
+                        "source": "用户上传知识",
+                        "chunk_count": 8,
+                        "table_like_chunk_count": 2,
+                        "numeric_chunk_count": 5,
+                        "carbon_activity_memory": {
+                            "status": "found",
+                            "activity_count": 1,
+                            "items": [
+                                {
+                                    "scope": "scope2",
+                                    "activity_category": "purchased_electricity",
+                                    "activity_name": "electricity",
+                                    "activity_value": 7800,
+                                    "activity_unit": "MWh",
+                                    "matched_alias": "外购电力",
+                                    "requested_factor_id": "factor-electricity-cn",
+                                    "chunk_id": "chunk-table-1",
+                                    "page_number": 4,
+                                    "section_title": "排放明细表",
+                                    "confidence": 0.95,
+                                    "snippet": "指标=外购电力 | 数值=7800 | 单位=MWh | 占比=65%",
+                                }
+                            ],
+                            "warnings": [],
+                        },
+                        "chunks": [
+                            {
+                                "chunk_id": "chunk-table-1",
+                                "content_kind": "table_or_structured",
+                                "page_number": 4,
+                                "section_title": "排放明细表",
+                                "snippet": "指标=外购电力 | 数值=7800 | 单位=MWh | 占比=65%",
+                            }
+                        ],
+                    }
+                ],
+            },
+        ),
+    ]
+
+    bundle = build_context_bundle(request, resolve_mode("ask"), tool_results=tool_results)
+    system_prompt = bundle["system_prompt"]
+
+    assert "当前显式选择的上传文件结构化摘录如下" in system_prompt
+    assert "指标=外购电力" in system_prompt
+    assert "碳排放活动/消耗量候选" in system_prompt
+    assert "消耗量：7800 MWh" in system_prompt
+    assert "排放明细表" in system_prompt
+    assert "只有摘录、活动记忆和命中片段都缺失时，才说明材料不足" in system_prompt
+    assert bundle["enterprise_context"]["file_overview_count"] == 1
+
+
 def test_chat_provider_stream_response_emits_thinking_and_answer_chunks(monkeypatch) -> None:
     def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
         del method, url, headers, json, timeout
