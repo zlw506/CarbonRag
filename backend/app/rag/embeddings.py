@@ -42,14 +42,14 @@ def get_rag_embedder() -> "BgeM3Embedder | OpenAICompatibleRagEmbedder":
             api_key=settings.embedding_api_key,
             model_name=settings.embedding_model,
         )
-        return BgeM3Embedder(
-            model_name=settings.rag_embedding_model,
-            provider=provider,
-            device=settings.rag_embedding_device,
-            cache_dir=resolve_repo_path(settings.rag_model_cache_dir),
-            hf_endpoint=settings.rag_hf_endpoint,
-            auto_download=settings.rag_model_auto_download,
-        )
+    return BgeM3Embedder(
+        model_name=settings.rag_embedding_model,
+        provider=provider,
+        device=settings.rag_embedding_device,
+        cache_dir=resolve_repo_path(settings.rag_model_cache_dir),
+        hf_endpoint=settings.rag_hf_endpoint,
+        auto_download=settings.rag_model_auto_download,
+    )
 
 
 class OpenAICompatibleRagEmbedder:

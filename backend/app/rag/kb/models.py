@@ -275,3 +275,33 @@ class RagStats(BaseModel):
     milvus_uri: str | None = None
     require_real_vector: bool = True
 
+
+class RagPipelineResult(BaseModel):
+    doc_id: str
+    parse_status: str
+    chunk_status: str
+    index_status: str
+    chunk_count: int = 0
+    indexed_chunk_count: int = 0
+    vector_runtime: str = "memory_dev"
+    degraded: bool = False
+    search_smoke_passed: bool = False
+    eval_passed: bool | None = None
+    failed_stage: str | None = None
+    error_message: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class RagPipelineBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doc_ids: list[str] | None = None
+
+
+class RagPipelineBatchResult(BaseModel):
+    kb_id: str
+    total_count: int = 0
+    succeeded_count: int = 0
+    failed_count: int = 0
+    results: list[RagPipelineResult] = Field(default_factory=list)
+

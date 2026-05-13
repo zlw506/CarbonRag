@@ -130,3 +130,27 @@ export interface RagEvalRun {
     created_at: string;
 }
 
+export interface RagPipelineResult {
+    doc_id: string;
+    parse_status: string;
+    chunk_status: string;
+    index_status: string;
+    chunk_count: number;
+    indexed_chunk_count: number;
+    vector_runtime: string;
+    degraded: boolean;
+    search_smoke_passed: boolean;
+    eval_passed?: boolean | null;
+    failed_stage?: string | null;
+    error_message?: string | null;
+    warnings: string[];
+}
+
+export interface RagPipelineBatchResult {
+    kb_id: string;
+    total_count: number;
+    succeeded_count: number;
+    failed_count: number;
+    results: RagPipelineResult[];
+}
+

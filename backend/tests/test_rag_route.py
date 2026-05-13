@@ -1,5 +1,10 @@
+from contextlib import contextmanager
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 
+from app.auth.dependencies import require_admin
+from app.auth.schemas import AuthenticatedUser
 from app.main import app
 from app.rag.contracts import RetrievalTrace
 from app.rag.schemas import RagEvidenceChunk, RagEvidenceReference, RagRetrievalMetadata, RagRetrievalResult
@@ -9,6 +14,25 @@ from app.retrieval.schemas import RetrievedChunk, RetrievalResult
 from tests.test_helpers import register_and_login
 
 client = TestClient(app)
+
+
+@contextmanager
+def admin_override():
+    now = datetime.now(timezone.utc)
+    app.dependency_overrides[require_admin] = lambda: AuthenticatedUser(
+        user_id="admin-test-user",
+        username="admin-test",
+        display_name="admin-test",
+        role="admin",
+        is_active=True,
+        password_must_change=False,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
 
 
 class FakeRagEngine:
@@ -158,18 +182,18 @@ def _public_policy_chunk() -> RetrievedChunk:
 def test_rag_retrieve_route_returns_retrieval_only_data(monkeypatch) -> None:
     fake_engine = FakeRagEngine()
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: fake_engine)
-    register_and_login(client, prefix="ragroute")
 
-    response = client.post(
-        "/api/v1/rag/retrieve",
-        json={
-            "question": "双碳政策依据有哪些？",
-            "mode": "mix",
-            "knowledge_scope": "public",
-            "top_k": 3,
-            "allowed_knowledge_item_ids": ["ignored-for-public"],
-        },
-    )
+    with admin_override():
+        response = client.post(
+            "/api/v1/rag/retrieve",
+            json={
+                "question": "双碳政策依据有哪些？",
+                "mode": "mix",
+                "knowledge_scope": "public",
+                "top_k": 3,
+                "allowed_knowledge_item_ids": ["ignored-for-public"],
+            },
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -198,12 +222,12 @@ def test_rag_retrieve_route_returns_retrieval_only_data(monkeypatch) -> None:
 def test_rag_retrieve_route_returns_zero_hit_metadata(monkeypatch) -> None:
     fake_engine = FakeRagEngine(hit_count=0)
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: fake_engine)
-    register_and_login(client, prefix="ragzero")
 
-    response = client.post(
-        "/api/v1/rag/retrieve",
-        json={"question": "完全不存在的检索词", "mode": "mix", "knowledge_scope": "public", "top_k": 3},
-    )
+    with admin_override():
+        response = client.post(
+            "/api/v1/rag/retrieve",
+            json={"question": "完全不存在的检索词", "mode": "mix", "knowledge_scope": "public", "top_k": 3},
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -215,19 +239,19 @@ def test_rag_retrieve_route_returns_zero_hit_metadata(monkeypatch) -> None:
 def test_rag_retrieve_route_accepts_experimental_strategy(monkeypatch) -> None:
     fake_engine = FakeRagEngine()
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: fake_engine)
-    register_and_login(client, prefix="ragstrategy")
 
-    response = client.post(
-        "/api/v1/rag/retrieve",
-        json={
-            "question": "双碳政策依据有哪些？",
-            "mode": "mix",
-            "knowledge_scope": "public",
-            "top_k": 3,
-            "retrieval_strategy": "bm25_vector_hybrid",
-            "graph_mode": "graph_local",
-        },
-    )
+    with admin_override():
+        response = client.post(
+            "/api/v1/rag/retrieve",
+            json={
+                "question": "双碳政策依据有哪些？",
+                "mode": "mix",
+                "knowledge_scope": "public",
+                "top_k": 3,
+                "retrieval_strategy": "bm25_vector_hybrid",
+                "graph_mode": "graph_local",
+            },
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -248,25 +272,32 @@ def test_rag_retrieve_route_requires_authenticated_user() -> None:
     assert response.status_code == 401
 
 
-def test_rag_retrieve_route_rejects_blank_question() -> None:
-    register_and_login(client, prefix="ragblank")
-
+def test_rag_retrieve_route_requires_admin_user() -> None:
+    register_and_login(client, prefix="raguserlegacy")
     response = client.post(
         "/api/v1/rag/retrieve",
-        json={"question": "   "},
+        json={"question": "双碳政策依据有哪些？"},
     )
+    assert response.status_code == 403
+
+
+def test_rag_retrieve_route_rejects_blank_question() -> None:
+    with admin_override():
+        response = client.post(
+            "/api/v1/rag/retrieve",
+            json={"question": "   "},
+        )
 
     assert response.status_code == 422
     assert "question cannot be blank" in response.text
 
 
 def test_rag_retrieve_route_rejects_invalid_top_k() -> None:
-    register_and_login(client, prefix="ragtopk")
-
-    response = client.post(
-        "/api/v1/rag/retrieve",
-        json={"question": "双碳政策依据有哪些？", "top_k": 0},
-    )
+    with admin_override():
+        response = client.post(
+            "/api/v1/rag/retrieve",
+            json={"question": "双碳政策依据有哪些？", "top_k": 0},
+        )
 
     assert response.status_code == 422
     assert "top_k" in response.text
@@ -275,12 +306,12 @@ def test_rag_retrieve_route_rejects_invalid_top_k() -> None:
 def test_rag_retrieve_route_returns_structured_runtime_error(monkeypatch) -> None:
     fake_engine = FakeRagEngine(raises=True)
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: fake_engine)
-    register_and_login(client, prefix="ragerror")
 
-    response = client.post(
-        "/api/v1/rag/retrieve",
-        json={"question": "双碳政策依据有哪些？"},
-    )
+    with admin_override():
+        response = client.post(
+            "/api/v1/rag/retrieve",
+            json={"question": "双碳政策依据有哪些？"},
+        )
 
     assert response.status_code == 500
     payload = response.json()
@@ -303,17 +334,17 @@ def test_rag_retrieve_private_empty_selection_does_not_leak_other_user_upload(mo
         ),
     )
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: rag_service)
-    register_and_login(client, prefix="raguserbprivate")
 
-    response = client.post(
-        "/api/v1/rag/retrieve",
-        json={
-            "question": "carbon inventory evidence",
-            "knowledge_scope": "private_sample",
-            "allowed_knowledge_item_ids": [],
-            "top_k": 5,
-        },
-    )
+    with admin_override():
+        response = client.post(
+            "/api/v1/rag/retrieve",
+            json={
+                "question": "carbon inventory evidence",
+                "knowledge_scope": "private_sample",
+                "allowed_knowledge_item_ids": [],
+                "top_k": 5,
+            },
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -332,17 +363,17 @@ def test_rag_retrieve_mixed_empty_selection_returns_public_only(monkeypatch) -> 
         ),
     )
     monkeypatch.setattr("app.api.v1.endpoints.rag.get_rag_engine_service", lambda: rag_service)
-    register_and_login(client, prefix="raguserbmixed")
 
-    response = client.post(
-        "/api/v1/rag/retrieve",
-        json={
-            "question": "carbon policy evidence",
-            "knowledge_scope": "mixed",
-            "allowed_knowledge_item_ids": [],
-            "top_k": 5,
-        },
-    )
+    with admin_override():
+        response = client.post(
+            "/api/v1/rag/retrieve",
+            json={
+                "question": "carbon policy evidence",
+                "knowledge_scope": "mixed",
+                "allowed_knowledge_item_ids": [],
+                "top_k": 5,
+            },
+        )
 
     assert response.status_code == 200
     payload = response.json()

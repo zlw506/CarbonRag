@@ -1,5 +1,5 @@
 import { httpClient } from "./http";
-import type { KnowledgeBase, RagChunk, RagDocument } from "../types/kb";
+import type { KnowledgeBase, RagChunk, RagDocument, RagPipelineBatchResult, RagPipelineResult } from "../types/kb";
 
 export async function listKnowledgeBases() {
     const response = await httpClient.get<KnowledgeBase[]>("/v1/kb");
@@ -56,6 +56,19 @@ export async function chunkKbDocument(kbId: string, docId: string) {
 
 export async function indexKbDocument(kbId: string, docId: string) {
     const response = await httpClient.post<RagDocument>(`/v1/kb/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/index`);
+    return response.data;
+}
+
+export async function runKbDocumentPipeline(kbId: string, docId: string) {
+    const response = await httpClient.post<RagPipelineResult>(`/v1/kb/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/run-pipeline`);
+    return response.data;
+}
+
+export async function runKbDocumentPipelineBatch(kbId: string, docIds?: string[]) {
+    const response = await httpClient.post<RagPipelineBatchResult>(
+        `/v1/kb/${encodeURIComponent(kbId)}/documents/run-pipeline-batch`,
+        docIds ? { doc_ids: docIds } : {},
+    );
     return response.data;
 }
 

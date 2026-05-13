@@ -128,9 +128,11 @@ RAG_REQUIRE_REAL_VECTOR=true
 
 `memory` 只允许 UI/API 开发降级，不允许作为 RAG-Pro 验收。
 
-### V1.3 RAG Lab 本地验证
+### Legacy RAG Lab 本地验证
 
-本地登录后可打开：
+该入口仅保留给管理员排查旧 `/rag/retrieve`、BM25、graph_mode 等实验参数，不参与 V1.6.x RAG-Pro 验收。正式验收请使用“知识库工作台”、AskPage、`/api/v1/rag/search`、`/api/v1/rag/answer`、`/api/v1/rag/test-qa` 和 `/api/v1/rag/eval/run`。
+
+管理员本地登录后可打开：
 
 ```text
 http://127.0.0.1:5173/rag-lab

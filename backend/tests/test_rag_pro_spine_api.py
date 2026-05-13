@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from app.ai_runtime.providers.base import BaseChatProvider, ChatCompletionResult, ProviderDescriptor
 from app.main import app
+from app.rag.kb.models import KnowledgeBaseCreate, RagDocumentCreate
 from app.rag.kb.storage import RagKnowledgeStore
 from app.rag.spine import RagSpineService
 from tests.test_helpers import patch_test_auth_service, register_and_login
@@ -175,6 +176,90 @@ def test_kb_defaults_upload_status_answer_and_eval(monkeypatch, tmp_path) -> Non
     assert "hit_at_3" in eval_payload["metrics"]
     assert "answer_mode_rate" in eval_payload["metrics"]
     assert eval_payload["cases"][0]["case_id"] == "qingmu-electricity-total"
+
+
+def test_kb_document_pipeline_runs_all_stages_and_reports_smoke(monkeypatch, tmp_path) -> None:
+    service = build_rag_service(tmp_path)
+    monkeypatch.setattr("app.rag.spine.get_settings", lambda: SimpleNamespace(rag_vector_backend="memory"))
+    monkeypatch.setattr("app.rag.spine._load_pipeline_default_eval_cases", lambda *, kb_id: [])
+    monkeypatch.setattr("app.api.v1.endpoints.kb.get_rag_spine_service", lambda: service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+
+    register_and_login(client, prefix="rag-pipeline")
+    kb_id = client.post("/api/v1/kb", json={"name": "Pipeline 测试库"}).json()["kb_id"]
+    doc_id = client.post(
+        f"/api/v1/kb/{kb_id}/documents",
+        json={"title": "Pipeline 文档", "text": "Pipeline 文档包含外购电力 217,650 kWh，可用于检索冒烟。"},
+    ).json()["doc_id"]
+
+    response = client.post(f"/api/v1/kb/{kb_id}/documents/{doc_id}/run-pipeline")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["parse_status"] == "parsed"
+    assert payload["chunk_status"] == "chunked"
+    assert payload["index_status"] == "indexed"
+    assert payload["chunk_count"] >= 1
+    assert payload["indexed_chunk_count"] >= 1
+    assert payload["search_smoke_passed"] is True
+    assert payload["eval_passed"] is None
+    assert payload["failed_stage"] is None
+    assert "eval_not_configured" in payload["warnings"]
+
+
+def test_kb_document_pipeline_batch_summarizes_pending_documents(monkeypatch, tmp_path) -> None:
+    service = build_rag_service(tmp_path)
+    monkeypatch.setattr("app.rag.spine.get_settings", lambda: SimpleNamespace(rag_vector_backend="memory"))
+    monkeypatch.setattr("app.rag.spine._load_pipeline_default_eval_cases", lambda *, kb_id: [])
+    monkeypatch.setattr("app.api.v1.endpoints.kb.get_rag_spine_service", lambda: service)
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+
+    register_and_login(client, prefix="rag-pipeline-batch")
+    kb_id = client.post("/api/v1/kb", json={"name": "Batch 测试库"}).json()["kb_id"]
+    for index in range(2):
+        client.post(
+            f"/api/v1/kb/{kb_id}/documents",
+            json={"title": f"Batch 文档 {index}", "text": f"Batch 文档 {index} 包含可检索内容。"},
+        )
+
+    response = client.post(f"/api/v1/kb/{kb_id}/documents/run-pipeline-batch", json={})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total_count"] == 2
+    assert payload["succeeded_count"] == 2
+    assert payload["failed_count"] == 0
+    assert all(item["search_smoke_passed"] for item in payload["results"])
+
+
+def test_kb_document_pipeline_reports_index_failure(monkeypatch, tmp_path) -> None:
+    service = build_rag_service(tmp_path)
+    monkeypatch.setattr("app.rag.spine.get_settings", lambda: SimpleNamespace(rag_vector_backend="memory"))
+    monkeypatch.setattr("app.rag.spine._load_pipeline_default_eval_cases", lambda *, kb_id: [])
+    patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+
+    owner_user_id = register_and_login(client, prefix="rag-pipeline-fail")["user_id"]
+    kb = service.create_kb(owner_user_id=owner_user_id, payload=KnowledgeBaseCreate(name="Fail 库"))
+    doc = service.create_document(
+        owner_user_id=owner_user_id,
+        kb_id=kb.kb_id,
+        payload=RagDocumentCreate(title="Fail 文档", text="需要触发 index 失败。"),
+    )
+
+    def fail_index(*, owner_user_id: str, kb_id: str, doc_id: str):  # noqa: ARG001
+        current = service.get_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        return service.store._mark_document(
+            doc=current,
+            parse_status="parsed",
+            chunk_status="chunked",
+            index_status="failed",
+            error_message="forced index failure",
+            error_stage="index",
+        )
+
+    monkeypatch.setattr(service, "index_document", fail_index)
+    result = service.run_document_pipeline(owner_user_id=owner_user_id, kb_id=kb.kb_id, doc_id=doc.doc_id)
+    assert result.failed_stage == "index"
+    assert result.index_status == "failed"
+    assert result.error_message == "forced index failure"
 
 
 def test_kb_user_isolation(monkeypatch, tmp_path) -> None:

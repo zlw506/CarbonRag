@@ -10,7 +10,17 @@ from app.auth.dependencies import require_authenticated_user
 from app.auth.schemas import AuthenticatedUser
 from app.core.config import REPO_ROOT, get_settings
 from app.files.service import FileService
-from app.rag.kb.models import KnowledgeBase, KnowledgeBaseCreate, KnowledgeBaseUpdate, RagChunk, RagDocument, RagDocumentCreate
+from app.rag.kb.models import (
+    KnowledgeBase,
+    KnowledgeBaseCreate,
+    KnowledgeBaseUpdate,
+    RagChunk,
+    RagDocument,
+    RagDocumentCreate,
+    RagPipelineBatchRequest,
+    RagPipelineBatchResult,
+    RagPipelineResult,
+)
 from app.rag.spine import get_rag_spine_service
 
 router = APIRouter(prefix="/kb")
@@ -187,6 +197,38 @@ def index_document(
         return get_rag_spine_service().index_document(owner_user_id=current_user.user_id, kb_id=kb_id, doc_id=doc_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="document not found") from exc
+
+
+@router.post("/{kb_id}/documents/{doc_id}/run-pipeline", response_model=RagPipelineResult)
+def run_document_pipeline(
+    kb_id: str,
+    doc_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> RagPipelineResult:
+    try:
+        return get_rag_spine_service().run_document_pipeline(
+            owner_user_id=current_user.user_id,
+            kb_id=kb_id,
+            doc_id=doc_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="document not found") from exc
+
+
+@router.post("/{kb_id}/documents/run-pipeline-batch", response_model=RagPipelineBatchResult)
+def run_document_pipeline_batch(
+    kb_id: str,
+    payload: RagPipelineBatchRequest | None = None,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> RagPipelineBatchResult:
+    try:
+        return get_rag_spine_service().run_document_pipeline_batch(
+            owner_user_id=current_user.user_id,
+            kb_id=kb_id,
+            doc_ids=(payload.doc_ids if payload else None),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="knowledge base or document not found") from exc
 
 
 @router.get("/{kb_id}/documents/{doc_id}/chunks", response_model=list[RagChunk])

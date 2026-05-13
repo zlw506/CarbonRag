@@ -22,12 +22,14 @@ import {
     listKbDocuments,
     listKnowledgeBases,
     parseKbDocument,
+    runKbDocumentPipeline,
+    runKbDocumentPipelineBatch,
     uploadKbDocument,
 } from "../../services/kb";
 import { listAttachableKnowledgeItems } from "../../services/knowledge";
 import { runRagEval, runRagTestQA, searchRagSpine } from "../../services/rag";
 import type { KnowledgeItem } from "../../types/knowledge";
-import type { KnowledgeBase, RagChunk, RagDocument, RagEvalRun, RagHit, RagSearchResult, RagTestQAResult } from "../../types/kb";
+import type { KnowledgeBase, RagChunk, RagDocument, RagEvalRun, RagHit, RagPipelineBatchResult, RagPipelineResult, RagSearchResult, RagTestQAResult } from "../../types/kb";
 
 type StageName = "parse" | "chunk" | "index";
 
@@ -89,6 +91,8 @@ export function KnowledgeBaseWorkbench() {
     const [searchResult, setSearchResult] = useState<RagSearchResult | null>(null);
     const [qaResult, setQaResult] = useState<RagTestQAResult | null>(null);
     const [evalResult, setEvalResult] = useState<RagEvalRun | null>(null);
+    const [pipelineResult, setPipelineResult] = useState<RagPipelineResult | null>(null);
+    const [pipelineBatchResult, setPipelineBatchResult] = useState<RagPipelineBatchResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [runningStage, setRunningStage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -211,6 +215,50 @@ export function KnowledgeBaseWorkbench() {
         }
     }
 
+    async function runDocPipeline(doc: RagDocument) {
+        if (!activeKbId) {
+            return;
+        }
+        setRunningStage(`${doc.doc_id}:pipeline`);
+        setError(null);
+        setPipelineBatchResult(null);
+        try {
+            const result = await runKbDocumentPipeline(activeKbId, doc.doc_id);
+            setPipelineResult(result);
+            await loadDocuments(activeKbId);
+            setActiveDocId(doc.doc_id);
+            setChunks(await listKbDocumentChunks(activeKbId, doc.doc_id));
+            if (result.eval_passed !== null && result.eval_passed !== undefined) {
+                await handleEval();
+            }
+        } catch {
+            setError("一键入库验收失败。请查看失败阶段、后端日志、Milvus/Docker 与 BGE 模型状态。");
+        } finally {
+            setRunningStage(null);
+        }
+    }
+
+    async function runPipelineBatch() {
+        if (!activeKbId) {
+            return;
+        }
+        setRunningStage(`${activeKbId}:pipeline-batch`);
+        setError(null);
+        setPipelineResult(null);
+        try {
+            const result = await runKbDocumentPipelineBatch(activeKbId);
+            setPipelineBatchResult(result);
+            await loadDocuments(activeKbId);
+            if (result.results.some((item) => item.eval_passed !== null && item.eval_passed !== undefined)) {
+                await handleEval();
+            }
+        } catch {
+            setError("批量一键入库验收失败。请确认当前知识库有待处理文档，且后端服务可用。");
+        } finally {
+            setRunningStage(null);
+        }
+    }
+
     async function handleSearch() {
         if (!query.trim()) {
             return;
@@ -323,8 +371,8 @@ export function KnowledgeBaseWorkbench() {
                         type="info"
                         showIcon
                         className="kb-workbench__flow"
-                        message="三个按钮的意思"
-                        description="解析文档：读取正文；生成片段：切成可检索小段；写入向量库：把片段写入 Milvus。只有完成写入向量库，下面的检索和 Test QA 才可能命中。"
+                        message="推荐流程：一键入库验收"
+                        description="一键入库验收会自动执行：解析文档 → 生成片段 → 写入向量库 → 检索冒烟 → 验收评分。手工按钮保留给排查失败阶段使用。"
                     />
                     <Space wrap style={{ marginBottom: 16 }}>
                         <Upload
@@ -348,10 +396,20 @@ export function KnowledgeBaseWorkbench() {
                             options={knowledgeItems.map((item) => ({ value: item.knowledge_item_id, label: item.title }))}
                         />
                         <Button onClick={handleImportKnowledgeItem} disabled={!activeKbId || !selectedKnowledgeItemId}>导入到知识库</Button>
+                        <Button
+                            icon={<PlayCircleOutlined />}
+                            onClick={runPipelineBatch}
+                            disabled={!activeKbId}
+                            loading={Boolean(runningStage?.endsWith(":pipeline-batch"))}
+                        >
+                            批量一键入库验收
+                        </Button>
                     </Space>
                     <Typography.Paragraph type="secondary">
-                        推荐验收路径：直接上传报告文件到 KB，然后依次点击“解析文档、生成片段、写入向量库”。旧的“导入知识条目”只保留兼容。
+                        推荐验收路径：直接上传报告文件到 KB，然后点击文档右侧“一键入库验收”。旧的“导入知识条目”和手工处理按钮只保留兼容与故障排查。
                     </Typography.Paragraph>
+                    {pipelineResult ? <PipelineResultAlert result={pipelineResult} /> : null}
+                    {pipelineBatchResult ? <PipelineBatchResultAlert result={pipelineBatchResult} /> : null}
                     {documents.length ? (
                         <List
                             dataSource={documents}
@@ -359,6 +417,15 @@ export function KnowledgeBaseWorkbench() {
                                 <List.Item
                                     className={doc.doc_id === activeDocId ? "kb-document-item kb-document-item--active" : "kb-document-item"}
                                     actions={[
+                                        <Button
+                                            size="small"
+                                            type="primary"
+                                            icon={<PlayCircleOutlined />}
+                                            loading={runningStage === `${doc.doc_id}:pipeline`}
+                                            onClick={() => runDocPipeline(doc)}
+                                        >
+                                            {doc.error_stage ? "重试失败阶段" : "一键入库验收"}
+                                        </Button>,
                                         <Button
                                             size="small"
                                             icon={stageMeta.parse.icon}
@@ -542,6 +609,7 @@ function TracePanel({ hits, trace, mode }: { hits: RagHit[]; trace: RagSearchRes
 
 function EvalPanel({ evalResult }: { evalResult: RagEvalRun }) {
     const metrics = evalResult.metrics;
+    const failedCases = evalResult.cases.filter((item) => item.hit === false);
     return (
         <Card size="small" title="验收评分" style={{ marginTop: 12 }}>
             <Space wrap>
@@ -555,8 +623,99 @@ function EvalPanel({ evalResult }: { evalResult: RagEvalRun }) {
             <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
                 通过线：Milvus Standalone、无降级、Hit@3 ≥ 85%、MRR ≥ 75%、引用覆盖 100%、跨库泄漏 0。
             </Typography.Paragraph>
+            {failedCases.length ? (
+                <Space direction="vertical" style={{ width: "100%" }}>
+                    <Alert
+                        type="error"
+                        showIcon
+                        message={`未通过问题 ${failedCases.length} 个`}
+                        description="请按 expected keywords、actual topK snippets、跨库泄漏、向量失败或 rerank 失败逐项定位。"
+                    />
+                    <List
+                        size="small"
+                        dataSource={failedCases}
+                        renderItem={(item) => (
+                            <List.Item>
+                                <Space direction="vertical" size={2}>
+                                    <Typography.Text strong>
+                                        {String(item.case_id ?? "eval-case")}：{String(item.question ?? "未命名问题")}
+                                    </Typography.Text>
+                                    <Typography.Text type="secondary">
+                                        期望关键词：{formatCaseValue(item.expected_keywords ?? item.expected_chunk_keywords)}
+                                    </Typography.Text>
+                                    <Typography.Text type="secondary">
+                                        实际 TopK：{formatCaseValue(item.actual_topk_snippets ?? item.topk_snippets ?? item.hits)}
+                                    </Typography.Text>
+                                    <Typography.Text type={item.cross_kb_leak ? "danger" : "secondary"}>
+                                        跨库泄漏：{String(item.cross_kb_leak ?? false)}；向量失败：{String(item.vector_failure ?? false)}；重排序失败：{String(item.rerank_failed ?? false)}
+                                    </Typography.Text>
+                                </Space>
+                            </List.Item>
+                        )}
+                    />
+                </Space>
+            ) : null}
         </Card>
     );
+}
+
+function formatCaseValue(value: unknown): string {
+    if (Array.isArray(value)) {
+        return value.map((item) => (typeof item === "object" ? JSON.stringify(item) : String(item))).join(" / ") || "-";
+    }
+    if (value && typeof value === "object") {
+        return JSON.stringify(value);
+    }
+    return value === undefined || value === null || value === "" ? "-" : String(value);
+}
+
+function PipelineResultAlert({ result }: { result: RagPipelineResult }) {
+    const passed = !result.failed_stage && !result.degraded && result.search_smoke_passed && result.eval_passed !== false;
+    return (
+        <Alert
+            type={passed ? "success" : "warning"}
+            showIcon
+            className="kb-workbench__flow"
+            message={passed ? "一键入库验收完成" : `一键入库验收需要处理：${pipelineStageLabel(result.failed_stage)}`}
+            description={
+                <Space direction="vertical" size={4}>
+                    <Typography.Text>
+                        解析：{statusLabel(result.parse_status)}；分块：{statusLabel(result.chunk_status)}；向量入库：{statusLabel(result.index_status)}；
+                        片段 {result.chunk_count} 个，已入库 {result.indexed_chunk_count} 个；检索冒烟：{result.search_smoke_passed ? "通过" : "未通过"}；
+                        验收评分：{result.eval_passed === null || result.eval_passed === undefined ? "未配置" : result.eval_passed ? "通过" : "未通过"}。
+                    </Typography.Text>
+                    {result.error_message ? <Typography.Text type="danger">{result.error_message}</Typography.Text> : null}
+                    {result.warnings?.length ? <Typography.Text type="secondary">{result.warnings.map(humanizeWarning).join("；")}</Typography.Text> : null}
+                </Space>
+            }
+        />
+    );
+}
+
+function PipelineBatchResultAlert({ result }: { result: RagPipelineBatchResult }) {
+    return (
+        <Alert
+            type={result.failed_count === 0 ? "success" : "warning"}
+            showIcon
+            className="kb-workbench__flow"
+            message={`批量一键入库验收：成功 ${result.succeeded_count} / ${result.total_count}`}
+            description={result.failed_count ? `失败 ${result.failed_count} 个；请查看对应文档的失败阶段并点击“重试失败阶段”。` : "所有待处理文档已完成本轮 pipeline。"}
+        />
+    );
+}
+
+function pipelineStageLabel(value?: string | null) {
+    if (!value) {
+        return "无";
+    }
+    const labels: Record<string, string> = {
+        parse: "解析文档",
+        chunk: "生成片段",
+        index: "写入向量库",
+        search_smoke: "检索冒烟",
+        eval_smoke: "验收评分",
+    };
+    return labels[value] ?? value;
 }
 
 function canRunChunk(doc: RagDocument) {

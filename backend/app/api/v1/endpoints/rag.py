@@ -96,7 +96,7 @@ def _resolve_visible_knowledge_item_ids(
 @router.post("/retrieve", response_model=RagRetrievalResult)
 def retrieve_rag_evidence(
     payload: RagRetrieveRequest,
-    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+    current_user: AuthenticatedUser = Depends(require_admin),
 ) -> RagRetrievalResult:
     allowed_knowledge_item_ids = _resolve_visible_knowledge_item_ids(
         owner_user_id=current_user.user_id,

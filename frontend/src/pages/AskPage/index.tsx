@@ -971,11 +971,14 @@ export function AskPage() {
                         默认只在这里展开完整引用。先读回答正文，再按需查看政策、知识条目或个人上传片段。
                     </Typography.Paragraph>
                     {selectedRetrievalTrace ? (
-                        <Space size={8} wrap className="chat-rag-trace-tags">
-                            {buildRagTraceTags(selectedRetrievalTrace).map((tag) => (
-                                <Tag key={tag.key} color={tag.color}>{tag.label}</Tag>
-                            ))}
-                        </Space>
+                        <RagProofPanel
+                            trace={selectedRetrievalTrace}
+                            knowledgeBases={knowledgeBases}
+                            selectedKbId={selectedKbId}
+                            ragMode={ragMode}
+                            citationCount={selectedCitationMessage?.citations.length ?? 0}
+                            selectedChunks={selectedCitationMessage?.citations ?? []}
+                        />
                     ) : null}
                     {selectedCitationMessage?.citations.length ? (
                         <Collapse
@@ -1760,6 +1763,104 @@ function buildAssistantEvidenceSummary(sourceSummary: AskSourceSummary) {
         parts.push(`个人上传 ${sourceSummary.private_upload_count ?? 0}`);
     }
     return parts.join(" · ");
+}
+
+function RagProofPanel({
+    trace,
+    knowledgeBases,
+    selectedKbId,
+    ragMode,
+    citationCount,
+    selectedChunks,
+}: {
+    trace: Record<string, unknown>;
+    knowledgeBases: KnowledgeBase[];
+    selectedKbId: string | null;
+    ragMode: RagRetrievalMode;
+    citationCount: number;
+    selectedChunks: AskCitation[];
+}) {
+    const kbId = typeof trace.kb_id === "string" ? trace.kb_id : selectedKbId;
+    const kbName = knowledgeBases.find((item) => item.kb_id === kbId)?.name ?? (kbId ? "未命名知识库" : "未指定知识库");
+    const effectiveMode = typeof trace.retrieval_mode === "string" ? trace.retrieval_mode : ragMode;
+    const provider = typeof trace.generation_provider === "string" ? trace.generation_provider : undefined;
+    const model = typeof trace.generation_model === "string" ? trace.generation_model : undefined;
+    const warnings = Array.isArray(trace.warnings) ? trace.warnings.filter((item): item is string => typeof item === "string") : [];
+    const riskMessages = buildRagRiskMessages(trace, effectiveMode, citationCount);
+
+    return (
+        <Space direction="vertical" size={10} className="chat-rag-proof-panel" style={{ width: "100%" }}>
+            <Space size={8} wrap className="chat-rag-trace-tags">
+                <Tag color={kbId ? "blue" : "red"}>知识库：{kbName}{kbId ? ` · ${kbId}` : ""}</Tag>
+                <Tag color="purple">检索模式：{ragModeLabel(effectiveMode)}</Tag>
+                {provider ? <Tag color="green">Provider：{provider}</Tag> : null}
+                {model ? <Tag>模型：{model}</Tag> : null}
+                {buildRagTraceTags(trace).map((tag) => (
+                    <Tag key={tag.key} color={tag.color}>{tag.label}</Tag>
+                ))}
+                <Tag color={citationCount > 0 ? "green" : "red"}>引用 {citationCount}</Tag>
+            </Space>
+            {riskMessages.length ? <Alert type="warning" showIcon message="RAG 证明存在风险" description={riskMessages.join("；")} /> : null}
+            {warnings.length ? <Alert type="warning" showIcon message="RAG warnings" description={warnings.join("；")} /> : null}
+            {selectedChunks.length ? (
+                <Collapse
+                    ghost
+                    items={[
+                        {
+                            key: "selected-chunks",
+                            label: `本轮引用片段 ${selectedChunks.length} 条`,
+                            children: (
+                                <List
+                                    size="small"
+                                    dataSource={selectedChunks.slice(0, 5)}
+                                    renderItem={(citation) => (
+                                        <List.Item>
+                                            <Typography.Paragraph ellipsis={{ rows: 2, expandable: "collapsible", symbol: "展开" }}>
+                                                <Typography.Text strong>{citation.title}</Typography.Text>
+                                                <br />
+                                                {citation.snippet}
+                                            </Typography.Paragraph>
+                                        </List.Item>
+                                    )}
+                                />
+                            ),
+                        },
+                    ]}
+                />
+            ) : null}
+        </Space>
+    );
+}
+
+function buildRagRiskMessages(trace: Record<string, unknown>, mode: string, citationCount: number) {
+    const denseCount = readTraceNumber(trace, "dense_count") ?? readTraceNumber(trace, "vector_count");
+    const vectorRuntime = typeof trace.vector_runtime === "string" ? trace.vector_runtime : "";
+    const rerankApplied = trace.rerank_applied === true;
+    const messages: string[] = [];
+    if (trace.degraded === true) {
+        messages.push("当前 RAG 已降级");
+    }
+    if (vectorRuntime === "memory_dev") {
+        messages.push("当前使用内存开发模式，不算正式验收");
+    }
+    if (denseCount === 0) {
+        messages.push("向量命中为 0");
+    }
+    if (citationCount === 0) {
+        messages.push("没有 citation");
+    }
+    if (mode === "hybrid_rerank" && !rerankApplied) {
+        messages.push("选择了 hybrid+rerank，但重排序未执行");
+    }
+    return messages;
+}
+
+function ragModeLabel(value: string) {
+    if (value === "dense") return "仅向量";
+    if (value === "sparse") return "仅关键词";
+    if (value === "hybrid") return "混合检索";
+    if (value === "hybrid_rerank") return "混合检索 + 重排序";
+    return value;
 }
 
 function buildRagTraceTags(trace?: Record<string, unknown> | null) {

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from functools import lru_cache
+from pathlib import Path
 
 from app.ai_runtime.providers.base import BaseChatProvider
 from app.ai_runtime.providers.factory import get_chat_provider
@@ -16,6 +18,8 @@ from app.rag.kb.models import (
     RagEvalRun,
     RagHealth,
     RagHit,
+    RagPipelineBatchResult,
+    RagPipelineResult,
     RagSearchRequest,
     RagSearchResult,
     RagStats,
@@ -89,6 +93,122 @@ class RagSpineService:
 
     def list_chunks(self, *, owner_user_id: str, kb_id: str, doc_id: str | None = None):
         return self.store.list_chunks(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+
+    def run_document_pipeline(self, *, owner_user_id: str, kb_id: str, doc_id: str) -> RagPipelineResult:
+        """Run the RAG-Pro acceptance path for one document.
+
+        This intentionally stays synchronous for V1.6.24 so the workbench can
+        explain the exact stage that failed before we introduce background jobs.
+        """
+
+        warnings: list[str] = []
+        vector_backend = self._effective_vector_backend()
+        runtime = self._runtime_profile(backend=vector_backend)
+        doc = self.get_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+
+        if doc.parse_status != "parsed":
+            doc = self.parse_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        if doc.parse_status != "parsed":
+            return self._pipeline_result(
+                doc=doc,
+                vector_runtime=runtime.vector_runtime,
+                failed_stage="parse",
+                warnings=warnings,
+            )
+
+        if doc.chunk_status != "chunked" or doc.chunk_count <= 0:
+            doc = self.chunk_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        if doc.chunk_status != "chunked" or doc.chunk_count <= 0:
+            return self._pipeline_result(
+                doc=doc,
+                vector_runtime=runtime.vector_runtime,
+                failed_stage="chunk",
+                warnings=warnings,
+            )
+
+        if doc.index_status != "indexed" or doc.indexed_chunk_count < doc.chunk_count:
+            doc = self.index_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        if doc.index_status != "indexed" or doc.indexed_chunk_count <= 0:
+            return self._pipeline_result(
+                doc=doc,
+                vector_runtime=runtime.vector_runtime,
+                failed_stage="index",
+                warnings=warnings,
+            )
+
+        chunks = self.list_chunks(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        smoke_query = _build_pipeline_smoke_query(doc=doc, chunks=chunks)
+        search_smoke_passed = False
+        degraded = bool(doc.degraded)
+        try:
+            search = self.search(
+                owner_user_id=owner_user_id,
+                request=RagSearchRequest(query=smoke_query, kb_id=kb_id, mode="hybrid", top_k=5),
+            )
+            warnings.extend(search.trace.warnings)
+            degraded = degraded or search.trace.degraded
+            search_smoke_passed = any(hit.doc_id == doc_id for hit in search.hits)
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"search_smoke_failed:{type(exc).__name__}: {exc}")
+
+        eval_passed: bool | None = None
+        eval_failed = False
+        cases = _load_pipeline_default_eval_cases(kb_id=kb_id)
+        if cases:
+            try:
+                eval_run = self.run_eval(owner_user_id=owner_user_id, kb_id=kb_id, cases=cases, mode="hybrid", top_k=5)
+                eval_passed = eval_run.passed
+                eval_failed = not eval_run.passed
+            except Exception as exc:  # noqa: BLE001
+                eval_passed = False
+                eval_failed = True
+                warnings.append(f"eval_smoke_failed:{type(exc).__name__}: {exc}")
+        else:
+            warnings.append("eval_not_configured")
+
+        failed_stage = None
+        if not search_smoke_passed:
+            failed_stage = "search_smoke"
+        elif eval_failed:
+            failed_stage = "eval_smoke"
+        return self._pipeline_result(
+            doc=doc,
+            vector_runtime=runtime.vector_runtime,
+            search_smoke_passed=search_smoke_passed,
+            eval_passed=eval_passed,
+            failed_stage=failed_stage,
+            degraded=degraded,
+            warnings=warnings,
+        )
+
+    def run_document_pipeline_batch(
+        self,
+        *,
+        owner_user_id: str,
+        kb_id: str,
+        doc_ids: list[str] | None = None,
+    ) -> RagPipelineBatchResult:
+        documents = self.list_documents(owner_user_id=owner_user_id, kb_id=kb_id)
+        requested = set(doc_ids or [])
+        targets = [
+            doc
+            for doc in documents
+            if (not requested and (doc.index_status != "indexed" or doc.status == "failed" or doc.error_stage))
+            or (requested and doc.doc_id in requested)
+        ]
+        results = [
+            self.run_document_pipeline(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc.doc_id)
+            for doc in targets
+        ]
+        succeeded_count = sum(1 for item in results if item.failed_stage is None)
+        failed_count = len(results) - succeeded_count
+        return RagPipelineBatchResult(
+            kb_id=kb_id,
+            total_count=len(results),
+            succeeded_count=succeeded_count,
+            failed_count=failed_count,
+            results=results,
+        )
 
     def search(self, *, owner_user_id: str, request: RagSearchRequest) -> RagSearchResult:
         kb_id = request.kb_id
@@ -335,6 +455,33 @@ class RagSpineService:
         selected_uri = getattr(settings, "rag_milvus_uri", None)
         return resolve_vector_runtime(backend=selected_backend, milvus_uri=selected_uri)
 
+    @staticmethod
+    def _pipeline_result(
+        *,
+        doc: RagDocument,
+        vector_runtime: str,
+        search_smoke_passed: bool = False,
+        eval_passed: bool | None = None,
+        failed_stage: str | None = None,
+        degraded: bool | None = None,
+        warnings: list[str] | None = None,
+    ) -> RagPipelineResult:
+        return RagPipelineResult(
+            doc_id=doc.doc_id,
+            parse_status=doc.parse_status,
+            chunk_status=doc.chunk_status,
+            index_status=doc.index_status,
+            chunk_count=doc.chunk_count,
+            indexed_chunk_count=doc.indexed_chunk_count,
+            vector_runtime=vector_runtime,
+            degraded=bool(doc.degraded if degraded is None else degraded),
+            search_smoke_passed=search_smoke_passed,
+            eval_passed=eval_passed,
+            failed_stage=failed_stage,
+            error_message=doc.error_message,
+            warnings=warnings or list(doc.index_warnings),
+        )
+
 
 @lru_cache(maxsize=1)
 def get_rag_spine_service() -> RagSpineService:
@@ -366,4 +513,30 @@ def _precision_at_k(*, hits: list[RagHit], keywords: list[str], k: int) -> float
         haystack = f"{hit.title}\n{hit.snippet}".lower()
         matched += int(any(keyword in haystack for keyword in normalized_keywords))
     return matched / max(1, k)
+
+
+def _build_pipeline_smoke_query(*, doc: RagDocument, chunks: list) -> str:
+    for chunk in chunks:
+        text = getattr(chunk, "text", "").strip()
+        if text:
+            return text[:80]
+    return doc.title
+
+
+def _load_pipeline_default_eval_cases(*, kb_id: str | None) -> list[RagEvalCase]:
+    path = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "rag" / "gold_questions.json"
+    if not path.exists():
+        return []
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    records = raw.get("cases", raw) if isinstance(raw, dict) else raw
+    if not isinstance(records, list):
+        return []
+    cases: list[RagEvalCase] = []
+    for record in records:
+        if isinstance(record, dict):
+            payload = dict(record)
+            if kb_id and not payload.get("expected_kb_id"):
+                payload["expected_kb_id"] = kb_id
+            cases.append(RagEvalCase.model_validate(payload))
+    return cases
 
