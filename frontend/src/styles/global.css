@@ -121,12 +121,33 @@ body {
     align-items: center;
     justify-content: center;
     padding: 24px;
+    background:
+        radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--cr-primary) 20%, transparent), transparent 34%),
+        linear-gradient(135deg, var(--cr-bg) 0%, var(--cr-bg-secondary) 48%, var(--cr-bg) 100%);
 }
 
 .auth-card {
-    width: min(100%, 480px);
-    border-radius: 20px;
-    box-shadow: var(--cr-shadow-strong);
+    width: min(100%, 440px);
+    border: 1px solid color-mix(in srgb, var(--cr-border) 72%, transparent);
+    border-radius: 28px;
+    box-shadow: 0 28px 80px color-mix(in srgb, var(--cr-primary) 18%, transparent);
+    overflow: hidden;
+}
+
+.auth-card .ant-card-body {
+    padding: 40px;
+}
+
+.auth-card__brand {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 30px;
+}
+
+.auth-card__brand img {
+    width: min(260px, 78%);
+    height: auto;
+    display: block;
 }
 
 .auth-card__alert {

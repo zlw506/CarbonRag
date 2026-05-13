@@ -1,5 +1,5 @@
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input, Tabs, Typography, message } from "antd";
+import { Alert, Button, Card, Form, Input, Tabs, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
@@ -70,13 +70,9 @@ export function LoginPage() {
     return (
         <div className="auth-shell">
             <Card className="auth-card">
-                <Typography.Title level={2}>CarbonRag 登录</Typography.Title>
-                <Typography.Paragraph type="secondary">
-                    V1.0.0 已引入本地账号、用户数据隔离和管理员入口。登录后才能访问你自己的会话、报告、核算结果和反馈记录。
-                </Typography.Paragraph>
-                <Typography.Paragraph type="secondary">
-                    如需恢复初始管理员，可在注册页输入 `admin` / `123456`。系统会恢复保底管理员账号，并要求首次登录后立即修改密码。
-                </Typography.Paragraph>
+                <div className="auth-card__brand">
+                    <img src="/brand/logo-lockup.png" alt="CarbonRag" />
+                </div>
                 {errorMessage ? (
                     <Alert
                         showIcon
