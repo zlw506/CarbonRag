@@ -217,7 +217,7 @@ body {
 .app-shell__brand {
     color: var(--cr-sider-text);
     margin-bottom: 14px;
-    min-height: 44px;
+    min-height: 56px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -231,6 +231,48 @@ body {
     gap: 6px;
     margin-bottom: 18px;
     text-align: center;
+}
+
+.app-shell__brand-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 48px;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 18px;
+    background: transparent;
+    cursor: pointer;
+    transition: background 160ms ease, transform 160ms ease;
+}
+
+.app-shell__brand-button:hover {
+    background: color-mix(in srgb, var(--cr-primary-soft) 58%, transparent);
+    transform: translateY(-1px);
+}
+
+.app-shell__brand-button:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--cr-primary) 70%, transparent);
+    outline-offset: 3px;
+}
+
+.app-shell__brand-logo,
+.app-shell__brand-wordmark {
+    display: block;
+    object-fit: contain;
+    user-select: none;
+    pointer-events: none;
+}
+
+.app-shell__brand-logo {
+    width: 42px;
+    height: 42px;
+}
+
+.app-shell__brand-wordmark {
+    width: min(204px, 82%);
+    max-height: 50px;
 }
 
 .app-shell__brand .ant-typography,

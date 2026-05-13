@@ -292,14 +292,19 @@ export function AppShell() {
                 className={focusModeEnabled ? "app-shell__sider app-shell__sider--focus" : "app-shell__sider"}
             >
                 <div className={sessionRailCollapsed ? "app-shell__brand app-shell__brand--compact" : "app-shell__brand"}>
-                    {sessionRailCollapsed ? (
-                        <>
-                            <Typography.Title level={5}>CR</Typography.Title>
-                            <Typography.Text type="secondary">对话</Typography.Text>
-                        </>
-                    ) : (
-                        <Typography.Title level={4}>CarbonRag</Typography.Title>
-                    )}
+                    <button
+                        type="button"
+                        className="app-shell__brand-button"
+                        aria-label="返回新聊天"
+                        title="返回新聊天"
+                        onClick={handleStartNewDraftSession}
+                    >
+                        {sessionRailCollapsed ? (
+                            <img className="app-shell__brand-logo" src="/brand/logo.png" alt="CarbonRag" />
+                        ) : (
+                            <img className="app-shell__brand-wordmark" src="/brand/wordmark.png" alt="CarbonRag" />
+                        )}
+                    </button>
                 </div>
                 <div className="app-shell__sider-nav">
                     <Menu
