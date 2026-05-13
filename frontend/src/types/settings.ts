@@ -20,8 +20,8 @@ export type ProviderType =
     | "gemini"
     | "deepseek";
 
-export type CredentialStorageMode = "local_only" | "account";
-export type ActiveProviderRef = `builtin:${string}` | `account:${string}` | `local:${string}`;
+export type CredentialStorageMode = "account";
+export type ActiveProviderRef = `builtin:${string}` | `account:${string}`;
 
 export interface AppearanceSettings {
     theme_mode: ThemeMode;
@@ -119,6 +119,10 @@ export interface LocalProviderProfile {
     config_json: Record<string, unknown>;
 }
 
+/**
+ * 兼容旧请求类型保留。V1.6.34 起前端不再发送本地 Provider 覆盖，
+ * Provider 配置必须走内置云端或账号级加密配置。
+ */
 export interface LocalProviderOverride {
     profile_id?: string | null;
     provider_type: ProviderType;

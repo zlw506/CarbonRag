@@ -63,6 +63,10 @@ def _default_display_name(provider_type: str) -> str:
     }.get(provider_type, provider_type)
 
 
+def _is_local_provider_ref(provider_ref: str | None) -> bool:
+    return bool(provider_ref and provider_ref.startswith("local:"))
+
+
 class SettingsService:
     def __init__(self, *, storage: SettingsStorage | None = None) -> None:
         self.storage = storage or get_settings_storage()
@@ -71,6 +75,16 @@ class SettingsService:
     def get_user_settings(self, *, owner_user_id: str) -> UserSettingsEnvelope:
         stored = self.storage.get_user_settings(owner_user_id=owner_user_id)
         if stored is not None:
+            if _is_local_provider_ref(stored.active_provider_ref):
+                stored.active_provider_ref = "builtin:carbonrag-cloud"
+                stored.advanced.local_provider_profile_ids = []
+                timestamp = utcnow_iso()
+                self.storage.upsert_user_settings(
+                    owner_user_id=owner_user_id,
+                    payload=stored,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
             return stored
 
         payload = UserSettingsEnvelope()
@@ -93,6 +107,10 @@ class SettingsService:
             advanced=request.advanced or current.advanced,
             active_provider_ref=request.active_provider_ref or current.active_provider_ref,
         )
+        if _is_local_provider_ref(merged.active_provider_ref):
+            raise SettingsValidationError("本地 Provider 已停用，请保存为账号 Provider 后再启用。")
+        merged.data_privacy.store_local_provider_keys_in_browser = False
+        merged.advanced.local_provider_profile_ids = []
         timestamp = utcnow_iso()
         self.storage.upsert_user_settings(
             owner_user_id=owner_user_id,
@@ -104,8 +122,13 @@ class SettingsService:
 
     def list_provider_profiles(self, *, owner_user_id: str) -> ProviderListResponse:
         current = self.get_user_settings(owner_user_id=owner_user_id)
+        active_provider_ref = (
+            "builtin:carbonrag-cloud"
+            if _is_local_provider_ref(current.active_provider_ref)
+            else current.active_provider_ref
+        )
         return ProviderListResponse(
-            active_provider_ref=current.active_provider_ref,
+            active_provider_ref=active_provider_ref,
             profiles=self.storage.list_provider_profiles(owner_user_id=owner_user_id),
         )
 
@@ -161,16 +184,7 @@ class SettingsService:
         provider_override: LocalProviderOverride | dict | None = None,
     ) -> ResolvedProviderConfig:
         if provider_override is not None:
-            override = provider_override if isinstance(provider_override, LocalProviderOverride) else LocalProviderOverride.model_validate(provider_override)
-            return ResolvedProviderConfig(
-                provider_ref=f"local:{override.profile_id or 'adhoc'}",
-                provider_type=override.provider_type,
-                display_name=override.display_name or _default_display_name(override.provider_type),
-                base_url=_normalize_base_url(override.provider_type, override.base_url),
-                model_name=override.model_name,
-                api_key=override.api_key,
-                config_json=override.config_json,
-            )
+            raise SettingsValidationError("本地 Provider 覆盖已停用，请使用账号级 Provider 配置。")
 
         current = self.get_user_settings(owner_user_id=owner_user_id)
         provider_ref = current.active_provider_ref or "builtin:carbonrag-cloud"
@@ -202,7 +216,11 @@ class SettingsService:
             )
 
         if provider_ref.startswith("local:"):
-            raise SettingsValidationError("当前激活的是本地 provider，请在请求中附带 provider_override。")
+            self.update_user_settings(
+                owner_user_id=owner_user_id,
+                payload={"active_provider_ref": "builtin:carbonrag-cloud"},
+            )
+            return self.resolve_provider_config(owner_user_id=owner_user_id)
 
         raise SettingsValidationError("当前激活的 provider_ref 无法识别。")
 

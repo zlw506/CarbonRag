@@ -8,6 +8,7 @@ type AuthTab = "login" | "register";
 
 interface FormValues {
     username: string;
+    display_name?: string;
     password: string;
 }
 
@@ -55,7 +56,7 @@ export function LoginPage() {
             if (createdUser.username === "admin" && createdUser.role === "admin") {
                 message.success("初始管理员已恢复，请使用 admin / 123456 登录，并在首次进入后立即修改密码。");
             } else {
-                message.success(`账号 ${createdUser.display_name || createdUser.username} 已创建，请登录。`);
+                message.success(`账号 ${createdUser.username} 已创建，请登录。`);
             }
             setActiveTab("login");
             loginForm.setFieldsValue({ username: createdUser.username, password: values.password });
@@ -95,9 +96,9 @@ export function LoginPage() {
                             children: (
                                 <Form<FormValues> form={loginForm} layout="vertical" onFinish={handleLogin}>
                                     <Form.Item
-                                        label="用户名"
+                                        label="账号"
                                         name="username"
-                                        rules={[{ required: true, message: "请输入用户名。" }]}
+                                        rules={[{ required: true, message: "请输入账号。" }]}
                                     >
                                         <Input prefix={<UserOutlined />} autoComplete="username" />
                                     </Form.Item>
@@ -120,12 +121,19 @@ export function LoginPage() {
                             children: (
                                 <Form<FormValues> form={registerForm} layout="vertical" onFinish={handleRegister}>
                                     <Form.Item
-                                        label="用户名"
+                                        label="账号"
                                         name="username"
-                                        rules={[{ required: true, message: "请输入用户名。" }]}
-                                        extra="仅允许小写字母、数字、下划线和连字符。"
+                                        rules={[{ required: true, message: "请输入账号。" }]}
+                                        extra="用于登录，管理员账号默认为 admin。"
                                     >
                                         <Input prefix={<UserOutlined />} autoComplete="username" />
+                                    </Form.Item>
+                                    <Form.Item
+                                        label="昵称"
+                                        name="display_name"
+                                        extra="可选。不填写时系统会生成随机昵称。"
+                                    >
+                                        <Input prefix={<UserOutlined />} autoComplete="nickname" />
                                     </Form.Item>
                                     <Form.Item
                                         label="密码"

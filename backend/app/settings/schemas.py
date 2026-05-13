@@ -25,7 +25,7 @@ ProviderType = Literal[
     "gemini",
     "deepseek",
 ]
-CredentialStorageMode = Literal["local_only", "account"]
+CredentialStorageMode = Literal["account"]
 
 
 class AppearanceSettings(BaseModel):
@@ -46,7 +46,7 @@ class ChatPreferenceSettings(BaseModel):
 
 
 class DataPrivacySettings(BaseModel):
-    store_local_provider_keys_in_browser: bool = True
+    store_local_provider_keys_in_browser: bool = False
     allow_account_saved_provider_keys: bool = True
 
 
@@ -77,6 +77,10 @@ class UpdateUserSettingsRequest(BaseModel):
         if value is None:
             return None
         normalized = value.strip()
+        if normalized.startswith("local:"):
+            raise ValueError("local provider is disabled; save provider settings to the account instead.")
+        if normalized and normalized != "builtin:carbonrag-cloud" and not normalized.startswith("account:"):
+            raise ValueError("active_provider_ref must be builtin:* or account:*.")
         return normalized or None
 
 
