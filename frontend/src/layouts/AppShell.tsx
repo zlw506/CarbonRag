@@ -296,7 +296,6 @@ export function AppShell() {
                         type="button"
                         className="app-shell__brand-button"
                         aria-label="返回新聊天"
-                        title="返回新聊天"
                         onClick={handleStartNewDraftSession}
                     >
                         {sessionRailCollapsed ? (
