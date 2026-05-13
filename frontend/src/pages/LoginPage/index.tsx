@@ -124,7 +124,7 @@ export function LoginPage() {
                                         label="账号"
                                         name="username"
                                         rules={[{ required: true, message: "请输入账号。" }]}
-                                        extra="用于登录，管理员账号默认为 admin。"
+                                        extra="用于登录，支持英文字母、数字、下划线和连字符；保存时统一为小写。管理员账号默认为 admin。"
                                     >
                                         <Input prefix={<UserOutlined />} autoComplete="username" />
                                     </Form.Item>
