@@ -200,6 +200,32 @@ def build_context_bundle(
                         f"来源：{overview.get('source')}；片段总数：{overview.get('chunk_count')}；表格/结构化片段：{overview.get('table_like_chunk_count')}；含数字片段：{overview.get('numeric_chunk_count')}",
                     ]
                 )
+                carbon_memory = overview.get("carbon_activity_memory")
+                if isinstance(carbon_memory, dict):
+                    memory_items = carbon_memory.get("items") or []
+                    if isinstance(memory_items, list) and memory_items:
+                        evidence_lines.append(
+                            f"[upload-file-{file_index}-carbon-memory] 已从该文件抽取到 {carbon_memory.get('activity_count')} 条碳排放活动/消耗量候选，以下为会话内结构化文件记忆："
+                        )
+                        for item_index, item in enumerate(memory_items, start=1):
+                            if not isinstance(item, dict):
+                                continue
+                            locator = _format_file_overview_locator(item)
+                            factor_note = item.get("requested_factor_id") or "待匹配"
+                            evidence_lines.extend(
+                                [
+                                    f"[upload-file-{file_index}-carbon-{item_index}] 范围：{item.get('scope')}；活动：{item.get('activity_category')}/{item.get('activity_name')}",
+                                    f"消耗量：{item.get('activity_value')} {item.get('activity_unit')}；匹配别名：{item.get('matched_alias')}；因子ID：{factor_note}",
+                                    f"定位：{locator}；chunk：{item.get('chunk_id')}；置信度：{item.get('confidence')}",
+                                    f"证据片段：{item.get('snippet')}",
+                                ]
+                            )
+                    warnings = carbon_memory.get("warnings") or []
+                    if isinstance(warnings, list) and warnings:
+                        evidence_lines.append(
+                            f"[upload-file-{file_index}-carbon-memory-warnings] "
+                            + "；".join(str(item) for item in warnings[:3])
+                        )
                 chunks = overview.get("chunks") or []
                 if isinstance(chunks, list):
                     for chunk_index, chunk in enumerate(chunks, start=1):
@@ -213,7 +239,7 @@ def build_context_bundle(
                             ]
                         )
             evidence_lines.append(
-                "约束：如果用户询问上传报告中的总量、占比、表格数据或结论，必须先检查上述结构化摘录；只有摘录和命中片段都缺失时，才说明材料不足。"
+                "约束：如果用户询问上传报告中的总量、占比、表格数据、能源消耗或碳排放类别，必须先检查上述结构化摘录和碳活动记忆；只有摘录、活动记忆和命中片段都缺失时，才说明材料不足。"
             )
         for carbon_output in report_carbon_outputs:
             extracted_activities = carbon_output.get("extracted_activities") or []

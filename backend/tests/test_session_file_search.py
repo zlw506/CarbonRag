@@ -196,3 +196,12 @@ def test_session_file_search_adds_table_aware_file_overview(monkeypatch) -> None
     assert overview["numeric_chunk_count"] == 2
     assert any(chunk["content_kind"] == "table_or_structured" for chunk in overview["chunks"])
     assert any("外购电力" in chunk["snippet"] for chunk in overview["chunks"])
+    carbon_memory = overview["carbon_activity_memory"]
+    assert carbon_memory["status"] == "found"
+    assert carbon_memory["activity_count"] >= 1
+    assert any(
+        item["activity_name"] == "electricity"
+        and item["activity_value"] == 7800
+        and item["activity_unit"] == "MWh"
+        for item in carbon_memory["items"]
+    )

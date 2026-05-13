@@ -61,6 +61,22 @@ _SUPPORTED_UNITS = (
 _UNIT = r"(?P<unit>" + "|".join(re.escape(unit) for unit in sorted(_SUPPORTED_UNITS, key=len, reverse=True)) + r")"
 _VALUE_THEN_UNIT_RE = re.compile(_NUMBER + r"\s*" + _UNIT, re.IGNORECASE)
 _UNIT_THEN_VALUE_RE = re.compile(_UNIT + r"[\s:：）\)]{0,8}" + _NUMBER, re.IGNORECASE)
+_TABLE_VALUE_UNIT_RE = re.compile(
+    r"(?:数值|数量|消耗量|用量|活动量|value|amount|quantity)\s*(?:=|:|：)?\s*"
+    + _NUMBER
+    + r"(?:\s*\|\s*|\s{1,12}|[,，;；])"
+    + r"(?:单位|unit)\s*(?:=|:|：)?\s*"
+    + _UNIT,
+    re.IGNORECASE,
+)
+_TABLE_UNIT_VALUE_RE = re.compile(
+    r"(?:单位|unit)\s*(?:=|:|：)?\s*"
+    + _UNIT
+    + r"(?:\s*\|\s*|\s{1,12}|[,，;；])"
+    + r"(?:数值|数量|消耗量|用量|活动量|value|amount|quantity)\s*(?:=|:|：)?\s*"
+    + _NUMBER,
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -377,6 +393,15 @@ def _matched_alias(segment: str, aliases: tuple[str, ...]) -> str | None:
 
 def _find_quantities(segment: str, *, expected_unit: str) -> list[tuple[float, str]]:
     quantities: list[tuple[float, str]] = []
+    for regex in (_TABLE_VALUE_UNIT_RE, _TABLE_UNIT_VALUE_RE):
+        for match in regex.finditer(segment):
+            unit = _canonical_unit(match.group("unit"))
+            if not _is_compatible_unit(unit, expected_unit):
+                continue
+            value = _parse_number(match.group("value"))
+            if value <= 0:
+                continue
+            quantities.append((value, unit))
     for regex in (_VALUE_THEN_UNIT_RE, _UNIT_THEN_VALUE_RE):
         for match in regex.finditer(segment):
             if _looks_like_emission_factor_unit(segment, match):
@@ -393,6 +418,12 @@ def _find_quantities(segment: str, *, expected_unit: str) -> list[tuple[float, s
 
 def _find_any_quantities(segment: str) -> list[tuple[float, str]]:
     quantities: list[tuple[float, str]] = []
+    for regex in (_TABLE_VALUE_UNIT_RE, _TABLE_UNIT_VALUE_RE):
+        for match in regex.finditer(segment):
+            value = _parse_number(match.group("value"))
+            if value <= 0:
+                continue
+            quantities.append((value, _canonical_unit(match.group("unit"))))
     for regex in (_VALUE_THEN_UNIT_RE, _UNIT_THEN_VALUE_RE):
         for match in regex.finditer(segment):
             if _looks_like_emission_factor_unit(segment, match):

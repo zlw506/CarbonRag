@@ -56,6 +56,24 @@ def test_report_carbon_extractor_reads_common_activity_quantities() -> None:
     assert activities["electricity"].source_document_id == "chunk-report-1"
 
 
+def test_report_carbon_extractor_reads_table_value_unit_pairs() -> None:
+    result = ReportCarbonActivityExtractor().extract(
+        [
+            _chunk(
+                "[Table docx row 1]\n指标=外购电力 | 数值=7800 | 单位=MWh | 占比=65%\n"
+                "[Table docx row 2]\n指标=天然气 | 单位=m3 | 数量=3200"
+            )
+        ]
+    )
+
+    activities = {item.activity.activity_name: item.activity for item in result.extracted_activities}
+
+    assert activities["electricity"].activity_value == 7800
+    assert activities["electricity"].activity_unit == "MWh"
+    assert activities["natural_gas"].activity_value == 3200
+    assert activities["natural_gas"].activity_unit == "m3"
+
+
 class _FakeFactorLoader:
     def __init__(self, records: list[FactorRecord]) -> None:
         self.records = records

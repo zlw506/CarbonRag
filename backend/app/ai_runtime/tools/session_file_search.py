@@ -2,6 +2,7 @@ from typing import Any, Mapping
 
 from app.ai_runtime.schemas.tool import ToolResult
 from app.ai_runtime.tools.base import BaseTool, ToolDefinition
+from app.carbon.report_extraction import ReportCarbonActivityExtractor
 from app.knowledge import get_knowledge_service
 from app.knowledge.schemas import KnowledgeChunk
 from app.rag import RagEngineService, build_rag_query_params, get_rag_engine_service
@@ -10,11 +11,17 @@ UPLOAD_RETRIEVAL_MIN_TOP_K = 12
 UPLOAD_OVERVIEW_MAX_FILES = 4
 UPLOAD_OVERVIEW_MAX_CHUNKS_PER_FILE = 12
 UPLOAD_OVERVIEW_SNIPPET_MAX_CHARS = 700
+UPLOAD_CARBON_ACTIVITY_MEMORY_MAX_ITEMS = 24
 
 
 class SessionFileSearchTool(BaseTool):
-    def __init__(self, rag_engine: RagEngineService | None = None) -> None:
+    def __init__(
+        self,
+        rag_engine: RagEngineService | None = None,
+        carbon_extractor: ReportCarbonActivityExtractor | None = None,
+    ) -> None:
         self.rag_engine = rag_engine or get_rag_engine_service()
+        self.carbon_extractor = carbon_extractor or ReportCarbonActivityExtractor()
 
     @property
     def definition(self) -> ToolDefinition:
@@ -76,6 +83,7 @@ class SessionFileSearchTool(BaseTool):
             fallback_used = bool(hits)
         file_overviews = _build_selected_upload_file_overviews(
             allowed_knowledge_item_ids=allowed_ids,
+            carbon_extractor=self.carbon_extractor,
         )
         return ToolResult(
             name=self.definition.name,
@@ -104,6 +112,7 @@ class SessionFileSearchTool(BaseTool):
 def _build_selected_upload_file_overviews(
     *,
     allowed_knowledge_item_ids: set[str],
+    carbon_extractor: ReportCarbonActivityExtractor,
 ) -> list[dict]:
     """Add table-aware coverage for explicitly selected upload files.
 
@@ -127,6 +136,10 @@ def _build_selected_upload_file_overviews(
         item_chunks = sorted(grouped[knowledge_item_id], key=lambda chunk: chunk.order_index)
         selected_chunks = _select_overview_chunks(item_chunks)
         first_chunk = item_chunks[0]
+        carbon_activity_memory = _extract_carbon_activity_memory(
+            chunks=item_chunks,
+            carbon_extractor=carbon_extractor,
+        )
         overviews.append(
             {
                 "knowledge_item_id": knowledge_item_id,
@@ -138,6 +151,7 @@ def _build_selected_upload_file_overviews(
                 "sampled_chunk_count": len(selected_chunks),
                 "table_like_chunk_count": sum(1 for chunk in item_chunks if _is_table_like_chunk(chunk.snippet)),
                 "numeric_chunk_count": sum(1 for chunk in item_chunks if _has_numeric_content(chunk.snippet)),
+                "carbon_activity_memory": carbon_activity_memory,
                 "chunks": [
                     _chunk_to_overview_entry(chunk, index=index)
                     for index, chunk in enumerate(selected_chunks, start=1)
@@ -145,6 +159,59 @@ def _build_selected_upload_file_overviews(
             }
         )
     return overviews
+
+
+def _extract_carbon_activity_memory(
+    *,
+    chunks: list[KnowledgeChunk],
+    carbon_extractor: ReportCarbonActivityExtractor,
+) -> dict:
+    try:
+        result = carbon_extractor.extract(chunks)
+    except Exception as exc:  # noqa: BLE001 - extraction must not block general file QA.
+        return {
+            "status": "failed",
+            "activity_count": 0,
+            "items": [],
+            "warnings": [f"上传文件碳活动抽取失败：{exc}"],
+        }
+
+    items = [
+        _carbon_activity_to_memory_entry(extracted, index=index)
+        for index, extracted in enumerate(
+            result.extracted_activities[:UPLOAD_CARBON_ACTIVITY_MEMORY_MAX_ITEMS],
+            start=1,
+        )
+    ]
+    return {
+        "status": "found" if items else "empty",
+        "activity_count": len(result.extracted_activities),
+        "items": items,
+        "warnings": result.warnings[:5],
+    }
+
+
+def _carbon_activity_to_memory_entry(extracted, *, index: int) -> dict:
+    activity = extracted.activity
+    return {
+        "memory_id": f"upload-carbon-{index}",
+        "scope": activity.scope,
+        "activity_category": activity.activity_category,
+        "activity_name": activity.activity_name,
+        "activity_value": activity.activity_value,
+        "activity_unit": activity.activity_unit,
+        "region": activity.region,
+        "year": activity.year,
+        "requested_factor_id": activity.requested_factor_id,
+        "confidence": extracted.confidence,
+        "matched_alias": extracted.matched_alias,
+        "chunk_id": extracted.chunk_id,
+        "page_number": extracted.page_number,
+        "sheet_name": extracted.sheet_name,
+        "slide_number": extracted.slide_number,
+        "section_title": extracted.section_title,
+        "snippet": _trim_snippet(extracted.snippet, UPLOAD_OVERVIEW_SNIPPET_MAX_CHARS),
+    }
 
 
 def _select_overview_chunks(chunks: list[KnowledgeChunk]) -> list[KnowledgeChunk]:

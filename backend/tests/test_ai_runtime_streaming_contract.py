@@ -182,6 +182,27 @@ def test_context_builder_injects_selected_upload_file_overview() -> None:
                         "chunk_count": 8,
                         "table_like_chunk_count": 2,
                         "numeric_chunk_count": 5,
+                        "carbon_activity_memory": {
+                            "status": "found",
+                            "activity_count": 1,
+                            "items": [
+                                {
+                                    "scope": "scope2",
+                                    "activity_category": "purchased_electricity",
+                                    "activity_name": "electricity",
+                                    "activity_value": 7800,
+                                    "activity_unit": "MWh",
+                                    "matched_alias": "外购电力",
+                                    "requested_factor_id": "factor-electricity-cn",
+                                    "chunk_id": "chunk-table-1",
+                                    "page_number": 4,
+                                    "section_title": "排放明细表",
+                                    "confidence": 0.95,
+                                    "snippet": "指标=外购电力 | 数值=7800 | 单位=MWh | 占比=65%",
+                                }
+                            ],
+                            "warnings": [],
+                        },
                         "chunks": [
                             {
                                 "chunk_id": "chunk-table-1",
@@ -202,8 +223,10 @@ def test_context_builder_injects_selected_upload_file_overview() -> None:
 
     assert "当前显式选择的上传文件结构化摘录如下" in system_prompt
     assert "指标=外购电力" in system_prompt
+    assert "碳排放活动/消耗量候选" in system_prompt
+    assert "消耗量：7800 MWh" in system_prompt
     assert "排放明细表" in system_prompt
-    assert "只有摘录和命中片段都缺失时，才说明材料不足" in system_prompt
+    assert "只有摘录、活动记忆和命中片段都缺失时，才说明材料不足" in system_prompt
     assert bundle["enterprise_context"]["file_overview_count"] == 1
 
 
