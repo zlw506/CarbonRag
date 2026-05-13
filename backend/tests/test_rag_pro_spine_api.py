@@ -1,11 +1,16 @@
-from fastapi.testclient import TestClient
+from datetime import datetime, timezone
 from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
 
 from app.ai_runtime.providers.base import BaseChatProvider, ChatCompletionResult, ProviderDescriptor
 from app.main import app
-from app.rag.kb.models import KnowledgeBaseCreate, RagDocumentCreate
+from app.rag.kb.models import KnowledgeBaseCreate, RagChunk, RagDocumentCreate
 from app.rag.kb.storage import RagKnowledgeStore
+from app.rag.retrieval.sparse import sparse_search_with_trace
 from app.rag.spine import RagSpineService
+from app.rag.vector_backend import milvus_store
+from app.rag.vector_backend.milvus_store import MilvusVectorStoreAdapter
 from tests.test_helpers import patch_test_auth_service, register_and_login
 
 client = TestClient(app)
@@ -203,7 +208,19 @@ def test_kb_document_pipeline_runs_all_stages_and_reports_smoke(monkeypatch, tmp
     assert payload["search_smoke_passed"] is True
     assert payload["eval_passed"] is None
     assert payload["failed_stage"] is None
-    assert "eval_not_configured" in payload["warnings"]
+    assert payload["pipeline_mode"] == "quick"
+    assert "eval_not_configured" not in payload["warnings"]
+    assert payload["timing_trace"]["total_ms"] is not None
+
+    acceptance = client.post(
+        f"/api/v1/kb/{kb_id}/documents/{doc_id}/run-pipeline",
+        json={"pipeline_mode": "acceptance"},
+    )
+    assert acceptance.status_code == 200, acceptance.text
+    acceptance_payload = acceptance.json()
+    assert acceptance_payload["pipeline_mode"] == "acceptance"
+    assert acceptance_payload["eval_passed"] is None
+    assert "eval_not_configured" in acceptance_payload["warnings"]
 
 
 def test_kb_document_pipeline_batch_summarizes_pending_documents(monkeypatch, tmp_path) -> None:
@@ -228,6 +245,7 @@ def test_kb_document_pipeline_batch_summarizes_pending_documents(monkeypatch, tm
     assert payload["succeeded_count"] == 2
     assert payload["failed_count"] == 0
     assert all(item["search_smoke_passed"] for item in payload["results"])
+    assert all(item["pipeline_mode"] == "quick" for item in payload["results"])
 
 
 def test_kb_document_pipeline_reports_index_failure(monkeypatch, tmp_path) -> None:
@@ -260,6 +278,81 @@ def test_kb_document_pipeline_reports_index_failure(monkeypatch, tmp_path) -> No
     assert result.failed_stage == "index"
     assert result.index_status == "failed"
     assert result.error_message == "forced index failure"
+
+
+def test_sparse_search_reuses_kb_corpus_cache() -> None:
+    now = datetime.now(timezone.utc)
+    chunks = [
+        RagChunk(
+            rag_chunk_id="chunk-1",
+            kb_id="kb-cache",
+            doc_id="doc-1",
+            chunk_index=0,
+            text="青木制造外购电力 217650 kWh",
+            created_at=now,
+            updated_at=now,
+        )
+    ]
+
+    first = sparse_search_with_trace(query="外购电力", chunks=chunks, top_k=3)
+    second = sparse_search_with_trace(query="外购电力", chunks=chunks, top_k=3)
+
+    assert first.cache_hit is False
+    assert second.cache_hit is True
+    assert second.loaded_chunk_count == 1
+
+
+def test_milvus_client_reused_between_searches(monkeypatch) -> None:
+    class FakeMilvusClient:
+        init_count = 0
+
+        def __init__(self, uri: str) -> None:
+            self.uri = uri
+            FakeMilvusClient.init_count += 1
+
+        def has_collection(self, collection_name: str) -> bool:  # noqa: ARG002
+            return True
+
+        def search(self, **kwargs):  # noqa: ANN003
+            return [[{"entity": {"chunk_id": "chunk-1"}, "distance": 0.9}]]
+
+    monkeypatch.setitem(__import__("sys").modules, "pymilvus", SimpleNamespace(MilvusClient=FakeMilvusClient))
+    monkeypatch.setattr(
+        milvus_store,
+        "get_settings",
+        lambda: SimpleNamespace(
+            rag_milvus_uri="http://127.0.0.1:19530",
+            rag_milvus_collection_prefix="carbonrag",
+        ),
+    )
+    monkeypatch.setattr(
+        milvus_store,
+        "resolve_vector_runtime",
+        lambda: SimpleNamespace(vector_runtime="milvus_standalone", degraded=False, warnings=[]),
+    )
+    monkeypatch.setattr(milvus_store, "embed_query", lambda query: ([0.1] * 1024, {}))
+    milvus_store._CLIENT_CACHE.clear()
+    milvus_store._COLLECTION_EXISTS_CACHE.clear()
+    now = datetime.now(timezone.utc)
+    chunks = [
+        RagChunk(
+            rag_chunk_id="chunk-1",
+            kb_id="kb-milvus",
+            doc_id="doc-1",
+            chunk_index=0,
+            text="青木制造外购电力 217650 kWh",
+            created_at=now,
+            updated_at=now,
+        )
+    ]
+
+    adapter = MilvusVectorStoreAdapter()
+    first = adapter.search(query="外购电力", chunks=chunks, top_k=3)
+    second = adapter.search(query="外购电力", chunks=chunks, top_k=3)
+
+    assert first.client_init_count == 1
+    assert second.client_init_count == 0
+    assert FakeMilvusClient.init_count == 1
 
 
 def test_kb_user_isolation(monkeypatch, tmp_path) -> None:

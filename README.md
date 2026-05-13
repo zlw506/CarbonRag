@@ -1,6 +1,6 @@
 # CarbonRag
 
-当前状态：`V1.6.24 RAG-Pro 一键入库验收与证明面板加固 / #1 负责 RAG 主脊柱闭环 / #2/#3 继续按 PR 并线`
+当前状态：`V1.6.29 RAG-Pro 性能根因审计与运行时加固 / #1 负责 RAG 主脊柱闭环 / #2/#3 继续按 PR 并线`
 
 CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标不是做一个泛用聊天壳，而是把“政策问答、私有知识、碳核算、报告生成、反馈闭环、多人治理”整合成一套可试用、可部署、可协作演进的垂直系统。
 
@@ -63,7 +63,8 @@ V1.4.x 初步方向：
 - private / mixed 检索以当前 session 已挂接知识条目为边界。
 - V1.6.x 正在迁移 RAG-Pro 主脊柱：KnowledgeBase、Document、Chunk、RRF hybrid、BGE-M3、bge reranker、Milvus runtime 和 test QA。
 - V1.6.24 起，RAG-Pro 正式验收路线固定为：`/rag/search` 只测检索，`/rag/answer` 正式生成回答，`/rag/test-qa` 工作台测试问答，`/rag/eval/run` 验收评分；`/rag/retrieve` 是 admin-only legacy 旧实验入口，不参与验收。
-- 知识库工作台支持“一键入库验收”：`parse -> chunk -> index -> search smoke -> eval smoke`，失败时返回 `failed_stage / error_message / warnings`，避免只看到按钮成功却不知道 RAG 是否可用。
+- V1.6.29 起，知识库工作台默认使用“快速入库”：`parse -> chunk -> index -> search smoke`，不会默认触发 eval 或大模型生成；需要完整验收时显式运行“验收评分入库”。
+- RAG 响应开始透出 `timing_trace`：embedding、Milvus client/search/insert、DB chunk load、sparse、RRF、rerank、LLM、候选数、Milvus client 初始化次数和 sparse cache 命中状态都应可定位。
 - Windows 默认 RAG 向量库为 Docker Milvus Standalone：`RAG_VECTOR_BACKEND=milvus`、`RAG_MILVUS_URI=http://127.0.0.1:19530`；WSL/Linux/macOS 才使用 `milvus_lite + .db`。
 - V1.6.17 起，local-dev 默认聊天生成路线切向 Ollama native API：`AI_CHAT_PROVIDER=ollama`、`OLLAMA_BASE_URL=http://localhost:11434`、`OLLAMA_MODEL=deepseek-r1:8b`。OpenAI-compatible `http://localhost:11434/v1` 只作为兼容路线；云端 VPS 默认不能访问用户本机 Ollama。RAG-Pro 不自带聊天模型权重，离线聊天模型包由 #1 单独分发，放在 `data/outputs/models/LLM/<model-name>/`。
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from time import perf_counter
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,10 +20,12 @@ from app.rag.kb.models import (
     RagHealth,
     RagHit,
     RagPipelineBatchResult,
+    RagPipelineMode,
     RagPipelineResult,
     RagSearchRequest,
     RagSearchResult,
     RagStats,
+    RagTimingTrace,
     RagTrace,
 )
 from app.rag.kb.storage import RagKnowledgeStore
@@ -30,7 +33,7 @@ from app.rag.qa.test_qa import build_test_qa_answer
 from app.rag.retrieval.dense import dense_search
 from app.rag.retrieval.hybrid_rrf import merge_with_rrf
 from app.rag.retrieval.rerank import BgeReranker
-from app.rag.retrieval.sparse import sparse_search
+from app.rag.retrieval.sparse import sparse_search_with_trace
 from app.rag.vector_backend.base import VectorSearchResult
 from app.rag.vector_backend.runtime import resolve_vector_runtime
 
@@ -94,46 +97,60 @@ class RagSpineService:
     def list_chunks(self, *, owner_user_id: str, kb_id: str, doc_id: str | None = None):
         return self.store.list_chunks(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
 
-    def run_document_pipeline(self, *, owner_user_id: str, kb_id: str, doc_id: str) -> RagPipelineResult:
+    def run_document_pipeline(self, *, owner_user_id: str, kb_id: str, doc_id: str, pipeline_mode: RagPipelineMode = "quick") -> RagPipelineResult:
         """Run the RAG-Pro acceptance path for one document.
 
         This intentionally stays synchronous for V1.6.24 so the workbench can
         explain the exact stage that failed before we introduce background jobs.
         """
 
+        started_total = perf_counter()
+        timings: dict[str, float] = {}
         warnings: list[str] = []
         vector_backend = self._effective_vector_backend()
         runtime = self._runtime_profile(backend=vector_backend)
         doc = self.get_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
 
         if doc.parse_status != "parsed":
+            started = perf_counter()
             doc = self.parse_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+            timings["parse_ms"] = _elapsed_ms(started)
         if doc.parse_status != "parsed":
             return self._pipeline_result(
                 doc=doc,
+                pipeline_mode=pipeline_mode,
                 vector_runtime=runtime.vector_runtime,
                 failed_stage="parse",
                 warnings=warnings,
+                timing_trace=_pipeline_timing(timings, started_total, doc=doc),
             )
 
         if doc.chunk_status != "chunked" or doc.chunk_count <= 0:
+            started = perf_counter()
             doc = self.chunk_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+            timings["chunk_ms"] = _elapsed_ms(started)
         if doc.chunk_status != "chunked" or doc.chunk_count <= 0:
             return self._pipeline_result(
                 doc=doc,
+                pipeline_mode=pipeline_mode,
                 vector_runtime=runtime.vector_runtime,
                 failed_stage="chunk",
                 warnings=warnings,
+                timing_trace=_pipeline_timing(timings, started_total, doc=doc),
             )
 
         if doc.index_status != "indexed" or doc.indexed_chunk_count < doc.chunk_count:
+            started = perf_counter()
             doc = self.index_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+            timings["milvus_insert_ms"] = _elapsed_ms(started)
         if doc.index_status != "indexed" or doc.indexed_chunk_count <= 0:
             return self._pipeline_result(
                 doc=doc,
+                pipeline_mode=pipeline_mode,
                 vector_runtime=runtime.vector_runtime,
                 failed_stage="index",
                 warnings=warnings,
+                timing_trace=_pipeline_timing(timings, started_total, doc=doc),
             )
 
         chunks = self.list_chunks(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
@@ -141,10 +158,17 @@ class RagSpineService:
         search_smoke_passed = False
         degraded = bool(doc.degraded)
         try:
+            started = perf_counter()
             search = self.search(
                 owner_user_id=owner_user_id,
                 request=RagSearchRequest(query=smoke_query, kb_id=kb_id, mode="hybrid", top_k=5),
             )
+            timings["total_ms"] = _elapsed_ms(started)
+            timings["embedding_ms"] = search.trace.timing_trace.embedding_ms or 0.0
+            timings["milvus_client_ms"] = search.trace.timing_trace.milvus_client_ms or 0.0
+            timings["milvus_search_ms"] = search.trace.timing_trace.milvus_search_ms or 0.0
+            timings["sparse_ms"] = search.trace.timing_trace.sparse_ms or 0.0
+            timings["rrf_ms"] = search.trace.timing_trace.rrf_ms or 0.0
             warnings.extend(search.trace.warnings)
             degraded = degraded or search.trace.degraded
             search_smoke_passed = any(hit.doc_id == doc_id for hit in search.hits)
@@ -153,18 +177,21 @@ class RagSpineService:
 
         eval_passed: bool | None = None
         eval_failed = False
-        cases = _load_pipeline_default_eval_cases(kb_id=kb_id)
-        if cases:
-            try:
-                eval_run = self.run_eval(owner_user_id=owner_user_id, kb_id=kb_id, cases=cases, mode="hybrid", top_k=5)
-                eval_passed = eval_run.passed
-                eval_failed = not eval_run.passed
-            except Exception as exc:  # noqa: BLE001
-                eval_passed = False
-                eval_failed = True
-                warnings.append(f"eval_smoke_failed:{type(exc).__name__}: {exc}")
-        else:
-            warnings.append("eval_not_configured")
+        if pipeline_mode == "acceptance":
+            cases = _load_pipeline_default_eval_cases(kb_id=kb_id)
+            if cases:
+                try:
+                    started = perf_counter()
+                    eval_run = self.run_eval(owner_user_id=owner_user_id, kb_id=kb_id, cases=cases, mode="hybrid", top_k=5)
+                    timings["llm_ms"] = _elapsed_ms(started)
+                    eval_passed = eval_run.passed
+                    eval_failed = not eval_run.passed
+                except Exception as exc:  # noqa: BLE001
+                    eval_passed = False
+                    eval_failed = True
+                    warnings.append(f"eval_smoke_failed:{type(exc).__name__}: {exc}")
+            else:
+                warnings.append("eval_not_configured")
 
         failed_stage = None
         if not search_smoke_passed:
@@ -173,12 +200,14 @@ class RagSpineService:
             failed_stage = "eval_smoke"
         return self._pipeline_result(
             doc=doc,
+            pipeline_mode=pipeline_mode,
             vector_runtime=runtime.vector_runtime,
             search_smoke_passed=search_smoke_passed,
             eval_passed=eval_passed,
             failed_stage=failed_stage,
             degraded=degraded,
             warnings=warnings,
+            timing_trace=_pipeline_timing(timings, started_total, doc=doc),
         )
 
     def run_document_pipeline_batch(
@@ -187,6 +216,7 @@ class RagSpineService:
         owner_user_id: str,
         kb_id: str,
         doc_ids: list[str] | None = None,
+        pipeline_mode: RagPipelineMode = "quick",
     ) -> RagPipelineBatchResult:
         documents = self.list_documents(owner_user_id=owner_user_id, kb_id=kb_id)
         requested = set(doc_ids or [])
@@ -197,7 +227,7 @@ class RagSpineService:
             or (requested and doc.doc_id in requested)
         ]
         results = [
-            self.run_document_pipeline(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc.doc_id)
+            self.run_document_pipeline(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc.doc_id, pipeline_mode=pipeline_mode)
             for doc in targets
         ]
         succeeded_count = sum(1 for item in results if item.failed_stage is None)
@@ -211,6 +241,7 @@ class RagSpineService:
         )
 
     def search(self, *, owner_user_id: str, request: RagSearchRequest) -> RagSearchResult:
+        started_total = perf_counter()
         kb_id = request.kb_id
         vector_backend = self._effective_vector_backend()
         if kb_id is None:
@@ -221,27 +252,34 @@ class RagSpineService:
                 vector_backend=vector_backend,
             )
             kb_id = kb.kb_id
+        db_started = perf_counter()
         chunks = self.store.list_searchable_chunks(
             owner_user_id=owner_user_id,
             kb_id=kb_id,
             knowledge_scope=request.knowledge_scope,
             allowed_knowledge_item_ids=request.allowed_knowledge_item_ids,
         )
+        db_load_chunks_ms = _elapsed_ms(db_started)
         dense_result = (
             VectorSearchResult(hits=[], backend=vector_backend, available=True)
             if request.mode == "sparse"
             else dense_search(query=request.query, chunks=chunks, top_k=max(request.top_k * 4, request.top_k), backend=vector_backend)
         )
-        sparse_hits = [] if request.mode == "dense" else sparse_search(query=request.query, chunks=chunks, top_k=max(request.top_k * 4, request.top_k))
+        sparse_result = None if request.mode == "dense" else sparse_search_with_trace(query=request.query, chunks=chunks, top_k=max(request.top_k * 4, request.top_k))
+        sparse_hits = [] if sparse_result is None else sparse_result.hits
+        rrf_started = perf_counter()
         merged = merge_with_rrf(sparse_hits=sparse_hits, dense_hits=dense_result.hits)
+        rrf_ms = _elapsed_ms(rrf_started)
 
         rerank_applied = False
         warning = None
         hits: list[RagHit]
+        rerank_started = perf_counter()
         if request.mode == "hybrid_rerank":
             hits, rerank_applied, warning = self.reranker.rerank(query=request.query, hits=merged, top_k=request.top_k)
         else:
             hits = merged[: request.top_k]
+        rerank_ms = _elapsed_ms(rerank_started) if request.mode == "hybrid_rerank" else 0.0
 
         warnings: list[str] = []
         runtime = self._runtime_profile(backend=vector_backend)
@@ -267,6 +305,24 @@ class RagSpineService:
             retrieval_mode=request.mode,
             kb_id=kb_id,
             knowledge_scope=request.knowledge_scope,
+            timing_trace=RagTimingTrace(
+                embedding_ms=dense_result.embedding_ms,
+                milvus_client_ms=dense_result.client_ms,
+                milvus_search_ms=dense_result.search_ms,
+                db_load_chunks_ms=db_load_chunks_ms,
+                sparse_ms=sparse_result.elapsed_ms if sparse_result else 0.0,
+                rrf_ms=rrf_ms,
+                rerank_ms=rerank_ms,
+                total_ms=_elapsed_ms(started_total),
+                loaded_chunk_count=len(chunks),
+                dense_candidate_count=len(dense_result.hits),
+                sparse_candidate_count=len(sparse_hits),
+                rrf_candidate_count=len(merged),
+                rerank_candidate_count=len(hits),
+                milvus_client_init_count=dense_result.client_init_count,
+                sparse_cache_hit=sparse_result.cache_hit if sparse_result else None,
+                sparse_loaded_chunk_count=sparse_result.loaded_chunk_count if sparse_result else 0,
+            ),
         )
         return RagSearchResult(query=request.query, kb_id=kb_id, hits=hits, trace=trace)
 
@@ -465,9 +521,12 @@ class RagSpineService:
         failed_stage: str | None = None,
         degraded: bool | None = None,
         warnings: list[str] | None = None,
+        pipeline_mode: RagPipelineMode = "quick",
+        timing_trace: RagTimingTrace | None = None,
     ) -> RagPipelineResult:
         return RagPipelineResult(
             doc_id=doc.doc_id,
+            pipeline_mode=pipeline_mode,
             parse_status=doc.parse_status,
             chunk_status=doc.chunk_status,
             index_status=doc.index_status,
@@ -480,6 +539,7 @@ class RagSpineService:
             failed_stage=failed_stage,
             error_message=doc.error_message,
             warnings=warnings or list(doc.index_warnings),
+            timing_trace=timing_trace or RagTimingTrace(),
         )
 
 
@@ -513,6 +573,27 @@ def _precision_at_k(*, hits: list[RagHit], keywords: list[str], k: int) -> float
         haystack = f"{hit.title}\n{hit.snippet}".lower()
         matched += int(any(keyword in haystack for keyword in normalized_keywords))
     return matched / max(1, k)
+
+
+def _pipeline_timing(timings: dict[str, float], started_total: float, *, doc: RagDocument) -> RagTimingTrace:
+    return RagTimingTrace(
+        parse_ms=timings.get("parse_ms"),
+        chunk_ms=timings.get("chunk_ms"),
+        embedding_ms=timings.get("embedding_ms"),
+        milvus_client_ms=timings.get("milvus_client_ms"),
+        milvus_insert_ms=timings.get("milvus_insert_ms"),
+        milvus_search_ms=timings.get("milvus_search_ms"),
+        sparse_ms=timings.get("sparse_ms"),
+        rrf_ms=timings.get("rrf_ms"),
+        llm_ms=timings.get("llm_ms"),
+        total_ms=_elapsed_ms(started_total),
+        loaded_chunk_count=doc.chunk_count,
+        dense_candidate_count=doc.indexed_chunk_count,
+    )
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 3)
 
 
 def _build_pipeline_smoke_query(*, doc: RagDocument, chunks: list) -> str:

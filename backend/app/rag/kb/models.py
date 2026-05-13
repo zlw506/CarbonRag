@@ -10,6 +10,7 @@ from app.settings.schemas import LocalProviderOverride
 KnowledgeBaseVisibility = Literal["private", "shared", "public"]
 RagDocumentStatus = Literal["uploaded", "parsed", "chunked", "indexed", "failed"]
 RagRetrievalMode = Literal["dense", "sparse", "hybrid", "hybrid_rerank"]
+RagPipelineMode = Literal["quick", "acceptance"]
 
 
 class KnowledgeBase(BaseModel):
@@ -196,6 +197,29 @@ class RagHit(BaseModel):
         return payload
 
 
+class RagTimingTrace(BaseModel):
+    parse_ms: float | None = None
+    chunk_ms: float | None = None
+    embedding_ms: float | None = None
+    milvus_client_ms: float | None = None
+    milvus_insert_ms: float | None = None
+    milvus_search_ms: float | None = None
+    db_load_chunks_ms: float | None = None
+    sparse_ms: float | None = None
+    rrf_ms: float | None = None
+    rerank_ms: float | None = None
+    llm_ms: float | None = None
+    total_ms: float | None = None
+    loaded_chunk_count: int = 0
+    dense_candidate_count: int = 0
+    sparse_candidate_count: int = 0
+    rrf_candidate_count: int = 0
+    rerank_candidate_count: int = 0
+    milvus_client_init_count: int = 0
+    sparse_cache_hit: bool | None = None
+    sparse_loaded_chunk_count: int = 0
+
+
 class RagTrace(BaseModel):
     dense_count: int = 0
     sparse_count: int = 0
@@ -212,6 +236,7 @@ class RagTrace(BaseModel):
     generation_model: str | None = None
     provider_ref: str | None = None
     thinking_content: str | None = None
+    timing_trace: RagTimingTrace = Field(default_factory=RagTimingTrace)
 
 
 class RagSearchResult(BaseModel):
@@ -278,6 +303,7 @@ class RagStats(BaseModel):
 
 class RagPipelineResult(BaseModel):
     doc_id: str
+    pipeline_mode: RagPipelineMode = "quick"
     parse_status: str
     chunk_status: str
     index_status: str
@@ -290,12 +316,20 @@ class RagPipelineResult(BaseModel):
     failed_stage: str | None = None
     error_message: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    timing_trace: RagTimingTrace = Field(default_factory=RagTimingTrace)
 
 
 class RagPipelineBatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     doc_ids: list[str] | None = None
+    pipeline_mode: RagPipelineMode = "quick"
+
+
+class RagPipelineRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pipeline_mode: RagPipelineMode = "quick"
 
 
 class RagPipelineBatchResult(BaseModel):

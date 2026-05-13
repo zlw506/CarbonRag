@@ -1,5 +1,5 @@
 import { httpClient } from "./http";
-import type { KnowledgeBase, RagChunk, RagDocument, RagPipelineBatchResult, RagPipelineResult } from "../types/kb";
+import type { KnowledgeBase, RagChunk, RagDocument, RagPipelineBatchResult, RagPipelineMode, RagPipelineResult } from "../types/kb";
 
 export async function listKnowledgeBases() {
     const response = await httpClient.get<KnowledgeBase[]>("/v1/kb");
@@ -59,15 +59,18 @@ export async function indexKbDocument(kbId: string, docId: string) {
     return response.data;
 }
 
-export async function runKbDocumentPipeline(kbId: string, docId: string) {
-    const response = await httpClient.post<RagPipelineResult>(`/v1/kb/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/run-pipeline`);
+export async function runKbDocumentPipeline(kbId: string, docId: string, pipelineMode: RagPipelineMode = "quick") {
+    const response = await httpClient.post<RagPipelineResult>(
+        `/v1/kb/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/run-pipeline`,
+        { pipeline_mode: pipelineMode },
+    );
     return response.data;
 }
 
-export async function runKbDocumentPipelineBatch(kbId: string, docIds?: string[]) {
+export async function runKbDocumentPipelineBatch(kbId: string, docIds?: string[], pipelineMode: RagPipelineMode = "quick") {
     const response = await httpClient.post<RagPipelineBatchResult>(
         `/v1/kb/${encodeURIComponent(kbId)}/documents/run-pipeline-batch`,
-        docIds ? { doc_ids: docIds } : {},
+        { ...(docIds ? { doc_ids: docIds } : {}), pipeline_mode: pipelineMode },
     );
     return response.data;
 }

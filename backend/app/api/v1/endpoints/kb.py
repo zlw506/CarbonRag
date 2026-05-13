@@ -19,6 +19,7 @@ from app.rag.kb.models import (
     RagDocumentCreate,
     RagPipelineBatchRequest,
     RagPipelineBatchResult,
+    RagPipelineRunRequest,
     RagPipelineResult,
 )
 from app.rag.spine import get_rag_spine_service
@@ -203,6 +204,7 @@ def index_document(
 def run_document_pipeline(
     kb_id: str,
     doc_id: str,
+    payload: RagPipelineRunRequest | None = None,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> RagPipelineResult:
     try:
@@ -210,6 +212,7 @@ def run_document_pipeline(
             owner_user_id=current_user.user_id,
             kb_id=kb_id,
             doc_id=doc_id,
+            pipeline_mode=(payload.pipeline_mode if payload else "quick"),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="document not found") from exc
@@ -226,6 +229,7 @@ def run_document_pipeline_batch(
             owner_user_id=current_user.user_id,
             kb_id=kb_id,
             doc_ids=(payload.doc_ids if payload else None),
+            pipeline_mode=(payload.pipeline_mode if payload else "quick"),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="knowledge base or document not found") from exc

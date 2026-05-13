@@ -29,7 +29,7 @@ import {
 import { listAttachableKnowledgeItems } from "../../services/knowledge";
 import { runRagEval, runRagTestQA, searchRagSpine } from "../../services/rag";
 import type { KnowledgeItem } from "../../types/knowledge";
-import type { KnowledgeBase, RagChunk, RagDocument, RagDocumentStatus, RagEvalRun, RagHit, RagPipelineBatchResult, RagPipelineResult, RagSearchResult, RagTestQAResult } from "../../types/kb";
+import type { KnowledgeBase, RagChunk, RagDocument, RagDocumentStatus, RagEvalRun, RagHit, RagPipelineBatchResult, RagPipelineMode, RagPipelineResult, RagSearchResult, RagTestQAResult, RagTimingTrace } from "../../types/kb";
 
 type StageName = "parse" | "chunk" | "index";
 
@@ -218,15 +218,15 @@ export function KnowledgeBaseWorkbench() {
         }
     }
 
-    async function runDocPipeline(doc: RagDocument) {
+    async function runDocPipeline(doc: RagDocument, pipelineMode: RagPipelineMode = "quick") {
         if (!activeKbId) {
             return;
         }
-        setRunningStage(`${doc.doc_id}:pipeline`);
+        setRunningStage(`${doc.doc_id}:${pipelineMode === "acceptance" ? "pipeline-acceptance" : "pipeline"}`);
         setError(null);
         setPipelineBatchResult(null);
         try {
-            const result = await runKbDocumentPipeline(activeKbId, doc.doc_id);
+            const result = await runKbDocumentPipeline(activeKbId, doc.doc_id, pipelineMode);
             setPipelineResult(result);
             setDocuments((current) => mergePipelineResultsIntoDocuments(current, [result]));
             await loadDocuments(activeKbId, doc.doc_id);
@@ -235,11 +235,11 @@ export function KnowledgeBaseWorkbench() {
             window.setTimeout(() => {
                 void loadDocuments(activeKbId, doc.doc_id);
             }, 800);
-            if (result.eval_passed !== null && result.eval_passed !== undefined) {
+            if (pipelineMode === "acceptance" && result.eval_passed !== null && result.eval_passed !== undefined) {
                 await handleEval();
             }
         } catch {
-            setError("一键入库验收失败。请查看失败阶段、后端日志、Milvus/Docker 与 BGE 模型状态。");
+            setError(`${pipelineMode === "acceptance" ? "验收评分入库" : "快速入库"}失败。请查看失败阶段、后端日志、Milvus/Docker 与 BGE 模型状态。`);
         } finally {
             setRunningStage(null);
         }
@@ -253,18 +253,15 @@ export function KnowledgeBaseWorkbench() {
         setError(null);
         setPipelineResult(null);
         try {
-            const result = await runKbDocumentPipelineBatch(activeKbId);
+            const result = await runKbDocumentPipelineBatch(activeKbId, undefined, "quick");
             setPipelineBatchResult(result);
             setDocuments((current) => mergePipelineResultsIntoDocuments(current, result.results));
             await loadDocuments(activeKbId, activeDocId ?? result.results[0]?.doc_id);
             window.setTimeout(() => {
                 void loadDocuments(activeKbId, activeDocId ?? result.results[0]?.doc_id);
             }, 800);
-            if (result.results.some((item) => item.eval_passed !== null && item.eval_passed !== undefined)) {
-                await handleEval();
-            }
         } catch {
-            setError("批量一键入库验收失败。请确认当前知识库有待处理文档，且后端服务可用。");
+            setError("批量快速入库失败。请确认当前知识库有待处理文档，且后端服务可用。");
         } finally {
             setRunningStage(null);
         }
@@ -349,7 +346,7 @@ export function KnowledgeBaseWorkbench() {
                         <Typography.Text className="admin-console__eyebrow">RAG-Pro 知识库工作台</Typography.Text>
                         <Typography.Title level={2}>把文档入库、检索和验收收进一条主线</Typography.Title>
                         <Typography.Paragraph>
-                            左侧管理知识库和文档，右侧处理当前文档、测试检索、查看片段和验收评分。默认使用“一键入库验收”，手工步骤只用于排查失败。
+                            左侧管理知识库和文档，右侧处理当前文档、测试检索、查看片段和验收评分。默认使用“快速入库”，验收评分需要显式运行，避免小文件也卡在评测和大模型调用上。
                         </Typography.Paragraph>
                     </div>
                     <Space className="admin-console__actions kb-console__hero-actions" size={10} wrap>
@@ -439,7 +436,7 @@ export function KnowledgeBaseWorkbench() {
                             disabled={!activeKbId || documents.length === 0}
                             loading={Boolean(runningStage?.endsWith(":pipeline-batch"))}
                         >
-                            批量一键入库验收
+                            批量快速入库
                         </Button>
                         {pipelineBatchResult ? <PipelineBatchResultAlert result={pipelineBatchResult} /> : null}
                         {documents.length ? (
@@ -488,16 +485,23 @@ export function KnowledgeBaseWorkbench() {
                                                 <div>
                                                     <Typography.Title level={4}>{activeDoc.title}</Typography.Title>
                                                     <Typography.Paragraph type="secondary">
-                                                        推荐先跑“一键入库验收”。如果失败，再用下面的手工按钮定位是解析、分块还是向量库问题。
+                                                        推荐先跑“快速入库”。如果需要正式验收，再运行“验收评分入库”或右侧评分面板。
                                                     </Typography.Paragraph>
                                                 </div>
                                                 <Button
                                                     type="primary"
                                                     icon={<PlayCircleOutlined />}
                                                     loading={runningStage === `${activeDoc.doc_id}:pipeline`}
-                                                    onClick={() => runDocPipeline(activeDoc)}
+                                                    onClick={() => runDocPipeline(activeDoc, "quick")}
                                                 >
-                                                    {activeDoc.error_stage ? "重试失败阶段" : "一键入库验收"}
+                                                    {activeDoc.error_stage ? "重试失败阶段" : "快速入库"}
+                                                </Button>
+                                                <Button
+                                                    icon={<PlayCircleOutlined />}
+                                                    loading={runningStage === `${activeDoc.doc_id}:pipeline-acceptance`}
+                                                    onClick={() => runDocPipeline(activeDoc, "acceptance")}
+                                                >
+                                                    验收评分入库
                                                 </Button>
                                             </div>
                                             <DocumentStatusSummary doc={activeDoc} />
@@ -662,6 +666,7 @@ function TracePanel({ hits, trace, mode }: { hits: RagHit[]; trace: RagSearchRes
                 <Tag color={trace.merged_count > 0 ? "cyan" : "default"}>融合候选 {trace.merged_count}</Tag>
                 <Tag color={trace.rerank_applied ? "green" : "default"}>重排序：{trace.rerank_applied ? "已执行" : "未执行"}</Tag>
             </Space>
+            {trace.timing_trace ? <TimingTags timing={trace.timing_trace} /> : null}
             {trace.warnings?.length ? <Alert type="warning" showIcon message={trace.warnings.map(humanizeWarning).join("；")} /> : null}
             {noHits ? (
                 <Empty
@@ -692,6 +697,22 @@ function TracePanel({ hits, trace, mode }: { hits: RagHit[]; trace: RagSearchRes
                     )}
                 />
             )}
+        </Space>
+    );
+}
+
+function TimingTags({ timing }: { timing: RagTimingTrace }) {
+    return (
+        <Space wrap>
+            <Tag>总耗时 {formatMs(timing.total_ms)}</Tag>
+            <Tag>DB {formatMs(timing.db_load_chunks_ms)}</Tag>
+            <Tag>BGE {formatMs(timing.embedding_ms)}</Tag>
+            <Tag>Milvus 连接 {formatMs(timing.milvus_client_ms)} / 新建 {timing.milvus_client_init_count ?? 0}</Tag>
+            <Tag>Milvus 检索 {formatMs(timing.milvus_search_ms)}</Tag>
+            <Tag color={timing.sparse_cache_hit ? "green" : "default"}>关键词 {formatMs(timing.sparse_ms)} / 缓存 {timing.sparse_cache_hit ? "命中" : "未命中"}</Tag>
+            <Tag>RRF {formatMs(timing.rrf_ms)}</Tag>
+            <Tag>重排 {formatMs(timing.rerank_ms)}</Tag>
+            <Tag>候选 {timing.loaded_chunk_count ?? 0}/{timing.dense_candidate_count ?? 0}/{timing.sparse_candidate_count ?? 0}/{timing.rrf_candidate_count ?? 0}</Tag>
         </Space>
     );
 }
@@ -808,7 +829,7 @@ function PipelineResultAlert({ result }: { result: RagPipelineResult }) {
             type={passed ? "success" : "warning"}
             showIcon
             className="kb-workbench__flow"
-            message={passed ? "一键入库验收完成" : `一键入库验收需要处理：${pipelineStageLabel(result.failed_stage)}`}
+            message={passed ? `${pipelineModeLabel(result.pipeline_mode)}完成` : `${pipelineModeLabel(result.pipeline_mode)}需要处理：${pipelineStageLabel(result.failed_stage)}`}
             description={
                 <Space direction="vertical" size={4}>
                     <Typography.Text>
@@ -816,6 +837,7 @@ function PipelineResultAlert({ result }: { result: RagPipelineResult }) {
                         片段 {result.chunk_count} 个，已入库 {result.indexed_chunk_count} 个；检索冒烟：{result.search_smoke_passed ? "通过" : "未通过"}；
                         验收评分：{result.eval_passed === null || result.eval_passed === undefined ? "未配置" : result.eval_passed ? "通过" : "未通过"}。
                     </Typography.Text>
+                    {result.timing_trace ? <TimingTags timing={result.timing_trace} /> : null}
                     {result.error_message ? <Typography.Text type="danger">{result.error_message}</Typography.Text> : null}
                     {result.warnings?.length ? <Typography.Text type="secondary">{result.warnings.map(humanizeWarning).join("；")}</Typography.Text> : null}
                 </Space>
@@ -830,7 +852,7 @@ function PipelineBatchResultAlert({ result }: { result: RagPipelineBatchResult }
             type={result.failed_count === 0 ? "success" : "warning"}
             showIcon
             className="kb-workbench__flow"
-            message={`批量一键入库验收：成功 ${result.succeeded_count} / ${result.total_count}`}
+            message={`批量快速入库：成功 ${result.succeeded_count} / ${result.total_count}`}
             description={result.failed_count ? `失败 ${result.failed_count} 个；请查看对应文档的失败阶段并点击“重试失败阶段”。` : "所有待处理文档已完成本轮 pipeline。"}
         />
     );
@@ -848,6 +870,23 @@ function pipelineStageLabel(value?: string | null) {
         eval_smoke: "验收评分",
     };
     return labels[value] ?? value;
+}
+
+function pipelineModeLabel(value?: string | null) {
+    if (value === "acceptance") {
+        return "验收评分入库";
+    }
+    return "快速入库";
+}
+
+function formatMs(value?: number | null) {
+    if (typeof value !== "number") {
+        return "-";
+    }
+    if (value >= 1000) {
+        return `${(value / 1000).toFixed(2)}s`;
+    }
+    return `${Math.round(value)}ms`;
 }
 
 function canRunChunk(doc: RagDocument) {

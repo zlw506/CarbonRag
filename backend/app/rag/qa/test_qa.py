@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any
 
 from app.ai_runtime.providers.base import BaseChatProvider, ChatProviderError
@@ -45,9 +46,13 @@ def build_test_qa_answer(
     system_prompt, user_input = _build_grounded_prompt(query=query, hits=selected_hits)
     evidence_quality, confidence = _score_evidence_quality(hits=selected_hits, trace=search_result.trace)
 
+    llm_started = perf_counter()
+    llm_ms = 0.0
     try:
         provider_result = chat_provider.generate_response(system_prompt=system_prompt, user_input=user_input)
+        llm_ms = _elapsed_ms(llm_started)
     except ChatProviderError as exc:
+        llm_ms = _elapsed_ms(llm_started)
         warning = f"provider_error:{exc.reason}"
         trace = _with_generation_metadata(
             trace=_append_trace_warning(trace=search_result.trace, warning=warning, degraded=True),
@@ -55,6 +60,7 @@ def build_test_qa_answer(
             model_name=descriptor.default_model,
             provider_ref=provider_ref,
             thinking_content=None,
+            llm_ms=llm_ms,
         )
         return {
             "answer": f"检索已完成，但大模型生成失败：{exc.reason}",
@@ -69,6 +75,7 @@ def build_test_qa_answer(
             "retrieval_trace": trace,
         }
     except Exception as exc:  # noqa: BLE001
+        llm_ms = _elapsed_ms(llm_started)
         warning = f"provider_error:{type(exc).__name__}"
         trace = _with_generation_metadata(
             trace=_append_trace_warning(trace=search_result.trace, warning=warning, degraded=True),
@@ -76,6 +83,7 @@ def build_test_qa_answer(
             model_name=descriptor.default_model,
             provider_ref=provider_ref,
             thinking_content=None,
+            llm_ms=llm_ms,
         )
         return {
             "answer": f"检索已完成，但大模型生成失败：{type(exc).__name__}",
@@ -97,6 +105,7 @@ def build_test_qa_answer(
         model_name=descriptor.default_model,
         provider_ref=provider_ref,
         thinking_content=_metadata_text(provider_result.metadata.get("thinking_content")),
+        llm_ms=llm_ms,
     )
     return {
         "answer": answer,
@@ -175,13 +184,18 @@ def _with_generation_metadata(
     model_name: str | None,
     provider_ref: str | None,
     thinking_content: str | None,
+    llm_ms: float | None = None,
 ) -> RagTrace:
+    timing = trace.timing_trace
+    if llm_ms is not None:
+        timing = timing.model_copy(update={"llm_ms": llm_ms, "total_ms": round((timing.total_ms or 0.0) + llm_ms, 3)})
     return trace.model_copy(
         update={
             "generation_provider": provider_name,
             "generation_model": model_name,
             "provider_ref": provider_ref,
             "thinking_content": thinking_content,
+            "timing_trace": timing,
         }
     )
 
@@ -190,4 +204,8 @@ def _metadata_text(value: Any) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 3)
 

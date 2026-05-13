@@ -19,6 +19,10 @@ class VectorSearchResult:
     available: bool
     degraded: bool = False
     warning: str | None = None
+    client_ms: float = 0.0
+    search_ms: float = 0.0
+    embedding_ms: float = 0.0
+    client_init_count: int = 0
 
 
 @dataclass(slots=True)
@@ -28,6 +32,10 @@ class VectorIndexResult:
     available: bool
     degraded: bool = False
     warning: str | None = None
+    client_ms: float = 0.0
+    insert_ms: float = 0.0
+    embedding_ms: float = 0.0
+    client_init_count: int = 0
 
 
 class BaseVectorStore(ABC):

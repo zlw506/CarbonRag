@@ -1,5 +1,6 @@
 export type RagDocumentStatus = "uploaded" | "parsed" | "chunked" | "indexed" | "failed";
 export type RagRetrievalMode = "dense" | "sparse" | "hybrid" | "hybrid_rerank";
+export type RagPipelineMode = "quick" | "acceptance";
 
 export interface KnowledgeBase {
     kb_id: string;
@@ -81,6 +82,7 @@ export interface RagTrace {
     warnings: string[];
     retrieval_mode: RagRetrievalMode;
     kb_id?: string | null;
+    timing_trace?: RagTimingTrace;
 }
 
 export interface RagHit {
@@ -132,6 +134,7 @@ export interface RagEvalRun {
 
 export interface RagPipelineResult {
     doc_id: string;
+    pipeline_mode?: RagPipelineMode;
     parse_status: string;
     chunk_status: string;
     index_status: string;
@@ -144,6 +147,7 @@ export interface RagPipelineResult {
     failed_stage?: string | null;
     error_message?: string | null;
     warnings: string[];
+    timing_trace?: RagTimingTrace;
 }
 
 export interface RagPipelineBatchResult {
@@ -152,5 +156,28 @@ export interface RagPipelineBatchResult {
     succeeded_count: number;
     failed_count: number;
     results: RagPipelineResult[];
+}
+
+export interface RagTimingTrace {
+    parse_ms?: number | null;
+    chunk_ms?: number | null;
+    embedding_ms?: number | null;
+    milvus_client_ms?: number | null;
+    milvus_insert_ms?: number | null;
+    milvus_search_ms?: number | null;
+    db_load_chunks_ms?: number | null;
+    sparse_ms?: number | null;
+    rrf_ms?: number | null;
+    rerank_ms?: number | null;
+    llm_ms?: number | null;
+    total_ms?: number | null;
+    loaded_chunk_count?: number;
+    dense_candidate_count?: number;
+    sparse_candidate_count?: number;
+    rrf_candidate_count?: number;
+    rerank_candidate_count?: number;
+    milvus_client_init_count?: number;
+    sparse_cache_hit?: boolean | null;
+    sparse_loaded_chunk_count?: number;
 }
 

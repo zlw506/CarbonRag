@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +19,17 @@ class MilvusVectorStoreAdapter(BaseVectorStore):
     dense_dim = 1024
 
     def index_chunks(self, *, chunks: list[RagChunk], embeddings=None) -> VectorIndexResult:
+        start_total = time.perf_counter()
+        embedding_ms = 0.0
         runtime = resolve_vector_runtime()
         if not chunks:
             return VectorIndexResult(indexed_count=0, backend=runtime.vector_runtime, available=True, degraded=runtime.degraded, warning=_runtime_warning(runtime))
         try:
-            client = _milvus_client()
-            embeddings = embeddings or embed_documents([chunk.text for chunk in chunks])
+            client, client_init_count, client_ms = _milvus_client()
+            if embeddings is None:
+                embedding_started = time.perf_counter()
+                embeddings = embed_documents([chunk.text for chunk in chunks])
+                embedding_ms = _elapsed_ms(embedding_started)
             if not embeddings.dense:
                 return VectorIndexResult(
                     indexed_count=0,
@@ -31,9 +37,13 @@ class MilvusVectorStoreAdapter(BaseVectorStore):
                     available=False,
                     degraded=True,
                     warning="BGE-M3 returned no dense vectors.",
+                    client_ms=client_ms,
+                    embedding_ms=embedding_ms,
+                    client_init_count=client_init_count,
                 )
             chunk_index = {chunk.rag_chunk_id: index for index, chunk in enumerate(chunks)}
             indexed_count = 0
+            insert_started = time.perf_counter()
             for kb_id, kb_chunks in _group_by_kb(chunks).items():
                 collection_name = _collection_name(kb_id)
                 _ensure_collection(client, collection_name, len(embeddings.dense[0]))
@@ -68,9 +78,19 @@ class MilvusVectorStoreAdapter(BaseVectorStore):
                     # still work eventually, but standalone should flush for E2E smoke.
                     pass
                 indexed_count += len(rows)
-            return VectorIndexResult(indexed_count=indexed_count, backend=runtime.vector_runtime, available=True, degraded=runtime.degraded, warning=_runtime_warning(runtime))
+            return VectorIndexResult(
+                indexed_count=indexed_count,
+                backend=runtime.vector_runtime,
+                available=True,
+                degraded=runtime.degraded,
+                warning=_runtime_warning(runtime),
+                client_ms=client_ms,
+                insert_ms=_elapsed_ms(insert_started),
+                embedding_ms=embedding_ms,
+                client_init_count=client_init_count,
+            )
         except RagEmbeddingUnavailable as exc:
-            return VectorIndexResult(indexed_count=0, backend=runtime.vector_runtime, available=False, degraded=True, warning=str(exc))
+            return VectorIndexResult(indexed_count=0, backend=runtime.vector_runtime, available=False, degraded=True, warning=str(exc), embedding_ms=embedding_ms)
         except Exception as exc:  # noqa: BLE001
             return VectorIndexResult(
                 indexed_count=0,
@@ -78,20 +98,26 @@ class MilvusVectorStoreAdapter(BaseVectorStore):
                 available=False,
                 degraded=True,
                 warning=f"Milvus runtime unavailable ({runtime.vector_runtime}): {exc}",
+                insert_ms=_elapsed_ms(start_total),
+                embedding_ms=embedding_ms,
             )
 
     def search(self, *, query: str, chunks: list[RagChunk], top_k: int) -> VectorSearchResult:
+        embedding_ms = 0.0
         runtime = resolve_vector_runtime()
         if not chunks:
             return VectorSearchResult(hits=[], backend=runtime.vector_runtime, available=True, degraded=runtime.degraded, warning=_runtime_warning(runtime))
         try:
-            client = _milvus_client()
+            client, client_init_count, client_ms = _milvus_client()
+            embedding_started = time.perf_counter()
             dense_query, _ = embed_query(query)
+            embedding_ms = _elapsed_ms(embedding_started)
             chunk_map = {chunk.rag_chunk_id: chunk for chunk in chunks}
             hits: list[VectorSearchHit] = []
+            search_started = time.perf_counter()
             for kb_id in sorted({chunk.kb_id for chunk in chunks}):
                 collection_name = _collection_name(kb_id)
-                if not client.has_collection(collection_name):
+                if not _has_collection(client, collection_name):
                     continue
                 results = client.search(
                     collection_name=collection_name,
@@ -109,9 +135,19 @@ class MilvusVectorStoreAdapter(BaseVectorStore):
                     score = float(row.get("distance") or row.get("score") or 0.0)
                     hits.append(VectorSearchHit(chunk=chunk, score=score))
             hits.sort(key=lambda item: item.score, reverse=True)
-            return VectorSearchResult(hits=hits[:top_k], backend=runtime.vector_runtime, available=True, degraded=runtime.degraded, warning=_runtime_warning(runtime))
+            return VectorSearchResult(
+                hits=hits[:top_k],
+                backend=runtime.vector_runtime,
+                available=True,
+                degraded=runtime.degraded,
+                warning=_runtime_warning(runtime),
+                client_ms=client_ms,
+                search_ms=_elapsed_ms(search_started),
+                embedding_ms=embedding_ms,
+                client_init_count=client_init_count,
+            )
         except RagEmbeddingUnavailable as exc:
-            return VectorSearchResult(hits=[], backend=runtime.vector_runtime, available=False, degraded=True, warning=str(exc))
+            return VectorSearchResult(hits=[], backend=runtime.vector_runtime, available=False, degraded=True, warning=str(exc), embedding_ms=embedding_ms)
         except Exception as exc:  # noqa: BLE001
             return VectorSearchResult(
                 hits=[],
@@ -119,7 +155,12 @@ class MilvusVectorStoreAdapter(BaseVectorStore):
                 available=False,
                 degraded=True,
                 warning=f"Milvus runtime unavailable ({runtime.vector_runtime}): {exc}",
+                embedding_ms=embedding_ms,
             )
+
+
+_CLIENT_CACHE: dict[str, Any] = {}
+_COLLECTION_EXISTS_CACHE: set[tuple[str, str]] = set()
 
 
 def _milvus_client():
@@ -131,11 +172,21 @@ def _milvus_client():
     uri = settings.rag_milvus_uri
     if uri and not uri.startswith(("http://", "https://", "tcp://")):
         Path(uri).parent.mkdir(parents=True, exist_ok=True)
-    return MilvusClient(uri=uri)
+    cache_key = str(uri or "")
+    started = time.perf_counter()
+    if cache_key in _CLIENT_CACHE:
+        return _CLIENT_CACHE[cache_key], 0, _elapsed_ms(started)
+    client = MilvusClient(uri=uri)
+    _CLIENT_CACHE[cache_key] = client
+    return client, 1, _elapsed_ms(started)
 
 
 def _ensure_collection(client, collection_name: str, dim: int) -> None:
+    client_key = _client_cache_key(client)
+    if (client_key, collection_name) in _COLLECTION_EXISTS_CACHE:
+        return
     if client.has_collection(collection_name):
+        _COLLECTION_EXISTS_CACHE.add((client_key, collection_name))
         return
     try:
         from pymilvus import DataType
@@ -158,6 +209,17 @@ def _ensure_collection(client, collection_name: str, dim: int) -> None:
         client.create_collection(collection_name=collection_name, schema=schema, index_params=index_params)
     except Exception:
         client.create_collection(collection_name=collection_name, dimension=dim, metric_type="COSINE", auto_id=False)
+    _COLLECTION_EXISTS_CACHE.add((client_key, collection_name))
+
+
+def _has_collection(client, collection_name: str) -> bool:
+    client_key = _client_cache_key(client)
+    if (client_key, collection_name) in _COLLECTION_EXISTS_CACHE:
+        return True
+    exists = bool(client.has_collection(collection_name))
+    if exists:
+        _COLLECTION_EXISTS_CACHE.add((client_key, collection_name))
+    return exists
 
 
 def _collection_name(kb_id: str) -> str:
@@ -182,3 +244,11 @@ def _escape_filter_value(value: str) -> str:
 
 def _runtime_warning(runtime) -> str | None:
     return "; ".join(runtime.warnings) if runtime.warnings else None
+
+
+def _client_cache_key(client) -> str:
+    return str(id(client))
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 3)
