@@ -29,7 +29,7 @@ import {
 import { listAttachableKnowledgeItems } from "../../services/knowledge";
 import { runRagEval, runRagTestQA, searchRagSpine } from "../../services/rag";
 import type { KnowledgeItem } from "../../types/knowledge";
-import type { KnowledgeBase, RagChunk, RagDocument, RagEvalRun, RagHit, RagPipelineBatchResult, RagPipelineResult, RagSearchResult, RagTestQAResult } from "../../types/kb";
+import type { KnowledgeBase, RagChunk, RagDocument, RagDocumentStatus, RagEvalRun, RagHit, RagPipelineBatchResult, RagPipelineResult, RagSearchResult, RagTestQAResult } from "../../types/kb";
 
 type StageName = "parse" | "chunk" | "index";
 
@@ -125,13 +125,16 @@ export function KnowledgeBaseWorkbench() {
         }
     }
 
-    async function loadDocuments(kbId: string) {
+    async function loadDocuments(kbId: string, preferredDocId?: string) {
         setLoading(true);
         setError(null);
         try {
             const docs = await listKbDocuments(kbId);
             setDocuments(docs);
-            const nextActiveDocId = docs[0]?.doc_id;
+            const nextActiveDocId =
+                preferredDocId && docs.some((doc) => doc.doc_id === preferredDocId)
+                    ? preferredDocId
+                    : docs[0]?.doc_id;
             setActiveDocId(nextActiveDocId);
             if (nextActiveDocId) {
                 setChunks(await listKbDocumentChunks(kbId, nextActiveDocId));
@@ -225,9 +228,13 @@ export function KnowledgeBaseWorkbench() {
         try {
             const result = await runKbDocumentPipeline(activeKbId, doc.doc_id);
             setPipelineResult(result);
-            await loadDocuments(activeKbId);
+            setDocuments((current) => mergePipelineResultsIntoDocuments(current, [result]));
+            await loadDocuments(activeKbId, doc.doc_id);
             setActiveDocId(doc.doc_id);
             setChunks(await listKbDocumentChunks(activeKbId, doc.doc_id));
+            window.setTimeout(() => {
+                void loadDocuments(activeKbId, doc.doc_id);
+            }, 800);
             if (result.eval_passed !== null && result.eval_passed !== undefined) {
                 await handleEval();
             }
@@ -248,7 +255,11 @@ export function KnowledgeBaseWorkbench() {
         try {
             const result = await runKbDocumentPipelineBatch(activeKbId);
             setPipelineBatchResult(result);
-            await loadDocuments(activeKbId);
+            setDocuments((current) => mergePipelineResultsIntoDocuments(current, result.results));
+            await loadDocuments(activeKbId, activeDocId ?? result.results[0]?.doc_id);
+            window.setTimeout(() => {
+                void loadDocuments(activeKbId, activeDocId ?? result.results[0]?.doc_id);
+            }, 800);
             if (result.results.some((item) => item.eval_passed !== null && item.eval_passed !== undefined)) {
                 await handleEval();
             }
@@ -605,6 +616,49 @@ function TracePanel({ hits, trace, mode }: { hits: RagHit[]; trace: RagSearchRes
             )}
         </Space>
     );
+}
+
+function mergePipelineResultsIntoDocuments(documents: RagDocument[], results: RagPipelineResult[]): RagDocument[] {
+    const byDocId = new Map(results.map((result) => [result.doc_id, result]));
+    return documents.map((doc) => {
+        const result = byDocId.get(doc.doc_id);
+        if (!result) {
+            return doc;
+        }
+        const nextStatus = pipelineDocumentStatus(result);
+        return {
+            ...doc,
+            status: nextStatus,
+            parse_status: result.parse_status,
+            chunk_status: result.chunk_status,
+            index_status: result.index_status,
+            chunk_count: result.chunk_count,
+            indexed_chunk_count: result.indexed_chunk_count,
+            parse_progress: result.parse_status === "parsed" ? 100 : doc.parse_progress,
+            chunk_progress: result.chunk_status === "chunked" ? 100 : doc.chunk_progress,
+            vector_backend: result.vector_runtime,
+            degraded: result.degraded,
+            error_stage: result.failed_stage,
+            error_message: result.error_message,
+            index_warnings: result.warnings,
+        };
+    });
+}
+
+function pipelineDocumentStatus(result: RagPipelineResult): RagDocumentStatus {
+    if (result.failed_stage) {
+        return "failed";
+    }
+    if (result.index_status === "indexed") {
+        return "indexed";
+    }
+    if (result.chunk_status === "chunked") {
+        return "chunked";
+    }
+    if (result.parse_status === "parsed") {
+        return "parsed";
+    }
+    return "uploaded";
 }
 
 function EvalPanel({ evalResult }: { evalResult: RagEvalRun }) {
