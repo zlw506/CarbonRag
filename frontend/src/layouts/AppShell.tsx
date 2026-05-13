@@ -143,6 +143,25 @@ export function AppShell() {
         }
     }
 
+    function handleSyncSessionSummary(session: SessionSummary, options: { activate?: boolean } = {}) {
+        setSessions((current) => {
+            const existingIndex = current.findIndex((item) => item.session_id === session.session_id);
+            if (existingIndex < 0) {
+                return [session, ...current];
+            }
+            return current.map((item) => (item.session_id === session.session_id ? { ...item, ...session } : item));
+        });
+        if (options.activate) {
+            setActiveSessionId(session.session_id);
+        }
+    }
+
+    function handleUpdateSessionSummary(sessionId: string, patch: Partial<SessionSummary>) {
+        setSessions((current) =>
+            current.map((item) => (item.session_id === sessionId ? { ...item, ...patch } : item)),
+        );
+    }
+
     async function handleCreateSession() {
         try {
             const created = await createSession();
@@ -245,6 +264,8 @@ export function AppShell() {
         sessionRailCollapsed,
         createSession: handleCreateSession,
         refreshSessions,
+        syncSessionSummary: handleSyncSessionSummary,
+        updateSessionSummary: handleUpdateSessionSummary,
         selectSession: handleSelectSession,
         toggleSessionRail: handleToggleSessionRail,
         startNewDraftSession: handleStartNewDraftSession,

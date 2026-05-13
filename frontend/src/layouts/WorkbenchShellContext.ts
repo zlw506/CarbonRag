@@ -8,6 +8,8 @@ export interface WorkbenchShellContextValue {
     sessionRailCollapsed: boolean;
     createSession: () => Promise<SessionSummary | null>;
     refreshSessions: (preferredSessionId?: string | null) => Promise<SessionSummary[]>;
+    syncSessionSummary: (session: SessionSummary, options?: { activate?: boolean }) => void;
+    updateSessionSummary: (sessionId: string, patch: Partial<SessionSummary>) => void;
     selectSession: (sessionId: string) => void;
     toggleSessionRail: () => void;
     startNewDraftSession: () => void;

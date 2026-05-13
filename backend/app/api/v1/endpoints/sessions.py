@@ -336,6 +336,7 @@ def emit_terminal_stream_error(
         "request_group_id": stream_session.request_group_id,
         "provider_ref": stream_session.provider_ref,
         "title_updated": False,
+        "session_title": refreshed_session.title if refreshed_session else None,
     }
     stream_session.append(event="metadata", data=metadata_payload)
     stream_session.append(
@@ -551,6 +552,7 @@ def run_stream_worker(
                 "request_group_id": stream_session.request_group_id,
                 "provider_ref": stream_session.provider_ref,
                 "title_updated": stream_session.title_updated,
+                "session_title": refreshed_session.title if refreshed_session else None,
             }
             stream_session.append(event="metadata", data=metadata_payload)
             stream_session.append(

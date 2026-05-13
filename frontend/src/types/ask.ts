@@ -129,6 +129,7 @@ export interface AskStreamMetadataEvent extends Partial<AskResponse> {
     } | null;
     request_group_id?: string | null;
     title_updated?: boolean | null;
+    session_title?: string | null;
     provider_ref?: string | null;
     event_seq?: number | null;
 }
