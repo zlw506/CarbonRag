@@ -15,6 +15,20 @@ def _extract_hits(tool_results: list[ToolResult] | None) -> list[dict]:
     return hits
 
 
+def _extract_file_overviews(tool_results: list[ToolResult] | None) -> list[dict]:
+    if not tool_results:
+        return []
+
+    overviews: list[dict] = []
+    for tool_result in tool_results:
+        if tool_result.name != "session_file_search":
+            continue
+        file_overviews = tool_result.output.get("file_overviews", [])
+        if isinstance(file_overviews, list):
+            overviews.extend(item for item in file_overviews if isinstance(item, dict))
+    return overviews
+
+
 def _format_file_locator(hit: dict) -> str | None:
     parts: list[str] = []
     if hit.get("page_number"):
@@ -40,6 +54,19 @@ def _extract_report_carbon_outputs(tool_results: list[ToolResult] | None) -> lis
     return outputs
 
 
+def _format_file_overview_locator(chunk: dict) -> str:
+    parts: list[str] = []
+    if chunk.get("page_number"):
+        parts.append(f"p.{chunk['page_number']}")
+    if chunk.get("sheet_name"):
+        parts.append(f"sheet {chunk['sheet_name']}")
+    if chunk.get("slide_number"):
+        parts.append(f"slide {chunk['slide_number']}")
+    if chunk.get("section_title"):
+        parts.append(str(chunk["section_title"]))
+    return " / ".join(parts) or "无"
+
+
 def build_context_bundle(
     request: ChatRequest,
     mode: ModeSpec,
@@ -62,6 +89,7 @@ def build_context_bundle(
         kb_id = request.payload.get("kb_id")
         rag_mode = request.payload.get("rag_mode", "hybrid_rerank")
         retrieval_hits = _extract_hits(tool_results)
+        file_overviews = _extract_file_overviews(tool_results)
         report_carbon_outputs = _extract_report_carbon_outputs(tool_results)
         public_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy"]
         demo_policy_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy_demo"]
@@ -163,6 +191,30 @@ def build_context_bundle(
                 evidence_lines.append(
                     "注意：本轮已命中用户上传文件片段。请优先基于这些片段回答用户关于报告、附件或文档内容的问题；不要再声称无法读取该文件。"
                 )
+        if file_overviews:
+            evidence_lines.append("当前显式选择的上传文件结构化摘录如下，用于覆盖报告文字、表格、数字和早期章节；回答附件问题时应优先综合这些摘录与检索命中片段：")
+            for file_index, overview in enumerate(file_overviews, start=1):
+                evidence_lines.extend(
+                    [
+                        f"[upload-file-{file_index}] 标题：{overview.get('title')}",
+                        f"来源：{overview.get('source')}；片段总数：{overview.get('chunk_count')}；表格/结构化片段：{overview.get('table_like_chunk_count')}；含数字片段：{overview.get('numeric_chunk_count')}",
+                    ]
+                )
+                chunks = overview.get("chunks") or []
+                if isinstance(chunks, list):
+                    for chunk_index, chunk in enumerate(chunks, start=1):
+                        if not isinstance(chunk, dict):
+                            continue
+                        locator = _format_file_overview_locator(chunk)
+                        evidence_lines.extend(
+                            [
+                                f"[upload-file-{file_index}-excerpt-{chunk_index}] 类型：{chunk.get('content_kind')}；定位：{locator}；chunk：{chunk.get('chunk_id')}",
+                                f"摘录内容：{chunk.get('snippet')}",
+                            ]
+                        )
+            evidence_lines.append(
+                "约束：如果用户询问上传报告中的总量、占比、表格数据或结论，必须先检查上述结构化摘录；只有摘录和命中片段都缺失时，才说明材料不足。"
+            )
         for carbon_output in report_carbon_outputs:
             extracted_activities = carbon_output.get("extracted_activities") or []
             calculation = carbon_output.get("calculation") or {}
@@ -278,6 +330,8 @@ def build_context_bundle(
                 "source": "local_private_sample_corpus",
                 "hit_count": len(private_hits),
                 "hits": private_hits,
+                "file_overview_count": len(file_overviews),
+                "file_overviews": file_overviews,
             },
             "report_carbon_context": {
                 "ready": bool(report_carbon_outputs),

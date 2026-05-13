@@ -102,6 +102,17 @@ class _FakeKnowledgeService:
                 snippet="2025 年总碳排放量为 1200 tCO2e，外购电力占比 65%。",
                 order_index=1,
                 metadata={"file_id": "file-001", "page_number": 3},
+            ),
+            KnowledgeChunk(
+                chunk_id="file-001_chunk_02",
+                knowledge_item_id="file-001",
+                title="企业双碳评估报告.docx",
+                source_type="private_upload",
+                library_scope="personal",
+                source="用户上传知识",
+                snippet="[Table docx row 1]\n指标=外购电力 | 数值=7800 | 单位=MWh | 占比=65%",
+                order_index=2,
+                metadata={"file_id": "file-001", "page_number": 4, "section_title": "排放明细表"},
             )
         ]
 
@@ -162,3 +173,26 @@ def test_session_file_search_falls_back_to_selected_upload_chunks(monkeypatch) -
     assert result.output["hits"][0]["file_id"] == "file-001"
     assert result.output["hits"][0]["page_number"] == 3
     assert "外购电力占比 65%" in result.output["hits"][0]["snippet"]
+
+
+def test_session_file_search_adds_table_aware_file_overview(monkeypatch) -> None:
+    monkeypatch.setattr("app.ai_runtime.tools.session_file_search.get_knowledge_service", lambda: _FakeKnowledgeService())
+    rag_engine = _EmptyRagEngine()
+    tool = SessionFileSearchTool(rag_engine=rag_engine)  # type: ignore[arg-type]
+
+    result = tool.invoke(
+        arguments={
+            "question": "这份报告中的表格数据是什么？",
+            "payload": {"attached_file_knowledge_item_ids": ["file-001"], "top_k": 3},
+        },
+        context={"mode": "ask"},
+        trace_id="trace-file-overview",
+    )
+
+    overview = result.output["file_overviews"][0]
+    assert overview["title"] == "企业双碳评估报告.docx"
+    assert overview["chunk_count"] == 2
+    assert overview["table_like_chunk_count"] == 1
+    assert overview["numeric_chunk_count"] == 2
+    assert any(chunk["content_kind"] == "table_or_structured" for chunk in overview["chunks"])
+    assert any("外购电力" in chunk["snippet"] for chunk in overview["chunks"])
