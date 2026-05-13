@@ -343,8 +343,8 @@ export function KnowledgeBaseWorkbench() {
             <Card className="admin-console__hero kb-console__hero">
                 <div className="admin-console__hero-layout">
                     <div className="admin-console__hero-copy">
-                        <Typography.Text className="admin-console__eyebrow">RAG-Pro 知识库工作台</Typography.Text>
-                        <Typography.Title level={2}>把文档入库、检索和验收收进一条主线</Typography.Title>
+                        <Typography.Text className="admin-console__eyebrow">知识库 · 入库与评测</Typography.Text>
+                        <Typography.Title level={2}>把文档上传、检索和问答验收收进一条主线</Typography.Title>
                         <Typography.Paragraph>
                             左侧管理知识库和文档，右侧处理当前文档、测试检索、查看片段和验收评分。默认使用“快速入库”，验收评分需要显式运行，避免小文件也卡在评测和大模型调用上。
                         </Typography.Paragraph>

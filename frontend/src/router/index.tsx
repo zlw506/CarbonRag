@@ -10,7 +10,6 @@ import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { LoginPage } from "../pages/LoginPage";
 import { MyKnowledgePage } from "../pages/MyKnowledgePage";
 import { KnowledgeBaseWorkbench } from "../pages/KnowledgeBaseWorkbench";
-import { RagLabPage } from "../pages/RagLabPage";
 import { ReportPage } from "../pages/ReportPage";
 import { SettingsPage } from "../pages/SettingsPage";
 
@@ -107,17 +106,19 @@ export const router = createBrowserRouter([
                 element: <AppShell />,
                 children: [
                     { index: true, element: <AskPage /> },
+                    { path: "knowledge", element: <Navigate to="/kb" replace /> },
                     { path: "my-knowledge", element: <MyKnowledgePage /> },
                     { path: "kb", element: <KnowledgeBaseWorkbench /> },
+                    { path: "carbon", element: <Navigate to="/carbon-factors" replace /> },
                     { path: "carbon-factors", element: <CarbonFactorsPage /> },
                     { path: "carbon-calc", element: <CarbonCalcPage /> },
                     { path: "report", element: <ReportPage /> },
                     { path: "settings", element: <SettingsPage /> },
+                    { path: "rag-lab", element: <Navigate to="/kb" replace /> },
                     {
                         element: <AdminRoute />,
                         children: [
                             { path: "admin", element: <AdminPlaceholderPage /> },
-                            { path: "rag-lab", element: <RagLabPage /> },
                         ],
                     },
                 ],

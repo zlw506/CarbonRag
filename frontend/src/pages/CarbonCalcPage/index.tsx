@@ -245,7 +245,7 @@ export function CarbonCalcPage() {
                     className="calc-workbench__form-card carbon-calculator-card"
                     title={
                         <div className="carbon-calculator-title">
-                            <span>碳计算器</span>
+                            <span>生活碳计算器</span>
                             <Tag color="green">个人生活条目</Tag>
                         </div>
                     }

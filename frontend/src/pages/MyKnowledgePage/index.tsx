@@ -101,7 +101,7 @@ export function MyKnowledgePage() {
                 ) : null}
 
                 <Card
-                    title="我的知识库"
+                    title="知识库 · 个人知识条目"
                     extra={<Tag color="blue">当前登录用户可见</Tag>}
                     className="knowledge-workbench__content-card"
                 >

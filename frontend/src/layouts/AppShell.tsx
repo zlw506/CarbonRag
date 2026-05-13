@@ -4,18 +4,19 @@ import {
     ExperimentOutlined,
     FolderOpenOutlined,
     FileTextOutlined,
-    ClusterOutlined,
     LogoutOutlined,
     SearchOutlined,
     SettingOutlined,
 } from "@ant-design/icons";
 import { App as AntdApp, Avatar, Button, Input, Layout, Menu, Modal, Popover, Space, Tag, Typography } from "antd";
+import type { MenuProps } from "antd";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
 import { useSettings } from "../app/SettingsContext";
 import { SessionRail, useResponsiveSessionRail } from "../components/SessionRail";
 import { ADMIN_NAV_ITEM, getNavigationItems } from "../constants/navigation";
+import type { NavigationItem } from "../constants/navigation";
 import { createSession, deleteSession, listSessions, updateSession } from "../services/sessions";
 import type { SessionSummary } from "../types/session";
 import type { WorkbenchShellContextValue } from "./WorkbenchShellContext";
@@ -23,14 +24,15 @@ import type { WorkbenchShellContextValue } from "./WorkbenchShellContext";
 const { Content, Sider } = Layout;
 
 const iconMap = {
-    "/": <SearchOutlined />,
-    "/my-knowledge": <FolderOpenOutlined />,
-    "/kb": <DatabaseOutlined />,
-    "/rag-lab": <ClusterOutlined />,
-    "/carbon-factors": <DatabaseOutlined />,
-    "/carbon-calc": <ExperimentOutlined />,
-    "/report": <FileTextOutlined />,
-    "/admin": <DesktopOutlined />,
+    ask: <SearchOutlined />,
+    knowledge: <FolderOpenOutlined />,
+    "knowledge-items": <FolderOpenOutlined />,
+    "knowledge-ingest": <DatabaseOutlined />,
+    carbon: <ExperimentOutlined />,
+    "carbon-factors": <DatabaseOutlined />,
+    "carbon-calculator": <ExperimentOutlined />,
+    report: <FileTextOutlined />,
+    admin: <DesktopOutlined />,
 };
 
 export function AppShell() {
@@ -54,6 +56,8 @@ export function AppShell() {
     const currentUser = user;
 
     const navigationItems = getNavigationItems(currentUser.role);
+    const navigationMenuItems = buildNavigationMenuItems(navigationItems);
+    const defaultOpenNavigationKeys = navigationItems.filter((item) => item.children?.length).map((item) => item.key);
     const isAskRoute = location.pathname === "/";
     const routeNeedsSession = location.pathname === "/" || location.pathname === "/carbon-calc" || location.pathname === "/report";
     const focusModeEnabled = isAskRoute && new URLSearchParams(location.search).get("focus") !== "0";
@@ -292,7 +296,7 @@ export function AppShell() {
                     通用设置
                 </Button>
                 {user.role === "admin" ? (
-                    <Button block icon={<DesktopOutlined />} onClick={() => navigate(ADMIN_NAV_ITEM.path)}>
+                    <Button block icon={<DesktopOutlined />} onClick={() => navigate(ADMIN_NAV_ITEM.path ?? "/admin")}>
                         管理后台
                     </Button>
                 ) : null}
@@ -330,12 +334,13 @@ export function AppShell() {
                     <Menu
                         mode="inline"
                         selectedKeys={[location.pathname]}
-                        items={navigationItems.map((item) => ({
-                            key: item.path,
-                            icon: iconMap[item.path as keyof typeof iconMap],
-                            label: item.label,
-                        }))}
-                        onClick={({ key }) => navigate(key)}
+                        defaultOpenKeys={defaultOpenNavigationKeys}
+                        items={navigationMenuItems}
+                        onClick={({ key }) => {
+                            if (typeof key === "string" && key.startsWith("/")) {
+                                navigate(key);
+                            }
+                        }}
                     />
                 </div>
                 <div className="app-shell__session-region">
@@ -410,4 +415,13 @@ export function AppShell() {
 function getUserInitial(user: { display_name?: string | null; username: string }) {
     const value = user.display_name || user.username;
     return value.slice(0, 1).toUpperCase();
+}
+
+function buildNavigationMenuItems(items: NavigationItem[]): MenuProps["items"] {
+    return items.map((item) => ({
+        key: item.path ?? item.key,
+        icon: iconMap[item.key as keyof typeof iconMap],
+        label: item.label,
+        children: item.children?.length ? buildNavigationMenuItems(item.children) : undefined,
+    }));
 }

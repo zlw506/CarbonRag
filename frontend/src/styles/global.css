@@ -342,13 +342,31 @@ body {
     width: 100%;
 }
 
+.app-shell__sider-nav .ant-menu-submenu-title {
+    color: var(--cr-sider-text) !important;
+    border-radius: 10px;
+    margin-inline: 0;
+    width: 100%;
+    font-weight: 700;
+}
+
 .app-shell__sider-nav .ant-menu-item-selected {
     background: var(--cr-session-active-bg) !important;
     color: var(--cr-sider-text) !important;
 }
 
-.app-shell__sider-nav .ant-menu-item:hover {
+.app-shell__sider-nav .ant-menu-item:hover,
+.app-shell__sider-nav .ant-menu-submenu-title:hover {
     background: var(--cr-session-item-hover-bg) !important;
+    color: var(--cr-sider-text) !important;
+}
+
+.app-shell__sider-nav .ant-menu-sub .ant-menu-item {
+    color: var(--cr-sider-text-secondary) !important;
+    font-size: 14px;
+}
+
+.app-shell__sider-nav .ant-menu-sub .ant-menu-item-selected {
     color: var(--cr-sider-text) !important;
 }
 
