@@ -74,6 +74,17 @@ def test_report_carbon_extractor_reads_table_value_unit_pairs() -> None:
     assert activities["natural_gas"].activity_unit == "m3"
 
 
+def test_report_carbon_extractor_maps_plain_power_to_purchased_electricity() -> None:
+    result = ReportCarbonActivityExtractor().extract(
+        [_chunk("[Table docx row 1]\n指标=电力 | 数值=7800 | 单位=MWh | 占比=65%")]
+    )
+
+    activities = {item.activity.activity_name: item.activity for item in result.extracted_activities}
+
+    assert activities["electricity"].activity_value == 7800
+    assert activities["electricity"].activity_unit == "MWh"
+
+
 class _FakeFactorLoader:
     def __init__(self, records: list[FactorRecord]) -> None:
         self.records = records
@@ -148,6 +159,35 @@ def test_report_carbon_extractor_maps_common_business_alias_to_factor() -> None:
     assert activity.requested_factor_id == "carbonstop-ccdb-truck"
 
 
+def test_report_carbon_extractor_maps_plain_power_to_local_power_factor() -> None:
+    factor = FactorRecord(
+        factor_id="carbonstop-ccdb-electricity-2023",
+        factor_version="carbonstop-public-2023",
+        source_type="public_dataset",
+        source_name="CarbonStop CCDB / 生态环境部",
+        scope="scope2",
+        activity_category="电力",
+        activity_name="电力",
+        source_priority=90,
+        factor_value=0.5703,
+        factor_unit="tCO₂e/MWh",
+        activity_unit="MWh",
+        result_unit="tCO₂e",
+        tags=["通用", "电力", "外购电力"],
+    )
+    extractor = ReportCarbonActivityExtractor(factor_loader=_FakeFactorLoader([factor]))  # type: ignore[arg-type]
+
+    result = extractor.extract([_chunk("排放源：外购电力；年度电力消耗 7,800 MWh。")])
+
+    assert len(result.extracted_activities) == 1
+    activity = result.extracted_activities[0].activity
+    assert activity.activity_name == "electricity"
+    assert activity.activity_value == 7800
+    assert activity.activity_unit == "MWh"
+    assert activity.requested_factor_id == "carbonstop-ccdb-electricity-2023"
+    assert activity.metadata["match_method"] == "local_carbon_factor_database"
+
+
 def test_report_carbon_extractor_ignores_factor_values_as_activity_data() -> None:
     factor = FactorRecord(
         factor_id="carbonstop-ccdb-passenger-car",
@@ -219,7 +259,7 @@ def test_report_carbon_calculation_service_calls_existing_carbon_engine() -> Non
     assert fake.payload.session_id == "session-1"
     assert fake.payload.activity_items[0].activity_name == "electricity"
     output = result.to_output()
-    assert output["calculation_table"][0]["emission_source"] == "electricity"
+    assert output["calculation_table"][0]["emission_source"] == "外购电力"
     assert output["calculation_table"][0]["factor_value"] == 0.53
     assert output["calculation_table"][0]["factor_source"] == "官方电力因子"
 
@@ -268,7 +308,7 @@ def test_context_builder_injects_report_carbon_calculation_result() -> None:
             },
             "calculation_table": [
                 {
-                    "emission_source": "electricity",
+                    "emission_source": "外购电力",
                     "activity_value": 12000,
                     "activity_unit": "kWh",
                     "factor_value": 0.53,
@@ -289,8 +329,9 @@ def test_context_builder_injects_report_carbon_calculation_result() -> None:
     bundle = build_context_bundle(request, resolve_mode("ask"), tool_results=[result])
 
     assert "报告碳核算总量：6360 kgCO2e" in bundle["system_prompt"]
-    assert "| 排放源 | 活动量 | 碳因子系数 | 碳因子系数来源 | 碳排放量 |" in bundle["system_prompt"]
-    assert "| electricity | 12000 kWh | 0.53 kgCO2/kWh | 生态环境部电力排放因子 | 6360 kgCO2e |" in bundle["system_prompt"]
-    assert "必须先给出包含“排放源、活动量/排放量、碳因子系数、碳因子系数来源、碳排放量”的 Markdown 表格" in bundle["system_prompt"]
+    assert "| 排放源 | 消耗量 | 匹配碳因子 | 因子来源 | 排放量 |" in bundle["system_prompt"]
+    assert "| 外购电力 | 12000 kWh | 0.53 kgCO2/kWh | 生态环境部电力排放因子 | 6360 kgCO2e |" in bundle["system_prompt"]
+    assert "只给出 5 列 Markdown 表格" in bundle["system_prompt"]
+    assert "主表不要输出 trace_id、inventory_id、factor_id、chunk_id 或来源 URL" in bundle["system_prompt"]
     assert bundle["report_carbon_context"]["ready"] is True
 

@@ -293,9 +293,8 @@ def build_context_bundle(
                 evidence_lines.extend(
                     [
                         f"报告碳核算总量：{calculation.get('total_emission_kgco2e')} kgCO2e",
-                        f"核算 trace_id：{calculation.get('trace_id')}；inventory_id：{calculation.get('inventory_id')}",
                         "报告碳核算结果表（来自 CarbonRag 本地碳因子库）：",
-                        "| 排放源 | 活动量 | 碳因子系数 | 碳因子系数来源 | 碳排放量 |",
+                        "| 排放源 | 消耗量 | 匹配碳因子 | 因子来源 | 排放量 |",
                         "| --- | ---: | ---: | --- | ---: |",
                     ]
                 )
@@ -310,14 +309,14 @@ def build_context_bundle(
                                     str(item.get("emission_source") or item.get("activity_name") or "未知排放源"),
                                     f"{_format_number(item.get('activity_value'))} {item.get('activity_unit') or ''}".strip(),
                                     f"{_format_number(item.get('factor_value'))} {item.get('factor_unit') or ''}".strip(),
-                                    _format_source(item.get("factor_source")),
+                                    _format_source(item.get("factor_source"), max_chars=36),
                                     f"{_format_number(item.get('emission_kgco2e'))} kgCO2e",
                                 ]
                             )
                             + " |"
                         )
                         evidence_lines.append(
-                            f"[report-carbon-factor-{item.get('factor_id')}] 来源URL：{item.get('factor_source_url') or '无'}；年份：{item.get('factor_year') or '未知'}"
+                            f"[report-carbon-factor-{item.get('factor_id')}] 供核验：来源URL={item.get('factor_source_url') or '无'}；年份={item.get('factor_year') or '未知'}。不要把这行写进最终主表。"
                         )
                 else:
                     for item in calculation.get("breakdown") or []:
@@ -330,21 +329,17 @@ def build_context_bundle(
                                     str(item.get("activity_name") or item.get("item") or "未知排放源"),
                                     f"{_format_number(item.get('activity_value'))} {item.get('activity_unit') or ''}".strip(),
                                     f"{_format_number(item.get('factor_value'))} {item.get('factor_unit') or ''}".strip(),
-                                    f"因子ID：{item.get('factor_id') or '未知'}",
+                                    f"本地因子：{item.get('factor_id') or '未知'}",
                                     f"{_format_number(item.get('emission_kgco2e'))} kgCO2e",
                                 ]
                             )
                             + " |"
                         )
-                evidence_lines.append("核算分项原始追踪：")
-                for item in calculation.get("breakdown") or []:
-                    evidence_lines.append(
-                        f"- {item.get('activity_name')}: {item.get('activity_value')} {item.get('activity_unit')} × "
-                        f"{item.get('factor_value')} {item.get('factor_unit')} = {item.get('emission_kgco2e')} kgCO2e；因子ID：{item.get('factor_id')}"
-                    )
                 evidence_lines.append(
-                    "约束：回答报告碳核算问题时，必须先给出包含“排放源、活动量/排放量、碳因子系数、碳因子系数来源、碳排放量”的 Markdown 表格，"
-                    "并只能使用上述本地碳因子库匹配与上传报告证据；不允许临时改用网络检索到的外部因子。"
+                    "约束：回答报告碳核算问题时，先用一句话给出总量结论，再给出且只给出 5 列 Markdown 表格："
+                    "排放源、消耗量、匹配碳因子、因子来源、排放量。主表不要输出 trace_id、inventory_id、factor_id、chunk_id 或来源 URL。"
+                    "活动名称要按业务语义表达，例如 electricity/电力/用电/购电统一写作“外购电力”。"
+                    "只能使用上述本地碳因子库匹配与上传报告证据；不允许临时改用网络检索到的外部因子。"
                 )
             if warnings:
                 evidence_lines.append("报告抽取/核算警告：" + "；".join(str(item) for item in warnings))

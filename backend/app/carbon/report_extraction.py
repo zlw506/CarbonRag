@@ -174,7 +174,7 @@ class ReportCarbonExtractionResult:
             "extracted_activity_count": len(self.extracted_activities),
             "extracted_activities": [item.to_output() for item in self.extracted_activities],
             "calculation": self.calculation.model_dump(mode="json") if self.calculation else None,
-            "calculation_table": _build_calculation_table(self.calculation),
+            "calculation_table": _build_calculation_table(self.calculation, self.extracted_activities),
             "warnings": self.warnings,
         }
 
@@ -185,7 +185,23 @@ REPORT_ACTIVITY_PATTERNS: tuple[ActivityPattern, ...] = (
         activity_category="purchased_electricity",
         activity_name="electricity",
         canonical_unit="kWh",
-        aliases=("用电量", "外购电力", "购电量", "电量", "耗电量", "electricity", "power consumption"),
+        aliases=(
+            "外购电力",
+            "购入电力",
+            "购买电力",
+            "购电量",
+            "购电",
+            "用电量",
+            "用电",
+            "耗电量",
+            "耗电",
+            "电耗",
+            "电力消耗",
+            "电力",
+            "电量",
+            "electricity",
+            "power consumption",
+        ),
         factor_preference="official_latest",
         region="CN",
     ),
@@ -232,6 +248,10 @@ REPORT_ACTIVITY_PATTERNS: tuple[ActivityPattern, ...] = (
 )
 
 _DOMAIN_ALIASES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("外购电力", "购入电力", "购买电力", "购电", "用电", "用电量", "耗电", "电耗", "电力消耗", "电力"),
+        ("electricity", "purchased_electricity", "电力", "外购电力", "购电"),
+    ),
     (("货车", "货运", "物流运输", "公路运输"), ("载货汽车", "货车")),
     (("客车", "乘用车", "小汽车", "轿车", "公务车", "车辆行驶"), ("载客汽车", "客车", "乘用车", "家庭车")),
     (("公交", "公共汽车", "班车"), ("公交", "公共交通")),
@@ -278,9 +298,25 @@ class ReportCarbonActivityExtractor:
                         key = (chunk.chunk_id, pattern.activity_name, value, unit, alias.lower())
                         if key in seen:
                             continue
+                        local_candidate = None
+                        if factor_records:
+                            candidates = _rank_factor_candidates(segment=segment, unit=unit, records=factor_records)
+                            if candidates and candidates[0].score >= self.dynamic_match_threshold:
+                                local_candidate = candidates[0]
                         seen.add(key)
                         seen_quantities.add((chunk.chunk_id, round(value, 6), _canonical_unit(unit)))
-                        extracted.append(_build_activity(chunk=chunk, pattern=pattern, value=value, unit=unit, alias=alias, segment=segment))
+                        extracted.append(
+                            _build_activity(
+                                chunk=chunk,
+                                pattern=pattern,
+                                value=value,
+                                unit=unit,
+                                alias=alias,
+                                segment=segment,
+                                local_factor=local_candidate.record if local_candidate else None,
+                                local_candidate=local_candidate,
+                            )
+                        )
                 if factor_records:
                     extracted.extend(
                         self._extract_local_factor_matches(
@@ -376,12 +412,16 @@ class ReportCarbonCalculationService:
         return result
 
 
-def _build_calculation_table(calculation: CalcCarbonResponse | None) -> list[dict]:
+def _build_calculation_table(
+    calculation: CalcCarbonResponse | None,
+    extracted_activities: Iterable[ExtractedReportActivity] = (),
+) -> list[dict]:
     if calculation is None:
         return []
 
     citations_by_factor = {item.factor_id: item for item in calculation.citations}
     snapshots_by_factor = {item.factor_id: item for item in calculation.factor_snapshot}
+    extracted = list(extracted_activities)
     rows: list[dict] = []
     for item in calculation.breakdown:
         snapshot = snapshots_by_factor.get(item.factor_id)
@@ -399,7 +439,7 @@ def _build_calculation_table(calculation: CalcCarbonResponse | None) -> list[dic
         factor_year = snapshot.effective_year or snapshot.year if snapshot is not None else None
         rows.append(
             {
-                "emission_source": item.activity_name or item.item,
+                "emission_source": _resolve_emission_source_label(item, extracted),
                 "scope": item.scope,
                 "activity_category": item.activity_category,
                 "activity_name": item.activity_name,
@@ -417,6 +457,49 @@ def _build_calculation_table(calculation: CalcCarbonResponse | None) -> list[dic
             }
         )
     return rows
+
+
+def _resolve_emission_source_label(item, extracted_activities: list[ExtractedReportActivity]) -> str:
+    for extracted in extracted_activities:
+        activity = extracted.activity
+        if (
+            activity.activity_name == item.activity_name
+            and activity.activity_unit == item.activity_unit
+            and abs(float(activity.activity_value) - float(item.activity_value)) < 0.000001
+        ):
+            return _activity_display_name(extracted.matched_alias or activity.activity_name)
+    return _activity_display_name(item.activity_name or item.item)
+
+
+def _activity_display_name(value: str | None) -> str:
+    if not value:
+        return "未知排放源"
+    normalized = str(value).strip()
+    if normalized in {
+        "electricity",
+        "purchased_electricity",
+        "外购电力",
+        "购入电力",
+        "购买电力",
+        "购电",
+        "购电量",
+        "用电",
+        "用电量",
+        "耗电",
+        "耗电量",
+        "电耗",
+        "电力",
+        "电量",
+    } or any(term in normalized for term in ("外购电力", "购电", "用电", "耗电", "电力消耗")):
+        return "外购电力"
+    labels = {
+        "natural_gas": "天然气",
+        "diesel": "柴油",
+        "gasoline": "汽油",
+        "lpg": "液化石油气",
+        "coal": "煤炭",
+    }
+    return labels.get(normalized, normalized)
 
 
 def _iter_segments(text: str) -> list[str]:
@@ -588,7 +671,18 @@ def _matched_factor_terms(segment: str, record: FactorRecord) -> list[str]:
 
 
 def _domain_alias_terms(lowered_segment: str, record: FactorRecord) -> list[str]:
-    record_text = record.activity_name.lower()
+    record_text = " ".join(
+        str(item or "")
+        for item in (
+            record.activity_name,
+            record.activity_category,
+            record.applicable_industry,
+            record.region_name,
+            record.region,
+            record.notes,
+            *record.tags,
+        )
+    ).lower()
     matched: list[str] = []
     for triggers, targets in _DOMAIN_ALIASES:
         trigger = next((item for item in triggers if item.lower() in lowered_segment), None)
@@ -664,6 +758,8 @@ def _build_activity(
     unit: str,
     alias: str,
     segment: str,
+    local_factor: FactorRecord | None = None,
+    local_candidate: FactorMatchCandidate | None = None,
 ) -> ExtractedReportActivity:
     metadata = chunk.metadata or {}
     locator = _format_locator(metadata)
@@ -684,11 +780,24 @@ def _build_activity(
         evidence_reference=evidence_reference,
         source_document_id=chunk.chunk_id,
         entry_method="file_upload",
+        requested_factor_id=local_factor.factor_id if local_factor else None,
         metadata={
             "file_id": str(metadata.get("file_id") or ""),
             "chunk_id": chunk.chunk_id,
             "matched_alias": alias,
             "evidence_snippet": segment[:500],
+            **(
+                {
+                    "matched_factor_id": local_factor.factor_id,
+                    "matched_factor_source": local_factor.source_name,
+                    "matched_factor_unit": local_factor.factor_unit,
+                    "matched_factor_score": str(local_candidate.score if local_candidate else ""),
+                    "matched_terms": "、".join((local_candidate.matched_terms if local_candidate else ())[:8]),
+                    "match_method": "local_carbon_factor_database",
+                }
+                if local_factor
+                else {}
+            ),
         },
     )
     return ExtractedReportActivity(
