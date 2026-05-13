@@ -351,6 +351,85 @@ def emit_terminal_stream_error(
     stream_session.complete()
 
 
+def extract_partial_stream_answer(handle) -> tuple[str, str | None]:
+    if handle is None:
+        return "", None
+    answer = "".join(getattr(handle.state, "answer_fragments", [])).strip()
+    thinking = "".join(getattr(handle.state, "thinking_fragments", [])).strip() or None
+    return answer, thinking
+
+
+def emit_partial_stream_success(
+    *,
+    stream_session,
+    session_service,
+    owner_user_id: str,
+    requested_scope: str,
+    answer: str,
+    thinking_content: str | None,
+    attempt: int,
+    max_attempts: int,
+) -> None:
+    """Persist usable streamed content when the transport/provider fails late.
+
+    Some local providers close the SSE transport after emitting the final text
+    but before a clean done event. Treating that as a hard failure makes the UI
+    reconnect and can hide an otherwise valid answer after five retries.
+    """
+    source_summary = empty_source_summary(requested_scope)
+    finalized_message = session_service.finalize_exchange(
+        owner_user_id=owner_user_id,
+        session_id=stream_session.session_id,
+        assistant_message_id=stream_session.assistant_message_id,
+        assistant_content=answer,
+        assistant_status="done",
+        trace_id=stream_session.trace_id,
+        citations=[],
+        knowledge_scope=requested_scope,
+        source_summary=source_summary,
+        thinking_content=thinking_content,
+    )
+    refreshed_session = session_service.get_session(owner_user_id=owner_user_id, session_id=stream_session.session_id)
+    memory_state = refreshed_session.memory_state.model_dump(mode="json") if refreshed_session and refreshed_session.memory_state else None
+    context_source = {
+        "recent_message_count": 0,
+        "summary_present": bool(memory_state.get("summary_present")) if isinstance(memory_state, dict) else False,
+        "citation_count": 0,
+        "partial_recovered": True,
+    }
+    metadata_payload = {
+        "answer": answer,
+        "status": "ok",
+        "citations": [],
+        "source_summary": source_summary.model_dump(),
+        "retrieval_trace": None,
+        "trace_id": stream_session.trace_id,
+        "user_message_id": stream_session.user_message_id,
+        "assistant_message_id": stream_session.assistant_message_id,
+        "message_id": finalized_message.message_id if finalized_message is not None else stream_session.assistant_message_id,
+        "thinking_content": thinking_content,
+        "memory_state": memory_state,
+        "context_source": context_source,
+        "request_group_id": stream_session.request_group_id,
+        "provider_ref": stream_session.provider_ref,
+        "title_updated": stream_session.title_updated,
+        "stream_recovered_from_late_failure": True,
+    }
+    stream_session.append(event="metadata", data=metadata_payload)
+    stream_session.append(
+        event="status",
+        data=build_stream_status_payload(
+            status="done",
+            stream_session=stream_session,
+            attempt=attempt,
+            max_attempts=max_attempts,
+            recovered=attempt > 1,
+        ),
+    )
+    stream_session.append(event="done", data=metadata_payload)
+    stream_session.complete()
+
+
 def run_stream_worker(
     *,
     stream_session,
@@ -403,6 +482,7 @@ def run_stream_worker(
     while attempt <= max_attempts:
         stream_session.attempt = attempt
         synthetic_thinking_emitted = False
+        handle = None
         stream_session.append(
             event="status",
             data=build_stream_status_payload(
@@ -567,6 +647,20 @@ def run_stream_worker(
             stream_session.complete()
             return
         except ChatProviderError as exc:
+            partial_answer, thinking_content = extract_partial_stream_answer(handle)
+            if stream_session.has_first_answer_token and partial_answer:
+                emit_partial_stream_success(
+                    stream_session=stream_session,
+                    session_service=session_service,
+                    owner_user_id=current_user.user_id,
+                    requested_scope=requested_scope,
+                    answer=partial_answer,
+                    thinking_content=thinking_content,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                )
+                return
+
             if not stream_session.has_first_answer_token and attempt < max_attempts and is_retryable_provider_error(exc, first_token_received=False):
                 time.sleep(get_retry_delay(attempt))
                 attempt += 1
@@ -583,6 +677,20 @@ def run_stream_worker(
             )
             return
         except Exception:
+            partial_answer, thinking_content = extract_partial_stream_answer(handle)
+            if stream_session.has_first_answer_token and partial_answer:
+                emit_partial_stream_success(
+                    stream_session=stream_session,
+                    session_service=session_service,
+                    owner_user_id=current_user.user_id,
+                    requested_scope=requested_scope,
+                    answer=partial_answer,
+                    thinking_content=thinking_content,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                )
+                return
+
             if not stream_session.has_first_answer_token and attempt < max_attempts:
                 time.sleep(get_retry_delay(attempt))
                 attempt += 1

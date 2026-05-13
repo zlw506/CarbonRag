@@ -1,7 +1,6 @@
-import httpx
-
 from fastapi.testclient import TestClient
 
+from app.api.v1.endpoints.sessions import emit_partial_stream_success
 from app.files.service import FileService
 from app.files.storage import FileStorage
 from app.main import app
@@ -9,7 +8,7 @@ from app.memory.schemas import MemoryState, SessionMemoryBundle
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
 from tests.test_ask_route_with_session import FakeStreamingResponse
-from tests.test_helpers import patch_test_auth_service, register_and_login
+from tests.test_helpers import create_test_user_id, patch_test_auth_service, register_and_login
 
 
 client = TestClient(app)
@@ -126,3 +125,58 @@ def test_session_routes_do_not_crash_in_postgres_memory_mode(monkeypatch, tmp_pa
     assert captured["database_url"] == "postgresql://carbonrag_user:secret@127.0.0.1:5432/carbonrag_db"
     assert captured["sqlite_db_path"] is None
     assert captured["memory_backend"] == "postgres"
+
+
+def test_emit_partial_stream_success_persists_answer_after_late_failure(tmp_path) -> None:
+    db_path = tmp_path / "carbonrag.sqlite3"
+    owner_user_id = create_test_user_id(db_path, prefix="late-stream")
+    session_service = SessionService(store=SQLiteSessionStore(db_path))
+    session = session_service.create_session(owner_user_id=owner_user_id, title="late stream")
+    _, assistant_message = session_service.begin_exchange(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        user_content="请回答一个问题",
+    )
+
+    class FakeStreamSession:
+        session_id = session.session_id
+        user_message_id = "user-msg"
+        assistant_message_id = assistant_message.message_id
+        trace_id = "trace-late-stream"
+        request_group_id = "reqgrp-late-stream"
+        provider_ref = "builtin:test"
+        title_updated = False
+
+        def __init__(self) -> None:
+            self.events: list[tuple[str, dict]] = []
+            self.completed = False
+
+        def append(self, *, event: str, data: dict) -> None:
+            self.events.append((event, data))
+
+        def complete(self) -> None:
+            self.completed = True
+
+    stream_session = FakeStreamSession()
+
+    emit_partial_stream_success(
+        stream_session=stream_session,
+        session_service=session_service,
+        owner_user_id=owner_user_id,
+        requested_scope="public",
+        answer="已经完成的回答。",
+        thinking_content="已完成思考。",
+        attempt=1,
+        max_attempts=5,
+    )
+
+    detail = session_service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
+    assert detail is not None
+    persisted = detail.messages[-1]
+    assert persisted.message_id == assistant_message.message_id
+    assert persisted.status == "done"
+    assert persisted.content == "已经完成的回答。"
+    assert persisted.thinking_content == "已完成思考。"
+    assert stream_session.completed is True
+    assert [event for event, _ in stream_session.events] == ["metadata", "status", "done"]
+    assert stream_session.events[-1][1]["stream_recovered_from_late_failure"] is True

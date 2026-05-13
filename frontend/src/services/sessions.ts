@@ -200,6 +200,9 @@ export async function submitSessionAskStreamRequest(
             if (options?.signal?.aborted) {
                 throw error;
             }
+            if (hasRecoverableStreamAnswer(state)) {
+                return finalizeRecoveredStreamAnswer(callbacks, state);
+            }
             if (attempt >= MAX_STREAM_RECOVERY_ATTEMPTS) {
                 throw error;
             }
@@ -227,6 +230,9 @@ export async function submitSessionAskStreamRequest(
             }
 
             if (parsedJson?.mode === "ask") {
+                if (hasRecoverableStreamAnswer(state)) {
+                    return finalizeRecoveredStreamAnswer(callbacks, state);
+                }
                 throw parsedJson;
             }
 
@@ -237,6 +243,9 @@ export async function submitSessionAskStreamRequest(
             }
 
             if (attempt >= MAX_STREAM_RECOVERY_ATTEMPTS) {
+                if (hasRecoverableStreamAnswer(state)) {
+                    return finalizeRecoveredStreamAnswer(callbacks, state);
+                }
                 throw new Error(responseText || "SSE transport failed.");
             }
             emitReconnectNotice(callbacks, state, attempt);
@@ -251,6 +260,9 @@ export async function submitSessionAskStreamRequest(
                 return response;
             }
             if (attempt >= MAX_STREAM_RECOVERY_ATTEMPTS) {
+                if (hasRecoverableStreamAnswer(state)) {
+                    return finalizeRecoveredStreamAnswer(callbacks, state);
+                }
                 throw new Error("SSE body is unavailable.");
             }
             emitReconnectNotice(callbacks, state, attempt);
@@ -296,6 +308,9 @@ export async function submitSessionAskStreamRequest(
             if (options?.signal?.aborted) {
                 throw error;
             }
+            if (hasRecoverableStreamAnswer(state)) {
+                return finalizeRecoveredStreamAnswer(callbacks, state);
+            }
             if (attempt >= MAX_STREAM_RECOVERY_ATTEMPTS || state.terminal) {
                 throw error;
             }
@@ -311,16 +326,7 @@ export async function submitSessionAskStreamRequest(
         }
 
         if (state.answer.trim()) {
-            const recoveredResponse = buildAskResponseFromStreamState(state);
-            callbacks.onDone?.({
-                ...recoveredResponse,
-                memory_state: state.memory_state,
-                user_message_id: state.user_message_id,
-                assistant_message_id: state.assistant_message_id,
-                request_group_id: state.request_group_id,
-                provider_ref: state.provider_ref,
-            });
-            return recoveredResponse;
+            return finalizeRecoveredStreamAnswer(callbacks, state);
         }
 
         if (attempt >= MAX_STREAM_RECOVERY_ATTEMPTS) {
@@ -357,6 +363,31 @@ export async function submitSessionAskStreamRequest(
             },
         trace_id: state.trace_id,
     };
+}
+
+function hasRecoverableStreamAnswer(state: StreamAccumulatedState): boolean {
+    return Boolean(state.answer.trim()) && !state.terminal;
+}
+
+function finalizeRecoveredStreamAnswer(callbacks: AskStreamCallbacks, state: StreamAccumulatedState): SessionAskResponse {
+    const recoveredResponse = buildAskResponseFromStreamState(state);
+    callbacks.onStatus?.({
+        status: "done",
+        request_group_id: state.request_group_id,
+        recovered: true,
+        resume_supported: true,
+        provider_ref: state.provider_ref,
+    });
+    callbacks.onDone?.({
+        ...recoveredResponse,
+        memory_state: state.memory_state,
+        user_message_id: state.user_message_id,
+        assistant_message_id: state.assistant_message_id,
+        request_group_id: state.request_group_id,
+        provider_ref: state.provider_ref,
+    });
+    state.terminal = true;
+    return recoveredResponse;
 }
 
 function buildApiUrl(path: string) {
