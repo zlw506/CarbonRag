@@ -11,7 +11,8 @@ from app.settings.schemas import LocalProviderOverride
 from app.session.schemas import SessionDetail, SessionMessage, SessionSummary, UploadedFile
 from app.session.store import SessionStore, get_session_store
 
-DEFAULT_TITLE_PREFIX = "新对话"
+DEFAULT_TITLE_PREFIX = "未命名会话"
+LEGACY_TEMP_TITLE_PREFIXES = ("新对话", "新聊天", DEFAULT_TITLE_PREFIX)
 DEFAULT_CONTEXT_TURNS = 6
 
 
@@ -57,7 +58,7 @@ class SessionService:
     def create_session(self, *, owner_user_id: str, title: str | None = None) -> SessionSummary:
         created_at = utcnow()
         session_id = f"session-{uuid4().hex[:12]}"
-        session_title = title or f"{DEFAULT_TITLE_PREFIX} {created_at.astimezone().strftime('%Y-%m-%d %H:%M')}"
+        session_title = title or DEFAULT_TITLE_PREFIX
         return self.store.create_session(
             session_id=session_id,
             owner_user_id=owner_user_id,
@@ -66,12 +67,17 @@ class SessionService:
         )
 
     def list_sessions(self, *, owner_user_id: str) -> list[SessionSummary]:
-        return self.store.list_sessions(owner_user_id=owner_user_id)
+        sessions = self.store.list_sessions(owner_user_id=owner_user_id)
+        return [
+            self._normalize_summary_title(owner_user_id=owner_user_id, summary=session)
+            for session in sessions
+        ]
 
     def get_session(self, *, owner_user_id: str, session_id: str) -> SessionDetail | None:
         session = self.store.get_session(owner_user_id=owner_user_id, session_id=session_id)
         if session is None:
             return None
+        session = self._normalize_detail_title(owner_user_id=owner_user_id, session=session)
         memory_state = self._get_memory_service().get_session_memory_state(owner_user_id=owner_user_id, session_id=session_id)
         return session.model_copy(update={"memory_state": memory_state})
 
@@ -352,6 +358,53 @@ class SessionService:
             normalized = normalized.split("?", 1)[0]
         max_length = 26
         return normalized if len(normalized) <= max_length else f"{normalized[:max_length].rstrip()}..."
+
+    @staticmethod
+    def _is_temporary_title(title: str | None) -> bool:
+        normalized = (title or "").strip()
+        if not normalized:
+            return True
+        return any(normalized.startswith(prefix) for prefix in LEGACY_TEMP_TITLE_PREFIXES)
+
+    @classmethod
+    def _build_auto_title_from_messages(cls, messages: list[SessionMessage]) -> str:
+        user_messages = [
+            message.content.strip()
+            for message in messages
+            if message.role == "user" and message.content.strip()
+        ]
+        return cls._build_auto_title_from_user_messages(user_messages[:3])
+
+    def _normalize_summary_title(self, *, owner_user_id: str, summary: SessionSummary) -> SessionSummary:
+        if not self._is_temporary_title(summary.title):
+            return summary
+
+        detail = self.store.get_session(owner_user_id=owner_user_id, session_id=summary.session_id)
+        if detail is None:
+            return summary
+        normalized_title = self._build_auto_title_from_messages(detail.messages)
+        if normalized_title == summary.title:
+            return summary
+        updated = self.store.update_session_title(
+            session_id=summary.session_id,
+            title=normalized_title,
+            updated_at=summary.updated_at,
+        )
+        return updated or summary.model_copy(update={"title": normalized_title})
+
+    def _normalize_detail_title(self, *, owner_user_id: str, session: SessionDetail) -> SessionDetail:
+        if not self._is_temporary_title(session.title):
+            return session
+
+        normalized_title = self._build_auto_title_from_messages(session.messages)
+        if normalized_title == session.title:
+            return session
+        self.store.update_session_title(
+            session_id=session.session_id,
+            title=normalized_title,
+            updated_at=session.updated_at,
+        )
+        return session.model_copy(update={"title": normalized_title})
 
     @staticmethod
     def _collect_valid_title_exchanges(messages: list[SessionMessage]) -> list[tuple[str, str]]:

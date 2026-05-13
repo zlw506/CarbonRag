@@ -106,7 +106,7 @@ interface LoadSessionDetailOptions {
 export function AskPage() {
     const { user } = useAuth();
     const { settings, getActiveProviderOverride } = useSettings();
-    const { activeSessionId, refreshSessions } = useWorkbenchShellContext();
+    const { activeSessionId, refreshSessions, syncSessionSummary, updateSessionSummary } = useWorkbenchShellContext();
     const [searchParams] = useSearchParams();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const streamAbortRef = useRef<AbortController | null>(null);
@@ -337,6 +337,26 @@ export function AskPage() {
         }
     }
 
+    async function ensureComposerSession() {
+        if (activeSessionId) {
+            return activeSessionId;
+        }
+
+        const created = await createSessionRequest();
+        setActiveSession(createEmptySessionDetail(created, knowledgeScope));
+        syncSessionSummary(created, { activate: true });
+        return created.session_id;
+    }
+
+    function applySessionTitleUpdate(sessionId: string, title: string) {
+        updateSessionSummary(sessionId, { title });
+        setActiveSession((current) =>
+            current?.session_id === sessionId
+                ? { ...current, title }
+                : current,
+        );
+    }
+
     async function handleSubmit() {
         const trimmed = question.trim();
         const providerOverride = getActiveProviderOverride();
@@ -359,16 +379,13 @@ export function AskPage() {
         const draftQuestion = trimmed;
         setSelectedCitationMessageId(draftAssistantMessageId);
 
-        let workingSessionId = activeSessionId;
-        if (!workingSessionId) {
-            const created = await createSessionRequest();
-            if (!created) {
-                setTransportError("当前无法创建新对话，请稍后重试。");
-                setSending(false);
-                return;
-            }
-            workingSessionId = created.session_id;
-            setActiveSession(createEmptySessionDetail(created, knowledgeScope));
+        let workingSessionId: string;
+        try {
+            workingSessionId = await ensureComposerSession();
+        } catch {
+            setTransportError("当前无法创建新对话，请稍后重试。");
+            setSending(false);
+            return;
         }
         streamingSessionIdRef.current = workingSessionId;
 
@@ -433,11 +450,7 @@ export function AskPage() {
                     if (!event.title_updated || !event.session_title) {
                         return;
                     }
-                    setActiveSession((current) =>
-                        current?.session_id === workingSessionId
-                            ? { ...current, title: event.session_title ?? current.title }
-                            : current,
-                    );
+                    applySessionTitleUpdate(workingSessionId, event.session_title);
                     void refreshSessions(workingSessionId).then((sessionList) => {
                         syncActiveSessionSummaryFromList(sessionList ?? [], workingSessionId);
                     });
@@ -494,6 +507,9 @@ export function AskPage() {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
                     replaceStreamMemoryState(normalizeAskStreamMemoryState(event.memory_state));
                     replaceStreamContextSource(event.context_source ?? null);
+                    if (event.title_updated && event.session_title) {
+                        applySessionTitleUpdate(workingSessionId, event.session_title);
+                    }
                     updateStreamDraftState((draft) => ({
                         ...draft,
                         assistantMessage: mergeStreamMetadata(draft.assistantMessage, event),
@@ -503,6 +519,9 @@ export function AskPage() {
                     setSelectedCitationMessageId(event.assistant_message_id ?? draftAssistantMessageId);
                     replaceStreamMemoryState(normalizeAskStreamMemoryState(event.memory_state));
                     replaceStreamContextSource(event.context_source ?? null);
+                    if (event.title_updated && event.session_title) {
+                        applySessionTitleUpdate(workingSessionId, event.session_title);
+                    }
                     window.setTimeout(() => {
                         void refreshSessions().then((sessionList) => {
                             syncActiveSessionSummaryFromList(sessionList ?? [], workingSessionId);
@@ -588,20 +607,22 @@ export function AskPage() {
     }
 
     async function handleUploadFiles(files: File[]) {
-        if (!files.length || !activeSessionId) {
+        if (!files.length) {
             return;
         }
 
         setUploading(true);
         setUploadError(null);
         try {
+            const workingSessionId = await ensureComposerSession();
             const uploadedFileIds: string[] = [];
             for (const file of files) {
-                const uploaded = await uploadSessionFile(activeSessionId, file);
+                const uploaded = await uploadSessionFile(workingSessionId, file);
                 uploadedFileIds.push(uploaded.file_id);
             }
-            await refreshSessions(activeSessionId);
-            await loadSessionDetail(activeSessionId, { silent: true, preserveDraftSelections: true });
+            const sessionList = await refreshSessions(workingSessionId);
+            syncActiveSessionSummaryFromList(sessionList ?? [], workingSessionId);
+            await loadSessionDetail(workingSessionId, { silent: true, preserveDraftSelections: true });
             setDraftAttachedFileIds((current) => [...new Set([...current, ...uploadedFileIds])]);
         } catch (error) {
             setUploadError(extractDetailMessage(error) ?? "附件上传失败，请确认文件格式、大小和会话状态。");
