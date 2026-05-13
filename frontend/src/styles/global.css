@@ -2610,6 +2610,96 @@ body {
     padding: 12px 14px;
 }
 
+.kb-console {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.kb-console__hero-actions {
+    min-width: 520px;
+}
+
+.kb-console__summary .admin-summary-card .ant-card-body {
+    min-height: 118px;
+}
+
+.kb-console__summary h4.ant-typography {
+    margin: 2px 0 0;
+    font-size: 22px;
+    line-height: 1.1;
+}
+
+.kb-console__workspace-grid {
+    display: grid;
+    grid-template-columns: minmax(330px, 420px) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.kb-console__documents-card,
+.kb-console__detail-card {
+    min-width: 0;
+}
+
+.kb-console__documents-card > .ant-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.kb-console__document-list {
+    max-height: min(68vh, 760px);
+    overflow: auto;
+    padding-right: 4px;
+}
+
+.kb-document-item {
+    cursor: pointer;
+    border-radius: 16px;
+    padding: 12px 10px !important;
+    transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.kb-document-item:hover {
+    background: var(--cr-surface-muted);
+}
+
+.kb-document-item--active {
+    background: color-mix(in srgb, var(--cr-primary-soft) 78%, transparent);
+    box-shadow: inset 3px 0 0 var(--cr-primary);
+}
+
+.kb-console__detail-card > .ant-card-body {
+    padding: 8px 12px 14px;
+}
+
+.kb-console__tabs > .ant-tabs-nav {
+    margin: 0 6px 16px;
+}
+
+.kb-console__tabs .ant-tabs-tab {
+    padding: 10px 12px;
+    font-weight: 650;
+}
+
+.kb-console__section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.kb-console__section-head h4.ant-typography {
+    margin: 0 0 6px;
+}
+
+.kb-console__section-head .ant-typography {
+    margin-bottom: 0;
+}
+
 .admin-private-sample-row {
     width: 100%;
     display: flex;
@@ -2660,7 +2750,9 @@ body {
 
     .rag-lab,
     .admin-grid,
+    .kb-console__workspace-grid,
     .admin-console__summary,
+    .kb-console__summary,
     .admin-crawler-source-grid,
     .admin-stats,
     .settings-console__hero-layout,
@@ -2677,6 +2769,17 @@ body {
 
     .rag-lab__status-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .kb-console__hero-actions {
+        width: 100%;
+        min-width: 0;
+        justify-content: flex-start;
+    }
+
+    .kb-console__section-head {
+        flex-direction: column;
+        align-items: stretch;
     }
 }
 .carbon-factor-page {

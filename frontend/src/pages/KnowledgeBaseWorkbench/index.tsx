@@ -8,7 +8,7 @@ import {
     PlusOutlined,
     SearchOutlined,
 } from "@ant-design/icons";
-import { Alert, Button, Card, Empty, Input, List, Progress, Select, Space, Spin, Tag, Typography, Upload } from "antd";
+import { Alert, Button, Card, Empty, Input, List, Progress, Select, Space, Spin, Tabs, Tag, Typography, Upload } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -336,19 +336,24 @@ export function KnowledgeBaseWorkbench() {
         navigate(`/?${params.toString()}`);
     }
 
+    const indexedDocCount = documents.filter((doc) => doc.index_status === "indexed").length;
+    const failedDocCount = documents.filter((doc) => doc.status === "failed" || doc.error_stage).length;
+    const totalChunkCount = documents.reduce((sum, doc) => sum + (doc.chunk_count ?? 0), 0);
+    const totalIndexedChunkCount = documents.reduce((sum, doc) => sum + (doc.indexed_chunk_count ?? 0), 0);
+
     return (
-        <div className="knowledge-base-workbench">
-            <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                <Card
-                    title={<Space><DatabaseOutlined />RAG-Pro 知识库工作台</Space>}
-                    extra={<Tag color="green">V1.6.10 Test QA 加固</Tag>}
-                >
-                    <Typography.Paragraph type="secondary">
-                        这里不是普通聊天页，而是 RAG 验收台：先把资料导入知识库，再按“解析文档 → 生成片段 → 写入向量库”处理，最后用检索测试和检索问答确认能不能命中原文。
-                    </Typography.Paragraph>
-                    {error ? <Alert type="error" showIcon message={error} /> : null}
-                    <Space wrap>
-                        <Input value={newKbName} onChange={(event) => setNewKbName(event.target.value)} style={{ width: 220 }} />
+        <div className="kb-console">
+            <Card className="admin-console__hero kb-console__hero">
+                <div className="admin-console__hero-layout">
+                    <div className="admin-console__hero-copy">
+                        <Typography.Text className="admin-console__eyebrow">RAG-Pro 知识库工作台</Typography.Text>
+                        <Typography.Title level={2}>把文档入库、检索和验收收进一条主线</Typography.Title>
+                        <Typography.Paragraph>
+                            左侧管理知识库和文档，右侧处理当前文档、测试检索、查看片段和验收评分。默认使用“一键入库验收”，手工步骤只用于排查失败。
+                        </Typography.Paragraph>
+                    </div>
+                    <Space className="admin-console__actions kb-console__hero-actions" size={10} wrap>
+                        <Input value={newKbName} onChange={(event) => setNewKbName(event.target.value)} placeholder="新知识库名称" style={{ width: 180 }} />
                         <Button icon={<PlusOutlined />} type="primary" onClick={handleCreateKb}>创建知识库</Button>
                         <Select
                             value={activeKbId}
@@ -358,34 +363,52 @@ export function KnowledgeBaseWorkbench() {
                             placeholder="选择知识库"
                         />
                     </Space>
-                    {activeKb ? (
-                        <>
-                            <Alert
-                                type="info"
-                                showIcon
-                                className="kb-workbench__tip"
-                                message={`当前知识库：${activeKb.name}`}
-                                description="AskPage 也可以选择这个知识库提问；这里主要用于检查文档是否真的完成入库、检索、重排序和引用。"
-                            />
-                            <Space wrap style={{ marginTop: 12 }}>
-                                <Tag color="geekblue">Embedding：{activeKb.embedding_model}</Tag>
-                                <Tag>分块 {activeKb.chunk_size} / overlap {activeKb.chunk_overlap}</Tag>
-                                <Tag>召回 topK {activeKb.retrieval_top_k}</Tag>
-                                <Tag>重排 topN {activeKb.rerank_top_n}</Tag>
-                            </Space>
-                        </>
-                    ) : null}
-                </Card>
+                </div>
+                {error ? <Alert type="error" showIcon message={error} className="admin-console__alert" /> : null}
+            </Card>
 
-                <Card title="文档导入与处理流程" extra={loading ? <Spin size="small" /> : null}>
-                    <Alert
-                        type="info"
-                        showIcon
-                        className="kb-workbench__flow"
-                        message="推荐流程：一键入库验收"
-                        description="一键入库验收会自动执行：解析文档 → 生成片段 → 写入向量库 → 检索冒烟 → 验收评分。手工按钮保留给排查失败阶段使用。"
-                    />
-                    <Space wrap style={{ marginBottom: 16 }}>
+            <div className="admin-console__summary kb-console__summary">
+                <Card className="admin-summary-card">
+                    <div className="admin-summary-card__icon"><DatabaseOutlined /></div>
+                    <div>
+                        <Typography.Text type="secondary">当前知识库</Typography.Text>
+                        <Typography.Title level={4}>{activeKb?.name ?? "未选择"}</Typography.Title>
+                    </div>
+                    <Typography.Text type="secondary">{activeKb ? `${activeKb.embedding_model} · topK ${activeKb.retrieval_top_k}` : "先创建或选择一个知识库"}</Typography.Text>
+                </Card>
+                <Card className="admin-summary-card">
+                    <div className="admin-summary-card__icon"><FileSearchOutlined /></div>
+                    <div>
+                        <Typography.Text type="secondary">文档</Typography.Text>
+                        <Typography.Title level={4}>{documents.length}</Typography.Title>
+                    </div>
+                    <Typography.Text type="secondary">{indexedDocCount} 个已入库，{failedDocCount} 个失败</Typography.Text>
+                </Card>
+                <Card className="admin-summary-card">
+                    <div className="admin-summary-card__icon"><PartitionOutlined /></div>
+                    <div>
+                        <Typography.Text type="secondary">片段</Typography.Text>
+                        <Typography.Title level={4}>{totalChunkCount}</Typography.Title>
+                    </div>
+                    <Typography.Text type="secondary">已写入向量库 {totalIndexedChunkCount} 个</Typography.Text>
+                </Card>
+                <Card className="admin-summary-card">
+                    <div className="admin-summary-card__icon"><ApiOutlined /></div>
+                    <div>
+                        <Typography.Text type="secondary">验收入口</Typography.Text>
+                        <Typography.Title level={4}>{evalResult ? (evalResult.passed ? "通过" : "未通过") : "待运行"}</Typography.Title>
+                    </div>
+                    <Typography.Text type="secondary">Test QA、AskPage 和评分共用当前 KB</Typography.Text>
+                </Card>
+            </div>
+
+            <div className="kb-console__workspace-grid">
+                <Card
+                    className="admin-panel-card kb-console__documents-card"
+                    title="知识库与文档"
+                    extra={loading ? <Spin size="small" /> : null}
+                >
+                    <Space direction="vertical" size={12} style={{ width: "100%" }}>
                         <Upload
                             showUploadList={false}
                             beforeUpload={(file) => {
@@ -393,149 +416,204 @@ export function KnowledgeBaseWorkbench() {
                                 return false;
                             }}
                         >
-                            <Button icon={<CloudUploadOutlined />} loading={Boolean(runningStage?.startsWith("upload:"))}>
+                            <Button block type="primary" icon={<CloudUploadOutlined />} loading={Boolean(runningStage?.startsWith("upload:"))}>
                                 直接上传到当前知识库
                             </Button>
                         </Upload>
-                        <Select
-                            showSearch
-                            value={selectedKnowledgeItemId}
-                            onChange={setSelectedKnowledgeItemId}
-                            style={{ minWidth: 360 }}
-                            optionFilterProp="label"
-                            placeholder="从现有知识条目/上传文件导入"
-                            options={knowledgeItems.map((item) => ({ value: item.knowledge_item_id, label: item.title }))}
-                        />
-                        <Button onClick={handleImportKnowledgeItem} disabled={!activeKbId || !selectedKnowledgeItemId}>导入到知识库</Button>
+                        <Space.Compact style={{ width: "100%" }}>
+                            <Select
+                                showSearch
+                                value={selectedKnowledgeItemId}
+                                onChange={setSelectedKnowledgeItemId}
+                                style={{ width: "100%" }}
+                                optionFilterProp="label"
+                                placeholder="从已有上传文件或知识条目导入"
+                                options={knowledgeItems.map((item) => ({ value: item.knowledge_item_id, label: item.title }))}
+                            />
+                            <Button onClick={handleImportKnowledgeItem} disabled={!activeKbId || !selectedKnowledgeItemId}>导入</Button>
+                        </Space.Compact>
                         <Button
+                            block
                             icon={<PlayCircleOutlined />}
                             onClick={runPipelineBatch}
-                            disabled={!activeKbId}
+                            disabled={!activeKbId || documents.length === 0}
                             loading={Boolean(runningStage?.endsWith(":pipeline-batch"))}
                         >
                             批量一键入库验收
                         </Button>
+                        {pipelineBatchResult ? <PipelineBatchResultAlert result={pipelineBatchResult} /> : null}
+                        {documents.length ? (
+                            <List
+                                className="kb-console__document-list"
+                                dataSource={documents}
+                                renderItem={(doc) => (
+                                    <List.Item
+                                        className={doc.doc_id === activeDocId ? "kb-document-item kb-document-item--active" : "kb-document-item"}
+                                        onClick={() => void handleLoadChunks(doc)}
+                                    >
+                                        <List.Item.Meta
+                                            avatar={<FileSearchOutlined />}
+                                            title={<Space wrap>{doc.title}<StatusTag status={doc.status} /></Space>}
+                                            description={
+                                                <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                                    <Typography.Text type="secondary">
+                                                        解析 {statusLabel(doc.parse_status)} · 分块 {statusLabel(doc.chunk_status)} · 入库 {statusLabel(doc.index_status)}
+                                                    </Typography.Text>
+                                                    <Space wrap>
+                                                        <Tag>{doc.chunk_count ?? 0} 片段</Tag>
+                                                        <Tag color={(doc.indexed_chunk_count ?? 0) > 0 ? "green" : "default"}>{doc.indexed_chunk_count ?? 0} 已入库</Tag>
+                                                        {doc.error_stage ? <Tag color="red">{pipelineStageLabel(doc.error_stage)}</Tag> : null}
+                                                    </Space>
+                                                </Space>
+                                            }
+                                        />
+                                    </List.Item>
+                                )}
+                            />
+                        ) : <Empty description="暂无文档。上传文件或导入已有知识条目后，会出现在这里。" />}
                     </Space>
-                    <Typography.Paragraph type="secondary">
-                        推荐验收路径：直接上传报告文件到 KB，然后点击文档右侧“一键入库验收”。旧的“导入知识条目”和手工处理按钮只保留兼容与故障排查。
-                    </Typography.Paragraph>
-                    {pipelineResult ? <PipelineResultAlert result={pipelineResult} /> : null}
-                    {pipelineBatchResult ? <PipelineBatchResultAlert result={pipelineBatchResult} /> : null}
-                    {documents.length ? (
-                        <List
-                            dataSource={documents}
-                            renderItem={(doc) => (
-                                <List.Item
-                                    className={doc.doc_id === activeDocId ? "kb-document-item kb-document-item--active" : "kb-document-item"}
-                                    actions={[
-                                        <Button
-                                            size="small"
-                                            type="primary"
-                                            icon={<PlayCircleOutlined />}
-                                            loading={runningStage === `${doc.doc_id}:pipeline`}
-                                            onClick={() => runDocPipeline(doc)}
-                                        >
-                                            {doc.error_stage ? "重试失败阶段" : "一键入库验收"}
-                                        </Button>,
-                                        <Button
-                                            size="small"
-                                            icon={stageMeta.parse.icon}
-                                            loading={runningStage === `${doc.doc_id}:parse`}
-                                            onClick={() => runDocStage(doc, "parse")}
-                                        >
-                                            {stageMeta.parse.label}
-                                        </Button>,
-                                        <Button
-                                            size="small"
-                                            icon={stageMeta.chunk.icon}
-                                            loading={runningStage === `${doc.doc_id}:chunk`}
-                                            disabled={!canRunChunk(doc)}
-                                            onClick={() => runDocStage(doc, "chunk")}
-                                        >
-                                            {stageMeta.chunk.label}
-                                        </Button>,
-                                        <Button
-                                            size="small"
-                                            type="primary"
-                                            icon={stageMeta.index.icon}
-                                            loading={runningStage === `${doc.doc_id}:index`}
-                                            disabled={!canRunIndex(doc)}
-                                            onClick={() => runDocStage(doc, "index")}
-                                        >
-                                            {stageMeta.index.label}
-                                        </Button>,
-                                        <Button size="small" onClick={() => handleLoadChunks(doc)}>查看片段</Button>,
-                                    ]}
-                                >
-                                    <List.Item.Meta
-                                        avatar={<FileSearchOutlined />}
-                                        title={<Space wrap>{doc.title}<StatusTag status={doc.status} /></Space>}
-                                        description={<DocumentStatusSummary doc={doc} />}
-                                    />
-                                </List.Item>
-                            )}
-                        />
-                    ) : <Empty description="暂无文档。先选择一个上传文件或知识条目，导入到当前知识库。" />}
                 </Card>
 
-                <Card title="片段预览">
-                    <Typography.Paragraph type="secondary">
-                        片段是 RAG 真正检索的最小单位。Test QA 命中的不是整份文件，而是这些片段。
-                    </Typography.Paragraph>
-                    {activeDoc ? <Tag color="blue">当前文档：{activeDoc.title}</Tag> : null}
-                    {chunks.length ? (
-                        <List
-                            dataSource={chunks.slice(0, 8)}
-                            renderItem={(chunk) => (
-                                <List.Item>
-                                    <Typography.Paragraph ellipsis={{ rows: 3, expandable: "collapsible", symbol: "展开" }}>
-                                        <Typography.Text type="secondary">片段 #{chunk.chunk_index} · {statusLabel(chunk.vector_status)}</Typography.Text>
-                                        <br />
-                                        {chunk.text}
-                                    </Typography.Paragraph>
-                                </List.Item>
-                            )}
-                        />
-                    ) : <Empty description="选择文档并完成“生成片段”后，这里会显示可检索片段。" />}
-                </Card>
-
-                <Card title={<Space><ApiOutlined />检索问答测试与 RAG Trace</Space>}>
-                    <Alert
-                        type="warning"
-                        showIcon
-                        className="kb-workbench__flow"
-                        message="Test QA 是 RAG 链路验收，不是普通聊天页"
-                        description="它会调用 /api/v1/rag/test-qa：先检索当前知识库，再基于命中的片段生成可追溯回答。真正的大模型对话请点击“去 AskPage 用大模型问”，AskPage 会带上当前知识库和问题。"
+                <Card className="admin-panel-card kb-console__detail-card">
+                    <Tabs
+                        className="kb-console__tabs"
+                        items={[
+                            {
+                                key: "pipeline",
+                                label: "入库验收",
+                                children: (
+                                    activeDoc ? (
+                                        <Space direction="vertical" size={14} style={{ width: "100%" }}>
+                                            <div className="kb-console__section-head">
+                                                <div>
+                                                    <Typography.Title level={4}>{activeDoc.title}</Typography.Title>
+                                                    <Typography.Paragraph type="secondary">
+                                                        推荐先跑“一键入库验收”。如果失败，再用下面的手工按钮定位是解析、分块还是向量库问题。
+                                                    </Typography.Paragraph>
+                                                </div>
+                                                <Button
+                                                    type="primary"
+                                                    icon={<PlayCircleOutlined />}
+                                                    loading={runningStage === `${activeDoc.doc_id}:pipeline`}
+                                                    onClick={() => runDocPipeline(activeDoc)}
+                                                >
+                                                    {activeDoc.error_stage ? "重试失败阶段" : "一键入库验收"}
+                                                </Button>
+                                            </div>
+                                            <DocumentStatusSummary doc={activeDoc} />
+                                            <Space wrap>
+                                                <Button
+                                                    icon={stageMeta.parse.icon}
+                                                    loading={runningStage === `${activeDoc.doc_id}:parse`}
+                                                    onClick={() => runDocStage(activeDoc, "parse")}
+                                                >
+                                                    {stageMeta.parse.label}
+                                                </Button>
+                                                <Button
+                                                    icon={stageMeta.chunk.icon}
+                                                    loading={runningStage === `${activeDoc.doc_id}:chunk`}
+                                                    disabled={!canRunChunk(activeDoc)}
+                                                    onClick={() => runDocStage(activeDoc, "chunk")}
+                                                >
+                                                    {stageMeta.chunk.label}
+                                                </Button>
+                                                <Button
+                                                    type="primary"
+                                                    icon={stageMeta.index.icon}
+                                                    loading={runningStage === `${activeDoc.doc_id}:index`}
+                                                    disabled={!canRunIndex(activeDoc)}
+                                                    onClick={() => runDocStage(activeDoc, "index")}
+                                                >
+                                                    {stageMeta.index.label}
+                                                </Button>
+                                                <Button onClick={() => handleLoadChunks(activeDoc)}>查看片段</Button>
+                                            </Space>
+                                            {pipelineResult ? <PipelineResultAlert result={pipelineResult} /> : null}
+                                        </Space>
+                                    ) : <Empty description="先在左侧选择一个文档。" />
+                                ),
+                            },
+                            {
+                                key: "qa",
+                                label: "检索问答",
+                                children: (
+                                    <Space direction="vertical" size={14} style={{ width: "100%" }}>
+                                        <Alert
+                                            type="warning"
+                                            showIcon
+                                            message="Test QA 是 RAG 链路验收，不是普通聊天页"
+                                            description="先检索当前知识库，再基于命中片段生成可追溯回答。正式聊天请点击“去 AskPage 用大模型问”。"
+                                        />
+                                        <Space.Compact style={{ width: "100%" }}>
+                                            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入一个能在文档中找到依据的问题" />
+                                            <Button icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>只测检索</Button>
+                                            <Button icon={<PlayCircleOutlined />} type="primary" onClick={handleTestQA} loading={loading}>生成测试回答</Button>
+                                            <Button onClick={openAskPageWithCurrentKb}>去 AskPage</Button>
+                                        </Space.Compact>
+                                        {searchResult ? <TracePanel mode="search" hits={searchResult.hits} trace={searchResult.trace} /> : null}
+                                        {qaResult ? (
+                                            <Card size="small" title="测试回答">
+                                                <Space wrap style={{ marginBottom: 10 }}>
+                                                    <Tag color={qaModeColor(qaResult.answer_mode)}>{qaModeLabel(qaResult.answer_mode)}</Tag>
+                                                    <Tag color={qaResult.provider_name ? "green" : "default"}>
+                                                        {qaResult.provider_name ? `大模型：${qaResult.provider_name}` : "未调用大模型"}
+                                                    </Tag>
+                                                    {qaResult.model_name ? <Tag>{qaResult.model_name}</Tag> : null}
+                                                    <Tag color={evidenceQualityColor(qaResult.evidence_quality)}>
+                                                        证据质量：{evidenceQualityLabel(qaResult.evidence_quality)}
+                                                    </Tag>
+                                                    {typeof qaResult.confidence === "number" ? <Tag>可信度 {Math.round(qaResult.confidence * 100)}%</Tag> : null}
+                                                    {qaResult.selected_chunks?.length ? <Tag color="blue">已选引用片段 {qaResult.selected_chunks.length}</Tag> : null}
+                                                </Space>
+                                                <Typography.Paragraph>{qaResult.answer}</Typography.Paragraph>
+                                                <TracePanel mode="qa" hits={qaResult.hits} trace={qaResult.retrieval_trace} />
+                                            </Card>
+                                        ) : null}
+                                    </Space>
+                                ),
+                            },
+                            {
+                                key: "chunks",
+                                label: "片段预览",
+                                children: (
+                                    <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                                        <Typography.Paragraph type="secondary">
+                                            片段是 RAG 真正检索的最小单位。Test QA 命中的不是整份文件，而是这些片段。
+                                        </Typography.Paragraph>
+                                        {activeDoc ? <Tag color="blue">当前文档：{activeDoc.title}</Tag> : null}
+                                        {chunks.length ? (
+                                            <List
+                                                dataSource={chunks.slice(0, 8)}
+                                                renderItem={(chunk) => (
+                                                    <List.Item>
+                                                        <Typography.Paragraph ellipsis={{ rows: 3, expandable: "collapsible", symbol: "展开" }}>
+                                                            <Typography.Text type="secondary">片段 #{chunk.chunk_index} · {statusLabel(chunk.vector_status)}</Typography.Text>
+                                                            <br />
+                                                            {chunk.text}
+                                                        </Typography.Paragraph>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        ) : <Empty description="选择文档并完成“生成片段”后，这里会显示可检索片段。" />}
+                                    </Space>
+                                ),
+                            },
+                            {
+                                key: "eval",
+                                label: "验收评分",
+                                children: (
+                                    <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                                        <Button onClick={handleEval} loading={loading} disabled={!activeKbId}>运行验收评分</Button>
+                                        {evalResult ? <EvalPanel evalResult={evalResult} /> : (
+                                            <Empty description="运行评分后，这里会显示 Hit@3、MRR、引用覆盖和跨库泄漏等门禁结果。" />
+                                        )}
+                                    </Space>
+                                ),
+                            },
+                        ]}
                     />
-                    <Space.Compact style={{ width: "100%" }}>
-                        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入一个能在文档中找到依据的问题" />
-                        <Button icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>只测检索</Button>
-                        <Button icon={<PlayCircleOutlined />} type="primary" onClick={handleTestQA} loading={loading}>生成测试回答</Button>
-                        <Button onClick={handleEval} loading={loading}>运行验收评分</Button>
-                        <Button onClick={openAskPageWithCurrentKb}>去 AskPage 用大模型问</Button>
-                    </Space.Compact>
-                    {searchResult ? <TracePanel mode="search" hits={searchResult.hits} trace={searchResult.trace} /> : null}
-                    {qaResult ? (
-                        <Card size="small" title="测试回答" style={{ marginTop: 12 }}>
-                            <Space wrap style={{ marginBottom: 10 }}>
-                                <Tag color={qaModeColor(qaResult.answer_mode)}>{qaModeLabel(qaResult.answer_mode)}</Tag>
-                                <Tag color={qaResult.provider_name ? "green" : "default"}>
-                                    {qaResult.provider_name ? `大模型：${qaResult.provider_name}` : "未调用大模型"}
-                                </Tag>
-                                {qaResult.model_name ? <Tag>{qaResult.model_name}</Tag> : null}
-                                <Tag color={evidenceQualityColor(qaResult.evidence_quality)}>
-                                    证据质量：{evidenceQualityLabel(qaResult.evidence_quality)}
-                                </Tag>
-                                {typeof qaResult.confidence === "number" ? <Tag>可信度 {Math.round(qaResult.confidence * 100)}%</Tag> : null}
-                                {qaResult.selected_chunks?.length ? <Tag color="blue">已选引用片段 {qaResult.selected_chunks.length}</Tag> : null}
-                            </Space>
-                            <Typography.Paragraph>{qaResult.answer}</Typography.Paragraph>
-                            <TracePanel mode="qa" hits={qaResult.hits} trace={qaResult.retrieval_trace} />
-                        </Card>
-                    ) : null}
-                    {evalResult ? <EvalPanel evalResult={evalResult} /> : null}
                 </Card>
-            </Space>
+            </div>
         </div>
     );
 }
