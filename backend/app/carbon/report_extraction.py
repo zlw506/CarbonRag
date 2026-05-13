@@ -174,6 +174,7 @@ class ReportCarbonExtractionResult:
             "extracted_activity_count": len(self.extracted_activities),
             "extracted_activities": [item.to_output() for item in self.extracted_activities],
             "calculation": self.calculation.model_dump(mode="json") if self.calculation else None,
+            "calculation_table": _build_calculation_table(self.calculation),
             "warnings": self.warnings,
         }
 
@@ -373,6 +374,49 @@ class ReportCarbonCalculationService:
         except Exception as exc:  # pragma: no cover - exact engine failures depend on runtime factor DB
             result.warnings.append(f"已抽取活动数据，但碳核算失败：{exc}")
         return result
+
+
+def _build_calculation_table(calculation: CalcCarbonResponse | None) -> list[dict]:
+    if calculation is None:
+        return []
+
+    citations_by_factor = {item.factor_id: item for item in calculation.citations}
+    snapshots_by_factor = {item.factor_id: item for item in calculation.factor_snapshot}
+    rows: list[dict] = []
+    for item in calculation.breakdown:
+        snapshot = snapshots_by_factor.get(item.factor_id)
+        citation = citations_by_factor.get(item.factor_id)
+        source_name = (
+            snapshot.source_name
+            if snapshot is not None
+            else citation.source if citation is not None else "未知来源"
+        )
+        source_url = (
+            snapshot.source_url
+            if snapshot is not None
+            else citation.source_url if citation is not None else None
+        )
+        factor_year = snapshot.effective_year or snapshot.year if snapshot is not None else None
+        rows.append(
+            {
+                "emission_source": item.activity_name or item.item,
+                "scope": item.scope,
+                "activity_category": item.activity_category,
+                "activity_name": item.activity_name,
+                "activity_value": item.activity_value,
+                "activity_unit": item.activity_unit,
+                "normalized_activity_value": item.normalized_activity_value,
+                "normalized_activity_unit": item.normalized_activity_unit,
+                "factor_value": item.factor_value,
+                "factor_unit": item.factor_unit,
+                "factor_id": item.factor_id,
+                "factor_source": source_name,
+                "factor_source_url": source_url,
+                "factor_year": factor_year,
+                "emission_kgco2e": item.emission_kgco2e,
+            }
+        )
+    return rows
 
 
 def _iter_segments(text: str) -> list[str]:

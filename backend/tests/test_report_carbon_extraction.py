@@ -218,6 +218,10 @@ def test_report_carbon_calculation_service_calls_existing_carbon_engine() -> Non
     assert result.calculation.trace_id == "calc-report-1"
     assert fake.payload.session_id == "session-1"
     assert fake.payload.activity_items[0].activity_name == "electricity"
+    output = result.to_output()
+    assert output["calculation_table"][0]["emission_source"] == "electricity"
+    assert output["calculation_table"][0]["factor_value"] == 0.53
+    assert output["calculation_table"][0]["factor_source"] == "官方电力因子"
 
 
 def test_context_builder_injects_report_carbon_calculation_result() -> None:
@@ -262,6 +266,20 @@ def test_context_builder_injects_report_carbon_calculation_result() -> None:
                     }
                 ],
             },
+            "calculation_table": [
+                {
+                    "emission_source": "electricity",
+                    "activity_value": 12000,
+                    "activity_unit": "kWh",
+                    "factor_value": 0.53,
+                    "factor_unit": "kgCO2/kWh",
+                    "factor_source": "生态环境部电力排放因子",
+                    "factor_source_url": "https://example.com/factor",
+                    "factor_year": 2023,
+                    "factor_id": "factor-electricity",
+                    "emission_kgco2e": 6360,
+                }
+            ],
             "warnings": [],
             "hits": [],
         },
@@ -271,5 +289,8 @@ def test_context_builder_injects_report_carbon_calculation_result() -> None:
     bundle = build_context_bundle(request, resolve_mode("ask"), tool_results=[result])
 
     assert "报告碳核算总量：6360 kgCO2e" in bundle["system_prompt"]
+    assert "| 排放源 | 活动量 | 碳因子系数 | 碳因子系数来源 | 碳排放量 |" in bundle["system_prompt"]
+    assert "| electricity | 12000 kWh | 0.53 kgCO2/kWh | 生态环境部电力排放因子 | 6360 kgCO2e |" in bundle["system_prompt"]
+    assert "必须先给出包含“排放源、活动量/排放量、碳因子系数、碳因子系数来源、碳排放量”的 Markdown 表格" in bundle["system_prompt"]
     assert bundle["report_carbon_context"]["ready"] is True
 

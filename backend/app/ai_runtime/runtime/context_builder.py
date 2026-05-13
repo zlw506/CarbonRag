@@ -67,6 +67,25 @@ def _format_file_overview_locator(chunk: dict) -> str:
     return " / ".join(parts) or "无"
 
 
+def _format_number(value) -> str:
+    if value in (None, ""):
+        return "未知"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{numeric:.6g}"
+
+
+def _format_source(value: str | None, *, max_chars: int = 64) -> str:
+    if not value:
+        return "未知来源"
+    normalized = str(value).replace("\n", " ").strip()
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[: max_chars - 1] + "…"
+
+
 def build_context_bundle(
     request: ChatRequest,
     mode: ModeSpec,
@@ -211,11 +230,13 @@ def build_context_bundle(
                             if not isinstance(item, dict):
                                 continue
                             locator = _format_file_overview_locator(item)
-                            factor_note = item.get("requested_factor_id") or "待匹配"
+                            factor_note = item.get("matched_factor_id") or item.get("requested_factor_id") or "待核算匹配"
+                            factor_source = item.get("matched_factor_source") or "待核算后由本地碳因子库选择"
                             evidence_lines.extend(
                                 [
                                     f"[upload-file-{file_index}-carbon-{item_index}] 范围：{item.get('scope')}；活动：{item.get('activity_category')}/{item.get('activity_name')}",
-                                    f"消耗量：{item.get('activity_value')} {item.get('activity_unit')}；匹配别名：{item.get('matched_alias')}；因子ID：{factor_note}",
+                                    f"消耗量：{item.get('activity_value')} {item.get('activity_unit')}；匹配别名：{item.get('matched_alias')}；本地因子ID：{factor_note}",
+                                    f"本地因子来源：{factor_source}；因子单位：{item.get('matched_factor_unit') or '待核算确认'}；匹配方式：{item.get('match_method') or '活动规则/待核算'}",
                                     f"定位：{locator}；chunk：{item.get('chunk_id')}；置信度：{item.get('confidence')}",
                                     f"证据片段：{item.get('snippet')}",
                                 ]
@@ -268,19 +289,63 @@ def build_context_bundle(
             else:
                 evidence_lines.append("未识别到受支持的活动量。")
             if calculation:
+                calculation_table = carbon_output.get("calculation_table") or []
                 evidence_lines.extend(
                     [
                         f"报告碳核算总量：{calculation.get('total_emission_kgco2e')} kgCO2e",
                         f"核算 trace_id：{calculation.get('trace_id')}；inventory_id：{calculation.get('inventory_id')}",
-                        "核算分项："
+                        "报告碳核算结果表（来自 CarbonRag 本地碳因子库）：",
+                        "| 排放源 | 活动量 | 碳因子系数 | 碳因子系数来源 | 碳排放量 |",
+                        "| --- | ---: | ---: | --- | ---: |",
                     ]
                 )
+                if calculation_table:
+                    for item in calculation_table:
+                        if not isinstance(item, dict):
+                            continue
+                        evidence_lines.append(
+                            "| "
+                            + " | ".join(
+                                [
+                                    str(item.get("emission_source") or item.get("activity_name") or "未知排放源"),
+                                    f"{_format_number(item.get('activity_value'))} {item.get('activity_unit') or ''}".strip(),
+                                    f"{_format_number(item.get('factor_value'))} {item.get('factor_unit') or ''}".strip(),
+                                    _format_source(item.get("factor_source")),
+                                    f"{_format_number(item.get('emission_kgco2e'))} kgCO2e",
+                                ]
+                            )
+                            + " |"
+                        )
+                        evidence_lines.append(
+                            f"[report-carbon-factor-{item.get('factor_id')}] 来源URL：{item.get('factor_source_url') or '无'}；年份：{item.get('factor_year') or '未知'}"
+                        )
+                else:
+                    for item in calculation.get("breakdown") or []:
+                        if not isinstance(item, dict):
+                            continue
+                        evidence_lines.append(
+                            "| "
+                            + " | ".join(
+                                [
+                                    str(item.get("activity_name") or item.get("item") or "未知排放源"),
+                                    f"{_format_number(item.get('activity_value'))} {item.get('activity_unit') or ''}".strip(),
+                                    f"{_format_number(item.get('factor_value'))} {item.get('factor_unit') or ''}".strip(),
+                                    f"因子ID：{item.get('factor_id') or '未知'}",
+                                    f"{_format_number(item.get('emission_kgco2e'))} kgCO2e",
+                                ]
+                            )
+                            + " |"
+                        )
+                evidence_lines.append("核算分项原始追踪：")
                 for item in calculation.get("breakdown") or []:
                     evidence_lines.append(
                         f"- {item.get('activity_name')}: {item.get('activity_value')} {item.get('activity_unit')} × "
                         f"{item.get('factor_value')} {item.get('factor_unit')} = {item.get('emission_kgco2e')} kgCO2e；因子ID：{item.get('factor_id')}"
                     )
-                evidence_lines.append("约束：回答报告碳核算问题时，只能使用上述本地因子匹配与上传报告证据；不允许临时改用网络检索到的外部因子。")
+                evidence_lines.append(
+                    "约束：回答报告碳核算问题时，必须先给出包含“排放源、活动量/排放量、碳因子系数、碳因子系数来源、碳排放量”的 Markdown 表格，"
+                    "并只能使用上述本地碳因子库匹配与上传报告证据；不允许临时改用网络检索到的外部因子。"
+                )
             if warnings:
                 evidence_lines.append("报告抽取/核算警告：" + "；".join(str(item) for item in warnings))
         if not evidence_lines:

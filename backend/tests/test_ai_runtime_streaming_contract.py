@@ -225,6 +225,7 @@ def test_context_builder_injects_selected_upload_file_overview() -> None:
     assert "指标=外购电力" in system_prompt
     assert "碳排放活动/消耗量候选" in system_prompt
     assert "消耗量：7800 MWh" in system_prompt
+    assert "本地因子ID：factor-electricity-cn" in system_prompt
     assert "排放明细表" in system_prompt
     assert "只有摘录、活动记忆和命中片段都缺失时，才说明材料不足" in system_prompt
     assert bundle["enterprise_context"]["file_overview_count"] == 1

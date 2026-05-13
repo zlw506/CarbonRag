@@ -193,6 +193,7 @@ def _extract_carbon_activity_memory(
 
 def _carbon_activity_to_memory_entry(extracted, *, index: int) -> dict:
     activity = extracted.activity
+    metadata = activity.metadata or {}
     return {
         "memory_id": f"upload-carbon-{index}",
         "scope": activity.scope,
@@ -203,6 +204,12 @@ def _carbon_activity_to_memory_entry(extracted, *, index: int) -> dict:
         "region": activity.region,
         "year": activity.year,
         "requested_factor_id": activity.requested_factor_id,
+        "matched_factor_id": metadata.get("matched_factor_id") or activity.requested_factor_id,
+        "matched_factor_source": metadata.get("matched_factor_source"),
+        "matched_factor_unit": metadata.get("matched_factor_unit"),
+        "matched_factor_score": metadata.get("matched_factor_score"),
+        "matched_terms": metadata.get("matched_terms"),
+        "match_method": metadata.get("match_method"),
         "confidence": extracted.confidence,
         "matched_alias": extracted.matched_alias,
         "chunk_id": extracted.chunk_id,
