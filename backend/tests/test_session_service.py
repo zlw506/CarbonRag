@@ -35,7 +35,7 @@ def test_session_service_creates_default_title_and_builds_context(tmp_path) -> N
     owner_user_id = create_test_user_id(tmp_path / "carbonrag.sqlite3", prefix="session-service")
     session = service.create_session(owner_user_id=owner_user_id)
 
-    assert session.title.startswith("新对话")
+    assert session.title == "未命名会话"
 
     service.record_exchange(
         owner_user_id=owner_user_id,
@@ -121,6 +121,27 @@ def test_session_service_generates_title_on_first_send_and_refines_on_second_sen
     assert updated is not None
     assert updated.title == "双碳目标与企业转型"
     assert updated.title != session.title
+
+
+def test_session_service_normalizes_legacy_new_chat_titles(tmp_path) -> None:
+    service = build_session_service(tmp_path)
+    owner_user_id = create_test_user_id(tmp_path / "carbonrag.sqlite3", prefix="session-title-legacy")
+    session = service.create_session(owner_user_id=owner_user_id, title="新对话 2026-05-13 16:20")
+
+    service.begin_exchange(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        user_content="这家企业 2025 年总碳排放量是多少？",
+    )
+
+    listed = service.list_sessions(owner_user_id=owner_user_id)
+    assert listed[0].title == "这家企业 2025 年总碳排放量是多少"
+    assert "新对话" not in listed[0].title
+
+    detail = service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
+    assert detail is not None
+    assert detail.title == "这家企业 2025 年总碳排放量是多少"
+    assert "新对话" not in detail.title
 
 
 def test_session_service_title_ignores_failed_assistant_reply(tmp_path) -> None:
