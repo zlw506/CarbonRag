@@ -24,3 +24,24 @@ def test_unit_converter_normalizes_tonne_to_kg() -> None:
 
     assert value == 2000
     assert trace.normalized_unit == "kg"
+
+
+def test_unit_converter_normalizes_report_activity_units() -> None:
+    value, trace = UnitConverter().normalize(
+        activity_name="载客汽车",
+        value=12,
+        from_unit="公里",
+        to_unit="km",
+    )
+
+    assert value == 12
+    assert trace.normalized_unit == "km"
+
+    area, area_trace = UnitConverter().normalize(
+        activity_name="建筑面积",
+        value=300,
+        from_unit="平方米",
+        to_unit="m2",
+    )
+    assert area == 300
+    assert area_trace.normalized_unit == "m2"

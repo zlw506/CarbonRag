@@ -1,6 +1,7 @@
 from app.carbon.factors.registry import FactorRegistry
 from app.carbon.factors.schema import FactorRecord
-from app.carbon.schemas import CarbonActivityItem
+from app.carbon.engine import CarbonCalculationEngine
+from app.carbon.schemas import CarbonActivityBatch, CarbonActivityItem
 
 
 def test_factor_registry_prefers_official_region_and_year() -> None:
@@ -86,3 +87,40 @@ def test_factor_registry_marks_demo_fallback_warning() -> None:
 
     assert selection.factor.factor_id == "demo-diesel"
     assert any("demo" in warning for warning in selection.warnings)
+
+
+def test_engine_converts_tco2e_carbonstop_result_units_to_kgco2e() -> None:
+    registry = FactorRegistry(
+        [
+            FactorRecord(
+                factor_id="carbonstop-ccdb-passenger-car",
+                factor_version="2023",
+                source_type="public_dataset",
+                source_name="CarbonStop CCDB",
+                scope="scope3",
+                activity_category="陆上交通",
+                activity_name="载客汽车",
+                factor_value=0.00024,
+                factor_unit="tCO₂e/km",
+                activity_unit="km",
+                result_unit="tCO₂e",
+            )
+        ]
+    )
+
+    result = CarbonCalculationEngine(registry=registry).calculate(
+        CarbonActivityBatch(
+            activity_items=[
+                CarbonActivityItem(
+                    scope="scope3",
+                    activity_category="陆上交通",
+                    activity_name="载客汽车",
+                    activity_value=1000,
+                    activity_unit="km",
+                    requested_factor_id="carbonstop-ccdb-passenger-car",
+                )
+            ]
+        )
+    )
+
+    assert result.total_emission_kgco2e == 240

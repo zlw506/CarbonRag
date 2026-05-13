@@ -4,13 +4,61 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from app.carbon.factor_loader import CarbonFactorLoader, get_factor_loader
+from app.carbon.factors.schema import FactorRecord
 from app.carbon.schemas import CalcCarbonRequest, CalcCarbonResponse, CarbonActivityItem
 from app.carbon.service import CarbonService, get_carbon_service
 from app.knowledge.schemas import KnowledgeChunk
 
 
 _NUMBER = r"(?P<value>\d+(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
-_UNIT = r"(?P<unit>kWh|kw·h|千瓦时|度|MWh|m3|m³|立方米|方|L|l|升|kg|千克|公斤|t|吨)"
+_SUPPORTED_UNITS = (
+    "人·公里",
+    "人-公里",
+    "人公里",
+    "人千米",
+    "吨·公里",
+    "吨-公里",
+    "吨公里",
+    "千瓦时",
+    "立方米",
+    "平方米",
+    "平方公里",
+    "kg",
+    "kWh",
+    "kw·h",
+    "MWh",
+    "m³",
+    "m3",
+    "m²",
+    "m2",
+    "㎡",
+    "km",
+    "公里",
+    "千米",
+    "tkm",
+    "pkm",
+    "L",
+    "l",
+    "升",
+    "t",
+    "吨",
+    "千克",
+    "公斤",
+    "g",
+    "克",
+    "件",
+    "个",
+    "台",
+    "张",
+    "只",
+    "次",
+    "人次",
+    "间夜",
+    "度",
+    "方",
+)
+_UNIT = r"(?P<unit>" + "|".join(re.escape(unit) for unit in sorted(_SUPPORTED_UNITS, key=len, reverse=True)) + r")"
 _VALUE_THEN_UNIT_RE = re.compile(_NUMBER + r"\s*" + _UNIT, re.IGNORECASE)
 _UNIT_THEN_VALUE_RE = re.compile(_UNIT + r"[\s:：）\)]{0,8}" + _NUMBER, re.IGNORECASE)
 
@@ -81,6 +129,13 @@ class ExtractedReportActivity:
             "score": self.confidence,
             "retrieval_layer": "report_carbon_activity_extraction",
         }
+
+
+@dataclass(frozen=True)
+class FactorMatchCandidate:
+    record: FactorRecord
+    score: int
+    matched_terms: tuple[str, ...]
 
 
 @dataclass
@@ -159,6 +214,18 @@ REPORT_ACTIVITY_PATTERNS: tuple[ActivityPattern, ...] = (
     ),
 )
 
+_DOMAIN_ALIASES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("货车", "货运", "物流运输", "公路运输"), ("载货汽车", "货车")),
+    (("客车", "乘用车", "小汽车", "轿车", "公务车", "车辆行驶"), ("载客汽车", "客车", "乘用车", "家庭车")),
+    (("公交", "公共汽车", "班车"), ("公交", "公共交通")),
+    (("飞机", "航班", "航空", "空运"), ("飞机", "航空", "飞机排放")),
+    (("船舶", "货船", "海运", "水运"), ("货船", "船舶")),
+    (("纸箱", "包装箱", "瓦楞纸箱"), ("纸箱", "瓦楞")),
+    (("办公用纸", "复印纸", "纸张"), ("纸制品", "纸张")),
+    (("用水", "自来水", "供水"), ("水", "自来水")),
+    (("废弃物", "垃圾", "固废", "焚烧", "填埋"), ("废弃物", "废弃物处理")),
+)
+
 
 class ReportCarbonActivityExtractor:
     """Extract carbon activity quantities from parsed upload chunks.
@@ -168,10 +235,21 @@ class ReportCarbonActivityExtractor:
     parser before this extractor runs.
     """
 
+    def __init__(
+        self,
+        *,
+        factor_loader: CarbonFactorLoader | None = None,
+        dynamic_match_threshold: int = 85,
+    ) -> None:
+        self.factor_loader = factor_loader or get_factor_loader()
+        self.dynamic_match_threshold = dynamic_match_threshold
+
     def extract(self, chunks: Iterable[KnowledgeChunk]) -> ReportCarbonExtractionResult:
         extracted: list[ExtractedReportActivity] = []
         warnings: list[str] = []
         seen: set[tuple[str, str, float, str, str]] = set()
+        seen_quantities: set[tuple[str, float, str]] = set()
+        factor_records = self._load_factor_records(warnings)
 
         for chunk in chunks:
             for segment in _iter_segments(chunk.snippet):
@@ -184,13 +262,64 @@ class ReportCarbonActivityExtractor:
                         if key in seen:
                             continue
                         seen.add(key)
+                        seen_quantities.add((chunk.chunk_id, round(value, 6), _canonical_unit(unit)))
                         extracted.append(_build_activity(chunk=chunk, pattern=pattern, value=value, unit=unit, alias=alias, segment=segment))
+                if factor_records:
+                    extracted.extend(
+                        self._extract_local_factor_matches(
+                            chunk=chunk,
+                            segment=segment,
+                            factor_records=factor_records,
+                            seen_quantities=seen_quantities,
+                        )
+                    )
 
         if not extracted:
             warnings.append(
-                "未在已选上传报告片段中识别到受支持的活动数据。当前只支持用电、天然气、柴油、汽油、LPG、煤等常见活动量。"
+                "未在已选上传报告片段中识别到可核算活动量。请确认报告里包含活动名称、数量和单位；系统会优先按本地碳因子库尝试匹配。"
             )
         return ReportCarbonExtractionResult(extracted_activities=extracted, warnings=warnings)
+
+    def _load_factor_records(self, warnings: list[str]) -> list[FactorRecord]:
+        try:
+            return [
+                record
+                for record in self.factor_loader.load_registry().records
+                if record.factor_value > 0 and record.activity_unit
+            ]
+        except Exception as exc:
+            warnings.append(f"本地碳因子库暂不可用，仅使用内置基础抽取规则：{exc}")
+            return []
+
+    def _extract_local_factor_matches(
+        self,
+        *,
+        chunk: KnowledgeChunk,
+        segment: str,
+        factor_records: list[FactorRecord],
+        seen_quantities: set[tuple[str, float, str]],
+    ) -> list[ExtractedReportActivity]:
+        matched: list[ExtractedReportActivity] = []
+        for value, unit in _find_any_quantities(segment):
+            quantity_key = (chunk.chunk_id, round(value, 6), _canonical_unit(unit))
+            if quantity_key in seen_quantities:
+                continue
+            candidates = _rank_factor_candidates(segment=segment, unit=unit, records=factor_records)
+            if not candidates or candidates[0].score < self.dynamic_match_threshold:
+                continue
+            selected = candidates[0]
+            seen_quantities.add(quantity_key)
+            matched.append(
+                _build_factor_activity(
+                    chunk=chunk,
+                    factor=selected.record,
+                    value=value,
+                    unit=unit,
+                    segment=segment,
+                    candidate=selected,
+                )
+            )
+        return matched
 
 
 class ReportCarbonCalculationService:
@@ -250,6 +379,8 @@ def _find_quantities(segment: str, *, expected_unit: str) -> list[tuple[float, s
     quantities: list[tuple[float, str]] = []
     for regex in (_VALUE_THEN_UNIT_RE, _UNIT_THEN_VALUE_RE):
         for match in regex.finditer(segment):
+            if _looks_like_emission_factor_unit(segment, match):
+                continue
             unit = _canonical_unit(match.group("unit"))
             if not _is_compatible_unit(unit, expected_unit):
                 continue
@@ -258,6 +389,25 @@ def _find_quantities(segment: str, *, expected_unit: str) -> list[tuple[float, s
                 continue
             quantities.append((value, unit))
     return list(dict.fromkeys(quantities))
+
+
+def _find_any_quantities(segment: str) -> list[tuple[float, str]]:
+    quantities: list[tuple[float, str]] = []
+    for regex in (_VALUE_THEN_UNIT_RE, _UNIT_THEN_VALUE_RE):
+        for match in regex.finditer(segment):
+            if _looks_like_emission_factor_unit(segment, match):
+                continue
+            value = _parse_number(match.group("value"))
+            if value <= 0:
+                continue
+            quantities.append((value, _canonical_unit(match.group("unit"))))
+    return list(dict.fromkeys(quantities))
+
+
+def _looks_like_emission_factor_unit(segment: str, match: re.Match) -> bool:
+    unit_end = match.end("unit")
+    tail = segment[unit_end : unit_end + 8].lower()
+    return tail.startswith(("co2", "co₂", "co₂e", "co2e", "二氧化碳"))
 
 
 def _parse_number(value: str) -> float:
@@ -277,6 +427,22 @@ def _canonical_unit(unit: str) -> str:
         "m³": "m3",
         "立方米": "m3",
         "方": "m3",
+        "km": "km",
+        "公里": "km",
+        "千米": "km",
+        "人公里": "人公里",
+        "人·公里": "人公里",
+        "人-公里": "人公里",
+        "人千米": "人公里",
+        "pkm": "人公里",
+        "吨公里": "吨公里",
+        "吨·公里": "吨公里",
+        "吨-公里": "吨公里",
+        "tkm": "吨公里",
+        "m2": "m2",
+        "m²": "m2",
+        "㎡": "m2",
+        "平方米": "m2",
         "l": "L",
         "升": "L",
         "kg": "kg",
@@ -297,6 +463,122 @@ def _is_compatible_unit(unit: str, expected_unit: str) -> bool:
         "t": {"kg"},
     }
     return unit in compatible.get(expected_unit, set())
+
+
+def _rank_factor_candidates(*, segment: str, unit: str, records: list[FactorRecord]) -> list[FactorMatchCandidate]:
+    canonical_unit = _canonical_unit(unit)
+    candidates: list[FactorMatchCandidate] = []
+    for record in records:
+        factor_unit = _canonical_unit(record.activity_unit)
+        if not _is_compatible_unit(canonical_unit, factor_unit):
+            continue
+        matched_terms = _matched_factor_terms(segment, record)
+        if not matched_terms:
+            continue
+        score = 0
+        if record.activity_name in matched_terms:
+            score += 80
+        if any(_is_domain_alias_term(term) for term in matched_terms):
+            score += 55
+        score += min(len(matched_terms), 5) * 12
+        score += 25 if canonical_unit == factor_unit else 12
+        if record.source_type in {"official", "public_dataset"} or record.is_official:
+            score += 12
+        if record.source_priority:
+            score += min(record.source_priority, 100) // 5
+        if _is_generic_activity_name(record.activity_name):
+            score -= 30
+        candidates.append(FactorMatchCandidate(record=record, score=score, matched_terms=tuple(matched_terms)))
+    return sorted(
+        candidates,
+        key=lambda item: (
+            item.score,
+            item.record.source_priority,
+            item.record.effective_year or item.record.year or 0,
+            len(item.record.activity_name),
+        ),
+        reverse=True,
+    )
+
+
+def _matched_factor_terms(segment: str, record: FactorRecord) -> list[str]:
+    lowered = segment.lower()
+    terms = _factor_terms(record)
+    matched = []
+    for term in terms:
+        if term.lower() in lowered:
+            matched.append(term)
+    matched.extend(_domain_alias_terms(lowered, record))
+    return list(dict.fromkeys(matched))
+
+
+def _domain_alias_terms(lowered_segment: str, record: FactorRecord) -> list[str]:
+    record_text = record.activity_name.lower()
+    matched: list[str] = []
+    for triggers, targets in _DOMAIN_ALIASES:
+        trigger = next((item for item in triggers if item.lower() in lowered_segment), None)
+        if trigger is None:
+            continue
+        if any(target.lower() in record_text for target in targets):
+            matched.append(trigger)
+    return matched
+
+
+def _is_domain_alias_term(term: str) -> bool:
+    lowered = term.lower()
+    return any(lowered == trigger.lower() for triggers, _ in _DOMAIN_ALIASES for trigger in triggers)
+
+
+def _factor_terms(record: FactorRecord) -> list[str]:
+    terms: list[str] = []
+    for value in (
+        record.activity_name,
+        record.activity_category,
+        record.applicable_industry,
+        record.region_name,
+        record.region,
+        record.notes,
+    ):
+        terms.extend(_split_terms(value))
+    for tag in record.tags:
+        terms.extend(_split_terms(tag))
+    return [term for term in dict.fromkeys(terms) if len(term) >= 2 and not _is_noise_term(term)]
+
+
+def _split_terms(value: str | None) -> list[str]:
+    if not value:
+        return []
+    raw = re.split(r"[\s,，;；/|:：()（）\[\]【】\-]+", value)
+    return [item.strip() for item in raw if item.strip()]
+
+
+def _is_noise_term(term: str) -> bool:
+    lowered = term.lower()
+    if lowered.isdigit():
+        return True
+    return lowered in {
+        "cn",
+        "scope1",
+        "scope2",
+        "scope3",
+        "kg",
+        "kwh",
+        "m3",
+        "km",
+        "unit",
+        "public",
+        "dataset",
+        "carbonstop",
+        "ccdb",
+        "公开因子",
+        "中国",
+        "其他",
+        "通用",
+    }
+
+
+def _is_generic_activity_name(name: str) -> bool:
+    return name.strip() in {"其他", "通用", "其他服务", "其他产品"}
 
 
 def _build_activity(
@@ -347,6 +629,65 @@ def _build_activity(
         snippet=segment[:500],
         confidence=0.82,
         matched_alias=alias,
+    )
+
+
+def _build_factor_activity(
+    *,
+    chunk: KnowledgeChunk,
+    factor: FactorRecord,
+    value: float,
+    unit: str,
+    segment: str,
+    candidate: FactorMatchCandidate,
+) -> ExtractedReportActivity:
+    metadata = chunk.metadata or {}
+    locator = _format_locator(metadata)
+    evidence_reference = f"{chunk.title}"
+    if locator:
+        evidence_reference += f" · {locator}"
+    evidence_reference += f" · 本地因子库匹配：{factor.activity_name}"
+    confidence = min(0.95, max(0.55, candidate.score / 140))
+    activity = CarbonActivityItem(
+        scope=factor.scope,  # type: ignore[arg-type]
+        activity_category=factor.activity_category,
+        activity_name=factor.activity_name,
+        activity_value=value,
+        activity_unit=unit,
+        region=factor.region_code or factor.region,
+        year=factor.effective_year or factor.year,
+        factor_preference="local_factor_database",
+        data_quality="estimate",
+        evidence_reference=evidence_reference,
+        source_document_id=chunk.chunk_id,
+        entry_method="file_upload",
+        requested_factor_id=factor.factor_id,
+        metadata={
+            "file_id": str(metadata.get("file_id") or ""),
+            "chunk_id": chunk.chunk_id,
+            "matched_alias": factor.activity_name,
+            "matched_factor_id": factor.factor_id,
+            "matched_factor_source": factor.source_name,
+            "matched_factor_unit": factor.factor_unit,
+            "matched_factor_score": str(candidate.score),
+            "matched_terms": "、".join(candidate.matched_terms[:8]),
+            "evidence_snippet": segment[:500],
+            "match_method": "local_carbon_factor_database",
+        },
+    )
+    return ExtractedReportActivity(
+        activity=activity,
+        title=chunk.title,
+        chunk_id=chunk.chunk_id,
+        knowledge_item_id=chunk.knowledge_item_id,
+        file_id=_optional_str(metadata.get("file_id")),
+        page_number=_optional_int(metadata.get("page_number")),
+        sheet_name=_optional_str(metadata.get("sheet_name")),
+        slide_number=_optional_int(metadata.get("slide_number")),
+        section_title=_optional_str(metadata.get("section_title")),
+        snippet=segment[:500],
+        confidence=round(confidence, 2),
+        matched_alias=factor.activity_name,
     )
 
 

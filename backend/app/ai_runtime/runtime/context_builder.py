@@ -167,7 +167,7 @@ def build_context_bundle(
             extracted_activities = carbon_output.get("extracted_activities") or []
             calculation = carbon_output.get("calculation") or {}
             warnings = carbon_output.get("warnings") or []
-            evidence_lines.append("当前已从上传报告抽取到以下碳活动数据并尝试完成核算：")
+            evidence_lines.append("当前已从上传报告抽取到以下碳活动数据并按 CarbonRag 本地碳因子库完成匹配/核算：")
             if extracted_activities:
                 for index, item in enumerate(extracted_activities, start=1):
                     locator_parts = []
@@ -182,6 +182,7 @@ def build_context_bundle(
                         [
                             f"[report-carbon-{index}] 活动：{item.get('activity_category')}/{item.get('activity_name')}",
                             f"活动量：{item.get('activity_value')} {item.get('activity_unit')}",
+                            f"本地因子匹配：{item.get('requested_factor_id') or item.get('metadata', {}).get('matched_factor_id') or '未指定'}；匹配方式：{item.get('metadata', {}).get('match_method') or '规则抽取'}",
                             f"证据文件：{item.get('title')}；定位：{locator}；chunk：{item.get('chunk_id')}",
                             f"证据片段：{item.get('snippet')}",
                         ]
@@ -199,8 +200,9 @@ def build_context_bundle(
                 for item in calculation.get("breakdown") or []:
                     evidence_lines.append(
                         f"- {item.get('activity_name')}: {item.get('activity_value')} {item.get('activity_unit')} × "
-                        f"{item.get('factor_value')} {item.get('factor_unit')} = {item.get('emission_kgco2e')} kgCO2e"
+                        f"{item.get('factor_value')} {item.get('factor_unit')} = {item.get('emission_kgco2e')} kgCO2e；因子ID：{item.get('factor_id')}"
                     )
+                evidence_lines.append("约束：回答报告碳核算问题时，只能使用上述本地因子匹配与上传报告证据；不允许临时改用网络检索到的外部因子。")
             if warnings:
                 evidence_lines.append("报告抽取/核算警告：" + "；".join(str(item) for item in warnings))
         if not evidence_lines:
