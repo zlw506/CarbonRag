@@ -54,6 +54,18 @@ def _extract_report_carbon_outputs(tool_results: list[ToolResult] | None) -> lis
     return outputs
 
 
+def _extract_carbon_factor_outputs(tool_results: list[ToolResult] | None) -> list[dict]:
+    if not tool_results:
+        return []
+    outputs: list[dict] = []
+    for tool_result in tool_results:
+        if tool_result.name != "carbon_factor_lookup":
+            continue
+        if isinstance(tool_result.output, dict):
+            outputs.append(tool_result.output)
+    return outputs
+
+
 def _format_file_overview_locator(chunk: dict) -> str:
     parts: list[str] = []
     if chunk.get("page_number"):
@@ -110,6 +122,13 @@ def build_context_bundle(
         retrieval_hits = _extract_hits(tool_results)
         file_overviews = _extract_file_overviews(tool_results)
         report_carbon_outputs = _extract_report_carbon_outputs(tool_results)
+        carbon_factor_outputs = _extract_carbon_factor_outputs(tool_results)
+        carbon_factor_hits = [
+            hit
+            for output in carbon_factor_outputs
+            for hit in (output.get("hits") or [])
+            if isinstance(hit, dict)
+        ]
         public_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy"]
         demo_policy_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy_demo"]
         private_hits = [
@@ -210,6 +229,28 @@ def build_context_bundle(
                 evidence_lines.append(
                     "注意：本轮已命中用户上传文件片段。请优先基于这些片段回答用户关于报告、附件或文档内容的问题；不要再声称无法读取该文件。"
                 )
+        if carbon_factor_hits:
+            evidence_lines.append("当前已从 CarbonRag 本地碳因子库检索到以下可用于核算的因子记录：")
+            for index, hit in enumerate(carbon_factor_hits, start=1):
+                factor_value = hit.get("factor_value")
+                factor_unit = hit.get("factor_unit")
+                activity_unit = hit.get("activity_unit")
+                year = hit.get("year") or "年份未标注"
+                region = hit.get("region_name") or hit.get("region_code") or hit.get("region") or "适用范围未标注"
+                evidence_lines.extend(
+                    [
+                        f"[carbon-factor-{index}] 活动：{hit.get('activity_category')}/{hit.get('activity_name')}",
+                        f"因子：{_format_number(factor_value)} {factor_unit or ''}；活动单位：{activity_unit or '未知'}；地区：{region}；年份：{year}",
+                        f"来源：{hit.get('source_name') or hit.get('source')}；factor_id：{hit.get('factor_id')}；官方因子：{bool(hit.get('is_official'))}",
+                        f"说明：{hit.get('snippet')}",
+                    ]
+                )
+            evidence_lines.append(
+                "约束：用户询问碳因子、排放因子、碳核算或排放量时，必须优先使用上述本地碳因子库记录；"
+                "不要再回答“没有碳因子数据”。若用户给出活动量，应明确公式为 活动量 × 因子，并注明单位换算假设。"
+            )
+        elif carbon_factor_outputs:
+            evidence_lines.append("本轮已查询 CarbonRag 本地碳因子库，但未命中与问题直接相关的因子记录。")
         if file_overviews:
             evidence_lines.append("当前显式选择的上传文件结构化摘录如下，用于覆盖报告文字、表格、数字和早期章节；回答附件问题时应优先综合这些摘录与检索命中片段：")
             for file_index, overview in enumerate(file_overviews, start=1):
@@ -425,6 +466,12 @@ def build_context_bundle(
             "report_carbon_context": {
                 "ready": bool(report_carbon_outputs),
                 "outputs": report_carbon_outputs,
+            },
+            "carbon_factor_context": {
+                "ready": bool(carbon_factor_hits),
+                "outputs": carbon_factor_outputs,
+                "hit_count": len(carbon_factor_hits),
+                "hits": carbon_factor_hits,
             },
             "limitations": limitations,
             "session_state": {

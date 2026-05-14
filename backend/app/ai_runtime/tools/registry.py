@@ -1,6 +1,6 @@
 from app.ai_runtime.tools.base import BaseTool
 from app.ai_runtime.tools.carbon_calc_stub import CarbonCalcStubTool
-from app.ai_runtime.tools.carbon_factor_lookup_stub import CarbonFactorLookupStubTool
+from app.ai_runtime.tools.carbon_factor_lookup_stub import CarbonFactorLookupTool
 from app.ai_runtime.tools.enterprise_retrieve import EnterpriseRetrieveTool
 from app.ai_runtime.tools.mixed_retrieve import MixedRetrieveTool
 from app.ai_runtime.tools.policy_retrieve import PolicyRetrieveTool
@@ -46,7 +46,7 @@ def build_default_registry() -> ToolRegistry:
         LangChainRagSearchTool(),
         LangChainRagAnswerTool(),
         ReportCarbonExtractCalcTool(),
-        CarbonFactorLookupStubTool(),
+        CarbonFactorLookupTool(),
         CarbonCalcStubTool(),
         ReportDraftStubTool(),
     ):

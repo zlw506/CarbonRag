@@ -61,27 +61,39 @@ class AIRuntimeOrchestrator:
 
     @staticmethod
     def _resolve_ask_tool_sequence(request: ChatRequest) -> tuple[str, ...]:
+        carbon_factor_keywords = (
+            "碳因子",
+            "排放因子",
+            "碳核算",
+            "核算",
+            "碳排",
+            "排放量",
+            "外购电力",
+            "用电",
+            "电量",
+            "天然气",
+            "柴油",
+            "汽油",
+            "lpg",
+            "煤",
+            "蒸汽",
+            "emission factor",
+            "carbon factor",
+            "emission",
+            "carbon accounting",
+        )
+
+        def should_lookup_carbon_factors() -> bool:
+            question = request.user_input.lower()
+            return any(keyword in question for keyword in carbon_factor_keywords)
+
         def should_extract_report_carbon() -> bool:
             if not request.payload.get("attached_file_knowledge_item_ids"):
                 return False
             question = request.user_input.lower()
-            keywords = (
-                "碳排",
-                "碳因子",
-                "碳核算",
-                "排放量",
-                "排放因子",
+            keywords = carbon_factor_keywords + (
                 "报告",
                 "账单",
-                "用电",
-                "电量",
-                "天然气",
-                "柴油",
-                "汽油",
-                "lpg",
-                "煤",
-                "emission",
-                "carbon",
             )
             return any(keyword in question for keyword in keywords)
 
@@ -92,6 +104,8 @@ class AIRuntimeOrchestrator:
                 # Keep the explicit per-turn file retriever so parsed attachment chunks
                 # still reach the grounded prompt after the RAG-Pro spine became primary.
                 tool_sequence.append("session_file_search")
+            if should_lookup_carbon_factors():
+                tool_sequence.append("carbon_factor_lookup")
             if should_extract_report_carbon():
                 tool_sequence.append("report_carbon_extract_calc")
             return tuple(tool_sequence)
@@ -105,6 +119,8 @@ class AIRuntimeOrchestrator:
             tool_sequence = ["policy_retrieve"]
         if request.payload.get("attached_file_knowledge_item_ids"):
             tool_sequence.append("session_file_search")
+        if should_lookup_carbon_factors():
+            tool_sequence.append("carbon_factor_lookup")
         if should_extract_report_carbon():
             tool_sequence.append("report_carbon_extract_calc")
         return tuple(tool_sequence)

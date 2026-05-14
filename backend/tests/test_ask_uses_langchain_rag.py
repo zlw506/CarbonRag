@@ -58,5 +58,24 @@ def test_ask_tool_sequence_adds_report_carbon_extraction_for_selected_report(mon
     assert AIRuntimeOrchestrator._resolve_ask_tool_sequence(request) == (
         "rag_pro_search",
         "session_file_search",
+        "carbon_factor_lookup",
         "report_carbon_extract_calc",
+    )
+
+
+def test_ask_tool_sequence_adds_carbon_factor_lookup_for_factor_question(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.ai_runtime.runtime.orchestrator.get_settings",
+        lambda: SimpleNamespace(rag_langchain_enabled=True),
+    )
+
+    request = ChatRequest(
+        mode="ask",
+        user_input="外购电力的碳因子是多少？",
+        payload={"knowledge_scope_effective": "mixed"},
+    )
+
+    assert AIRuntimeOrchestrator._resolve_ask_tool_sequence(request) == (
+        "rag_pro_search",
+        "carbon_factor_lookup",
     )

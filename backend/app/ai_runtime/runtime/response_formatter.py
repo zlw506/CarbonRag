@@ -49,12 +49,14 @@ def _build_source_summary(*, knowledge_scope: str, citations: list[dict]) -> dic
     public_policy_demo_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy_demo")
     private_sample_count = sum(1 for citation in citations if citation.get("source_type") == "private_sample")
     private_upload_count = sum(1 for citation in citations if citation.get("source_type") == "private_upload")
+    carbon_factor_count = sum(1 for citation in citations if citation.get("source_type") == "carbon_factor")
     return {
         "knowledge_scope": knowledge_scope,
         "public_policy_count": public_policy_count,
         "public_policy_demo_count": public_policy_demo_count,
         "private_sample_count": private_sample_count,
         "private_upload_count": private_upload_count,
+        "carbon_factor_count": carbon_factor_count,
         "total_citation_count": len(citations),
     }
 

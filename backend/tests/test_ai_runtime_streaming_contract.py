@@ -156,6 +156,56 @@ def test_context_builder_keeps_selected_upload_hits_with_rag_pro_enabled() -> No
     assert bundle["enterprise_context"]["hit_count"] == 1
 
 
+def test_context_builder_injects_carbon_factor_lookup_hits() -> None:
+    request = ChatRequest(
+        mode="ask",
+        user_input="外购电力的碳因子是多少？",
+        payload={
+            "session_id": "session-factor",
+            "recent_messages": [],
+            "knowledge_scope_requested": "public",
+            "knowledge_scope_effective": "public",
+        },
+    )
+    tool_results = [
+        ToolResult(
+            name="carbon_factor_lookup",
+            status="success",
+            output={
+                "hits": [
+                    {
+                        "title": "electricity 碳因子",
+                        "source_type": "carbon_factor",
+                        "source": "生态环境部、国家统计局",
+                        "source_url": "https://example.com/factor",
+                        "snippet": "electricity 的排放因子为 0.5306 kgCO2/kWh。",
+                        "chunk_id": "factor-cn-electricity",
+                        "factor_id": "factor-cn-electricity",
+                        "activity_name": "electricity",
+                        "activity_category": "purchased_electricity",
+                        "factor_value": 0.5306,
+                        "factor_unit": "kgCO2/kWh",
+                        "activity_unit": "kWh",
+                        "region_name": "中国",
+                        "year": 2023,
+                        "source_name": "生态环境部、国家统计局",
+                        "is_official": True,
+                    }
+                ]
+            },
+        )
+    ]
+
+    bundle = build_context_bundle(request, resolve_mode("ask"), tool_results=tool_results)
+    system_prompt = bundle["system_prompt"]
+
+    assert "CarbonRag 本地碳因子库" in system_prompt
+    assert "0.5306 kgCO2/kWh" in system_prompt
+    assert "不要再回答“没有碳因子数据”" in system_prompt
+    assert bundle["carbon_factor_context"]["ready"] is True
+    assert bundle["carbon_factor_context"]["hit_count"] == 1
+
+
 def test_context_builder_injects_selected_upload_file_overview() -> None:
     request = ChatRequest(
         mode="ask",

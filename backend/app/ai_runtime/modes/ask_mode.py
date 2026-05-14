@@ -10,6 +10,7 @@ ALLOWED_TOOLS = (
     "rag_pro_answer",
     "langchain_rag_search",
     "langchain_rag_answer",
+    "carbon_factor_lookup",
     "report_carbon_extract_calc",
 )
 DEFAULT_STUB_TOOL_SEQUENCE = ("policy_retrieve",)

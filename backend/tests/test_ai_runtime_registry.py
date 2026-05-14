@@ -36,3 +36,22 @@ def test_registry_raises_for_unknown_tool() -> None:
 
     with pytest.raises(KeyError, match="Unknown tool"):
         registry.get("missing_tool")
+
+
+def test_carbon_factor_lookup_returns_real_factor_records() -> None:
+    registry = build_default_registry()
+
+    result = registry.invoke(
+        "carbon_factor_lookup",
+        arguments={"question": "外购电力碳因子是多少？", "top_k": 3},
+        context={},
+        trace_id="trace-factor",
+    )
+
+    assert result.status == "success"
+    assert result.output["hit_count"] >= 1
+    first_hit = result.output["hits"][0]
+    assert first_hit["source_type"] == "carbon_factor"
+    assert first_hit["factor_value"] > 0
+    assert first_hit["factor_unit"]
+    assert first_hit["factor_id"] != "electricity_grid_factor_stub"

@@ -14,6 +14,7 @@ def test_ask_mode_contract() -> None:
         "rag_pro_answer",
         "langchain_rag_search",
         "langchain_rag_answer",
+        "carbon_factor_lookup",
         "report_carbon_extract_calc",
     )
     assert mode.default_stub_tool_sequence == ("policy_retrieve",)
