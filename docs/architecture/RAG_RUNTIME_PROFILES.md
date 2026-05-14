@@ -1,10 +1,34 @@
 # RAG Runtime Profiles
 
-CarbonRag V1.6.8 fixes the RAG-Pro runtime split:
+CarbonRag V1.6.33 freezes the RAG-Pro baseline runtime split:
 
 - Windows delivery uses Docker Milvus Standalone.
 - WSL/Linux/macOS may use Milvus Lite `.db`.
 - Memory is development-only fallback.
+
+## V1.6.33 Baseline Freeze Note
+
+V1.6.32 has already been merged, but `README.md` and earlier plan files once lagged behind at V1.6.29. From V1.6.33 onward, judge the current RAG baseline by `main` commits plus the latest plan/status docs, not by an older runtime note copied into a local branch.
+
+Official RAG-Pro acceptance path:
+
+- `KnowledgeBaseWorkbench`
+- `AskPage`
+- `/api/v1/rag/search`
+- `/api/v1/rag/answer`
+- `/api/v1/rag/test-qa`
+- `/api/v1/rag/eval/run`
+
+Legacy/non-acceptance path:
+
+- `/api/v1/rag/retrieve`
+- `LegacyRagLabPage`
+- `langchain_rag_search` / `langchain_rag_answer` compatibility names
+
+Workbench naming is frozen:
+
+- `快速建立 RAG`: quick pipeline, `parse -> chunk -> index -> search smoke`, no LLM and no full eval.
+- `完整验收 RAG`: acceptance pipeline, quick pipeline plus eval and optional generation checks.
 
 ## Windows Docker Milvus Standalone
 

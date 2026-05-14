@@ -24,6 +24,7 @@ def hit_to_citation(hit: RagHit, *, index: int) -> dict:
         "reference_id": f"rag-ref-{index}",
         "source_type": hit.source_type,
         "title": hit.title,
+        "kb_id": hit.kb_id,
         "chunk_id": hit.chunk_id,
         "doc_id": hit.doc_id,
         "file_id": hit.file_id,

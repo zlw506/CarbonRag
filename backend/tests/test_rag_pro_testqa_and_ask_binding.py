@@ -33,6 +33,8 @@ class FakeChatProvider(BaseChatProvider):
 
     def generate_response(self, *, system_prompt: str, user_input: str) -> ChatCompletionResult:
         self.calls.append({"system_prompt": system_prompt, "user_input": user_input})
+        if "217,650" in user_input or "217650" in user_input:
+            return ChatCompletionResult(content="青木制造 2025 年第一季度合计外购电力是 217,650 kWh。")
         return ChatCompletionResult(content="这是基于检索片段生成的测试回答。")
 
 
@@ -157,6 +159,43 @@ def test_rag_test_qa_no_hits_does_not_call_provider(monkeypatch, tmp_path) -> No
     assert result["citations"] == []
     assert result["retrieval_trace"]["degraded"] is True
     assert chat_provider.calls == []
+
+
+def test_workbench_search_testqa_askpage_same_kb_consistency(monkeypatch, tmp_path) -> None:
+    chat_provider = FakeChatProvider()
+    service = _build_rag_service(monkeypatch, tmp_path, chat_provider=chat_provider)
+    kb = service.create_kb(owner_user_id="user-1", payload=KnowledgeBaseCreate(name="青木制造验收库"))
+    question = "青木制造 2025 年第一季度合计外购电力是多少？"
+    _index_text_doc(
+        service,
+        kb_id=kb.kb_id,
+        title="青木制造 2025Q1 验收材料",
+        text="青木制造 2025 年第一季度合计外购电力是 217,650 kWh。该数据来自能源台账。",
+    )
+
+    search = service.search(
+        owner_user_id="user-1",
+        request=RagSearchRequest(query=question, kb_id=kb.kb_id, mode="hybrid_rerank", top_k=5),
+    )
+    test_qa = service.test_qa(
+        owner_user_id="user-1",
+        request=RagSearchRequest(query=question, kb_id=kb.kb_id, mode="hybrid_rerank", top_k=5),
+    )
+    askpage_answer = service.answer(
+        owner_user_id="user-1",
+        request=RagSearchRequest(query=question, kb_id=kb.kb_id, mode="hybrid_rerank", top_k=5),
+    )
+
+    assert search.trace.kb_id == kb.kb_id
+    assert test_qa["retrieval_trace"]["kb_id"] == kb.kb_id
+    assert askpage_answer.retrieval_trace.kb_id == kb.kb_id
+    assert any("217,650" in hit.snippet for hit in search.hits)
+    assert "217,650" in test_qa["answer"]
+    assert "217,650" in askpage_answer.answer
+    assert test_qa["citations"]
+    assert askpage_answer.citations
+    assert {citation["kb_id"] for citation in test_qa["citations"]} == {kb.kb_id}
+    assert {citation["kb_id"] for citation in askpage_answer.citations} == {kb.kb_id}
 
 
 def _build_selected_kb_chat_request(monkeypatch, *, kb_id: str, rag_mode: str) -> ChatRequest:

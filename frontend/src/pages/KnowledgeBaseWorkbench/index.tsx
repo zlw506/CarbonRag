@@ -239,7 +239,7 @@ export function KnowledgeBaseWorkbench() {
                 await handleEval();
             }
         } catch {
-            setError(`${pipelineMode === "acceptance" ? "验收评分入库" : "快速入库"}失败。请查看失败阶段、后端日志、Milvus/Docker 与 BGE 模型状态。`);
+            setError(`${pipelineMode === "acceptance" ? "完整验收 RAG" : "快速建立 RAG"}失败。请查看失败阶段、后端日志、Milvus/Docker 与 BGE 模型状态。`);
         } finally {
             setRunningStage(null);
         }
@@ -261,7 +261,7 @@ export function KnowledgeBaseWorkbench() {
                 void loadDocuments(activeKbId, activeDocId ?? result.results[0]?.doc_id);
             }, 800);
         } catch {
-            setError("批量快速入库失败。请确认当前知识库有待处理文档，且后端服务可用。");
+            setError("批量快速建立 RAG 失败。请确认当前知识库有待处理文档，且后端服务可用。");
         } finally {
             setRunningStage(null);
         }
@@ -346,7 +346,7 @@ export function KnowledgeBaseWorkbench() {
                         <Typography.Text className="admin-console__eyebrow">知识库 · 入库与评测</Typography.Text>
                         <Typography.Title level={2}>把文档上传、检索和问答验收收进一条主线</Typography.Title>
                         <Typography.Paragraph>
-                            左侧管理知识库和文档，右侧处理当前文档、测试检索、查看片段和验收评分。默认使用“快速入库”，验收评分需要显式运行，避免小文件也卡在评测和大模型调用上。
+                            左侧管理知识库和文档，右侧处理当前文档、测试检索、查看片段和验收评分。默认使用“快速建立 RAG”，完整验收需要显式运行，避免小文件也卡在评测和大模型调用上。
                         </Typography.Paragraph>
                     </div>
                     <Space className="admin-console__actions kb-console__hero-actions" size={10} wrap>
@@ -436,7 +436,7 @@ export function KnowledgeBaseWorkbench() {
                             disabled={!activeKbId || documents.length === 0}
                             loading={Boolean(runningStage?.endsWith(":pipeline-batch"))}
                         >
-                            批量快速入库
+                            批量快速建立 RAG
                         </Button>
                         {pipelineBatchResult ? <PipelineBatchResultAlert result={pipelineBatchResult} /> : null}
                         {documents.length ? (
@@ -485,7 +485,7 @@ export function KnowledgeBaseWorkbench() {
                                                 <div>
                                                     <Typography.Title level={4}>{activeDoc.title}</Typography.Title>
                                                     <Typography.Paragraph type="secondary">
-                                                        推荐先跑“快速入库”。如果需要正式验收，再运行“验收评分入库”或右侧评分面板。
+                                                        推荐先跑“快速建立 RAG”。如果需要正式验收，再运行“完整验收 RAG”或右侧评分面板。
                                                     </Typography.Paragraph>
                                                 </div>
                                                 <Button
@@ -494,14 +494,14 @@ export function KnowledgeBaseWorkbench() {
                                                     loading={runningStage === `${activeDoc.doc_id}:pipeline`}
                                                     onClick={() => runDocPipeline(activeDoc, "quick")}
                                                 >
-                                                    {activeDoc.error_stage ? "重试失败阶段" : "快速入库"}
+                                                    {activeDoc.error_stage ? "重试失败阶段" : "快速建立 RAG"}
                                                 </Button>
                                                 <Button
                                                     icon={<PlayCircleOutlined />}
                                                     loading={runningStage === `${activeDoc.doc_id}:pipeline-acceptance`}
                                                     onClick={() => runDocPipeline(activeDoc, "acceptance")}
                                                 >
-                                                    验收评分入库
+                                                    完整验收 RAG
                                                 </Button>
                                             </div>
                                             <DocumentStatusSummary doc={activeDoc} />
@@ -852,7 +852,7 @@ function PipelineBatchResultAlert({ result }: { result: RagPipelineBatchResult }
             type={result.failed_count === 0 ? "success" : "warning"}
             showIcon
             className="kb-workbench__flow"
-            message={`批量快速入库：成功 ${result.succeeded_count} / ${result.total_count}`}
+            message={`批量快速建立 RAG：成功 ${result.succeeded_count} / ${result.total_count}`}
             description={result.failed_count ? `失败 ${result.failed_count} 个；请查看对应文档的失败阶段并点击“重试失败阶段”。` : "所有待处理文档已完成本轮 pipeline。"}
         />
     );
@@ -874,9 +874,9 @@ function pipelineStageLabel(value?: string | null) {
 
 function pipelineModeLabel(value?: string | null) {
     if (value === "acceptance") {
-        return "验收评分入库";
+        return "完整验收 RAG";
     }
-    return "快速入库";
+    return "快速建立 RAG";
 }
 
 function formatMs(value?: number | null) {

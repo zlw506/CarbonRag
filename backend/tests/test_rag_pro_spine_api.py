@@ -7,6 +7,7 @@ from app.ai_runtime.providers.base import BaseChatProvider, ChatCompletionResult
 from app.main import app
 from app.rag.kb.models import KnowledgeBaseCreate, RagChunk, RagDocumentCreate
 from app.rag.kb.storage import RagKnowledgeStore
+from app.rag.retrieval import dense as dense_module
 from app.rag.retrieval.sparse import sparse_search_with_trace
 from app.rag.spine import RagSpineService
 from app.rag.vector_backend import milvus_store
@@ -302,6 +303,25 @@ def test_sparse_search_reuses_kb_corpus_cache() -> None:
     assert second.loaded_chunk_count == 1
 
 
+def test_rag_vector_store_adapter_reused(monkeypatch) -> None:
+    dense_module.reset_vector_store_cache()
+    monkeypatch.setattr(
+        dense_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            rag_milvus_uri="http://127.0.0.1:19530",
+            rag_chroma_persist_dir="./data/outputs/chroma",
+        ),
+    )
+
+    first = dense_module.get_vector_store("milvus")
+    second = dense_module.get_vector_store("milvus_standalone")
+    third = dense_module.get_vector_store("milvus_lite")
+
+    assert first is second
+    assert first is third
+
+
 def test_milvus_client_reused_between_searches(monkeypatch) -> None:
     class FakeMilvusClient:
         init_count = 0
@@ -349,6 +369,58 @@ def test_milvus_client_reused_between_searches(monkeypatch) -> None:
     adapter = MilvusVectorStoreAdapter()
     first = adapter.search(query="外购电力", chunks=chunks, top_k=3)
     second = adapter.search(query="外购电力", chunks=chunks, top_k=3)
+
+    assert first.client_init_count == 1
+    assert second.client_init_count == 0
+    assert FakeMilvusClient.init_count == 1
+
+
+def test_warm_search_does_not_reinitialize_milvus_client(monkeypatch) -> None:
+    class FakeMilvusClient:
+        init_count = 0
+
+        def __init__(self, uri: str) -> None:
+            self.uri = uri
+            FakeMilvusClient.init_count += 1
+
+        def has_collection(self, collection_name: str) -> bool:  # noqa: ARG002
+            return True
+
+        def search(self, **kwargs):  # noqa: ANN003
+            return [[{"entity": {"chunk_id": "chunk-1"}, "distance": 0.9}]]
+
+    settings = SimpleNamespace(
+        rag_milvus_uri="http://127.0.0.1:19530",
+        rag_milvus_collection_prefix="carbonrag",
+        rag_chroma_persist_dir="./data/outputs/chroma",
+    )
+    monkeypatch.setitem(__import__("sys").modules, "pymilvus", SimpleNamespace(MilvusClient=FakeMilvusClient))
+    monkeypatch.setattr(dense_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(milvus_store, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        milvus_store,
+        "resolve_vector_runtime",
+        lambda: SimpleNamespace(vector_runtime="milvus_standalone", degraded=False, warnings=[]),
+    )
+    monkeypatch.setattr(milvus_store, "embed_query", lambda query: ([0.1] * 1024, {}))
+    dense_module.reset_vector_store_cache()
+    milvus_store._CLIENT_CACHE.clear()
+    milvus_store._COLLECTION_EXISTS_CACHE.clear()
+    now = datetime.now(timezone.utc)
+    chunks = [
+        RagChunk(
+            rag_chunk_id="chunk-1",
+            kb_id="kb-milvus",
+            doc_id="doc-1",
+            chunk_index=0,
+            text="青木制造外购电力 217650 kWh",
+            created_at=now,
+            updated_at=now,
+        )
+    ]
+
+    first = dense_module.dense_search(query="外购电力", chunks=chunks, top_k=3, backend="milvus")
+    second = dense_module.dense_search(query="外购电力", chunks=chunks, top_k=3, backend="milvus")
 
     assert first.client_init_count == 1
     assert second.client_init_count == 0
