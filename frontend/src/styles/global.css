@@ -116,22 +116,73 @@ body {
 }
 
 .auth-shell {
+    --cr-text-primary: #14213d;
+    --cr-text-secondary: #526072;
+    --cr-page-radial: rgba(20, 184, 166, 0.14);
+    --cr-page-start: #fbfefe;
+    --cr-page-end: #eef7f4;
+    --cr-surface: rgba(255, 255, 255, 0.9);
+    --cr-surface-strong: rgba(255, 255, 255, 0.96);
+    --cr-surface-muted: rgba(247, 251, 249, 0.94);
+    --cr-border: rgba(15, 23, 42, 0.08);
+    --cr-primary: #12a99b;
+    --cr-primary-hover: #0e9287;
+    --cr-primary-active: #0f766e;
+    --cr-primary-soft: rgba(20, 184, 166, 0.14);
+    --cr-primary-glow: rgba(20, 184, 166, 0.22);
+    --cr-shadow-soft: 0 18px 42px rgba(15, 23, 42, 0.08);
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 24px;
+    position: relative;
+    overflow: hidden;
+    color: var(--cr-text-primary);
+    color-scheme: light;
     background:
-        radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--cr-primary) 20%, transparent), transparent 34%),
-        linear-gradient(135deg, var(--cr-bg) 0%, var(--cr-bg-secondary) 48%, var(--cr-bg) 100%);
+        radial-gradient(circle at 16% 18%, rgba(40, 203, 171, 0.2), transparent 30%),
+        radial-gradient(circle at 84% 12%, rgba(56, 189, 248, 0.16), transparent 28%),
+        linear-gradient(135deg, #fbfefe 0%, #f4fbf8 48%, #eef6ff 100%);
+}
+
+.auth-shell::before,
+.auth-shell::after {
+    content: "";
+    position: absolute;
+    inset: auto;
+    pointer-events: none;
+    border-radius: 999px;
+    filter: blur(6px);
+}
+
+.auth-shell::before {
+    width: 420px;
+    height: 420px;
+    left: max(-180px, -8vw);
+    bottom: -170px;
+    background: rgba(20, 184, 166, 0.12);
+}
+
+.auth-shell::after {
+    width: 360px;
+    height: 360px;
+    top: -150px;
+    right: max(-130px, -6vw);
+    background: rgba(59, 130, 246, 0.1);
 }
 
 .auth-card {
+    position: relative;
+    z-index: 1;
     width: min(100%, 440px);
-    border: 1px solid color-mix(in srgb, var(--cr-border) 72%, transparent);
+    border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 28px;
-    box-shadow: 0 28px 80px color-mix(in srgb, var(--cr-primary) 18%, transparent);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 253, 250, 0.94)) !important;
+    box-shadow: 0 28px 70px rgba(15, 23, 42, 0.1);
     overflow: hidden;
+    backdrop-filter: blur(22px);
 }
 
 .auth-card .ant-card-body {
@@ -152,6 +203,96 @@ body {
 
 .auth-card__alert {
     margin-bottom: 16px;
+}
+
+.auth-card .ant-typography,
+.auth-card .ant-form-item-label > label,
+.auth-card .ant-tabs-tab,
+.auth-card .ant-tabs-tab-btn {
+    color: var(--cr-text-primary);
+}
+
+.auth-card .ant-typography-secondary,
+.auth-card .ant-form-item-extra {
+    color: var(--cr-text-secondary) !important;
+}
+
+.auth-card .ant-form-item-label > label {
+    font-weight: 720;
+}
+
+.auth-card .ant-tabs-nav {
+    margin-bottom: 26px;
+}
+
+.auth-card .ant-tabs-nav::before {
+    border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+.auth-card .ant-tabs-tab {
+    font-size: 16px;
+    font-weight: 720;
+}
+
+.auth-card .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+    color: var(--cr-primary);
+}
+
+.auth-card .ant-tabs-ink-bar {
+    height: 3px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #12a99b, #38bdf8);
+}
+
+.auth-card .ant-input,
+.auth-card .ant-input-affix-wrapper {
+    color: var(--cr-text-primary);
+    background: rgba(248, 253, 250, 0.82) !important;
+}
+
+.auth-card .ant-input-affix-wrapper {
+    min-height: 44px;
+    border-color: rgba(15, 23, 42, 0.1);
+    box-shadow: none;
+}
+
+.auth-card .ant-input-affix-wrapper:hover,
+.auth-card .ant-input-affix-wrapper-focused {
+    border-color: rgba(18, 169, 155, 0.56);
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
+}
+
+.auth-card .ant-input-affix-wrapper .ant-input {
+    background: transparent !important;
+}
+
+.auth-card .ant-input-prefix,
+.auth-card .ant-input-suffix {
+    color: rgba(20, 33, 61, 0.56);
+}
+
+.auth-card .ant-btn {
+    min-height: 48px;
+    font-weight: 760;
+}
+
+.auth-card .ant-btn-primary {
+    border: 0;
+    color: #fff;
+    background: linear-gradient(135deg, #12a99b 0%, #1677ff 100%);
+    box-shadow: 0 16px 34px rgba(18, 169, 155, 0.22);
+}
+
+.auth-card .ant-btn-primary:hover,
+.auth-card .ant-btn-primary:focus-visible {
+    color: #fff !important;
+    background: linear-gradient(135deg, #0e9287 0%, #2563eb 100%) !important;
+}
+
+.auth-card .ant-btn:not(.ant-btn-primary) {
+    color: var(--cr-text-primary);
+    border-color: rgba(15, 23, 42, 0.1);
+    background: rgba(255, 255, 255, 0.78);
 }
 
 .auth-loading {
