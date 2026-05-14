@@ -141,6 +141,7 @@ export function AskPage() {
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [sending, setSending] = useState(false);
+    const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
     const [draggingFiles, setDraggingFiles] = useState(false);
     const [transportError, setTransportError] = useState<string | null>(null);
@@ -364,11 +365,15 @@ export function AskPage() {
     }
 
     async function handleSubmit() {
-        const trimmed = question.trim();
+        await startAskStream(question.trim(), { clearComposer: true });
+    }
+
+    async function startAskStream(questionText: string, options: { clearComposer?: boolean } = {}): Promise<boolean> {
+        const trimmed = questionText.trim();
         const providerOverride = getActiveProviderOverride();
         if (!trimmed) {
             setTransportError("问题不能为空。");
-            return;
+            return false;
         }
 
         setSending(true);
@@ -391,7 +396,7 @@ export function AskPage() {
         } catch {
             setTransportError("当前无法创建新对话，请稍后重试。");
             setSending(false);
-            return;
+            return false;
         }
         streamingSessionIdRef.current = workingSessionId;
 
@@ -417,9 +422,12 @@ export function AskPage() {
                 status_note: "正在连接模型…",
             },
         });
-        setQuestion("");
+        if (options.clearComposer !== false) {
+            setQuestion("");
+        }
 
         let committedLocally = false;
+        let completed = false;
         try {
             const response = await submitSessionAskStreamRequest(
                 workingSessionId,
@@ -574,9 +582,10 @@ export function AskPage() {
 
             const sessionList = await refreshSessions(workingSessionId);
             syncActiveSessionSummaryFromList(sessionList ?? [], workingSessionId);
+            completed = true;
         } catch (error) {
             if (controller.signal.aborted || isAbortLikeError(error)) {
-                return;
+                return false;
             }
             if (isAskResponse(error)) {
                 if (error.status === "invalid_input") {
@@ -598,6 +607,62 @@ export function AskPage() {
             if (!committedLocally) {
                 replaceStreamDraft(null);
             }
+        }
+        return completed;
+    }
+
+    async function handleRegenerateMessage(targetMessage: ChatMessageView) {
+        if (targetMessage.role !== "assistant") {
+            return;
+        }
+        if (sending) {
+            antdMessage.warning("当前仍有回答生成中，请稍后再重新生成。");
+            return;
+        }
+        const targetIndex = visibleMessages.findIndex((message) => message.message_id === targetMessage.message_id);
+        const sourceUserMessage = targetIndex >= 0
+            ? visibleMessages.slice(0, targetIndex).reverse().find((message) => message.role === "user")
+            : null;
+        if (!sourceUserMessage?.content?.trim()) {
+            antdMessage.error("未找到这条回答对应的原始提问。");
+            return;
+        }
+
+        console.debug("[regenerate]", {
+            targetMessageId: targetMessage.message_id,
+            sourceMessageId: sourceUserMessage.message_id,
+            sessionId: activeSession?.session_id ?? activeSessionId,
+        });
+        setRegeneratingMessageId(targetMessage.message_id);
+        setSelectedCitationMessageId(targetMessage.message_id);
+        try {
+            const completed = await startAskStream(sourceUserMessage.content, { clearComposer: false });
+            if (completed) {
+                antdMessage.success("已按原问题重新生成一版回答。");
+            } else {
+                antdMessage.error("重新生成失败，请稍后重试。");
+            }
+        } catch (error) {
+            console.error("[regenerate] failed", error);
+            antdMessage.error("重新生成失败，请稍后重试。");
+        } finally {
+            setRegeneratingMessageId(null);
+        }
+    }
+
+    async function handleShareMessage(targetMessage: ChatMessageView) {
+        if (!targetMessage.content.trim()) {
+            antdMessage.warning("这条消息没有可分享的内容。");
+            return;
+        }
+        const shareText = buildMessageShareText(targetMessage, activeSession?.title);
+        console.debug("[share]", targetMessage.message_id);
+        try {
+            await writeClipboardText(shareText);
+            antdMessage.success("已复制这条回答的 Markdown 内容。");
+        } catch (error) {
+            console.error("[share] failed", error);
+            antdMessage.error("分享失败，请稍后重试。");
         }
     }
 
@@ -925,6 +990,10 @@ export function AskPage() {
                                             activeCitation={message.message_id === selectedCitationMessageId}
                                             onOpenThinking={() => setSelectedThinkingMessageId(message.message_id)}
                                             onSelectCitations={() => openCitationPanel(message.message_id)}
+                                            onShareMessage={handleShareMessage}
+                                            onRegenerateMessage={handleRegenerateMessage}
+                                            regenerating={regeneratingMessageId === message.message_id}
+                                            actionDisabled={sending && regeneratingMessageId !== message.message_id}
                                             onEditUserMessage={(content) => {
                                                 setQuestion(content);
                                                 antdMessage.info("已放回输入框，可继续编辑后发送。");
@@ -1114,6 +1183,10 @@ interface MessageBubbleProps {
     activeCitation: boolean;
     onOpenThinking: () => void;
     onSelectCitations: () => void;
+    onShareMessage?: (message: ChatMessageView) => void | Promise<void>;
+    onRegenerateMessage?: (message: ChatMessageView) => void | Promise<void>;
+    regenerating?: boolean;
+    actionDisabled?: boolean;
     onEditUserMessage?: (content: string) => void;
     onOpenFilePreview?: (target: FilePreviewTarget) => void;
 }
@@ -1158,7 +1231,19 @@ function MessageAttachmentStrip({ attachments, onOpenPreview }: { attachments: S
     );
 }
 
-function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onSelectCitations, onEditUserMessage, onOpenFilePreview }: MessageBubbleProps) {
+function MessageBubble({
+    message,
+    sessionId,
+    activeCitation,
+    onOpenThinking,
+    onSelectCitations,
+    onShareMessage,
+    onRegenerateMessage,
+    regenerating = false,
+    actionDisabled = false,
+    onEditUserMessage,
+    onOpenFilePreview,
+}: MessageBubbleProps) {
     const isAssistant = message.role === "assistant";
     const isSystem = message.role === "system";
     const hasCitations = isAssistant && message.citations.length > 0;
@@ -1269,7 +1354,10 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
                                     type="text"
                                     size="small"
                                     icon={<CopyOutlined />}
-                                    onClick={() => void copyTextToClipboard(messageContent, "已复制这条消息。")}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        void copyTextToClipboard(messageContent, "已复制这条消息。");
+                                    }}
                                 />
                             </Tooltip>
                             <Tooltip title="编辑并放回输入框">
@@ -1277,7 +1365,10 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
                                     type="text"
                                     size="small"
                                     icon={<EditOutlined />}
-                                    onClick={() => onEditUserMessage?.(messageContent)}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onEditUserMessage?.(messageContent);
+                                    }}
                                 />
                             </Tooltip>
                         </div>
@@ -1293,6 +1384,11 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
                                 traceId={message.trace_id}
                                 sessionId={sessionId}
                                 createdAt={message.created_at}
+                                message={message}
+                                regenerating={regenerating}
+                                disabled={actionDisabled}
+                                onShare={onShareMessage}
+                                onRegenerate={onRegenerateMessage}
                             />
                         </div>
                     ) : null}
@@ -1303,6 +1399,7 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
 }
 
 interface AssistantQuickActionsProps {
+    message: ChatMessageView;
     content: string;
     hasCitations: boolean;
     activeCitation: boolean;
@@ -1311,9 +1408,14 @@ interface AssistantQuickActionsProps {
     traceId?: string | null;
     sessionId: string;
     createdAt: string;
+    regenerating: boolean;
+    disabled: boolean;
+    onShare?: (message: ChatMessageView) => void | Promise<void>;
+    onRegenerate?: (message: ChatMessageView) => void | Promise<void>;
 }
 
 function AssistantQuickActions({
+    message,
     content,
     hasCitations,
     activeCitation,
@@ -1322,6 +1424,10 @@ function AssistantQuickActions({
     traceId,
     sessionId,
     createdAt,
+    regenerating,
+    disabled,
+    onShare,
+    onRegenerate,
 }: AssistantQuickActionsProps) {
     const moreContent = (
         <Space direction="vertical" size={10} className="chat-message-action-popover">
@@ -1342,7 +1448,10 @@ function AssistantQuickActions({
                     type="text"
                     size="small"
                     icon={<CopyOutlined />}
-                    onClick={() => void copyTextToClipboard(content, "已复制回答。")}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        void copyTextToClipboard(content, "已复制回答。");
+                    }}
                 />
             </Tooltip>
             {traceId ? (
@@ -1359,19 +1468,33 @@ function AssistantQuickActions({
                     type="text"
                     size="small"
                     icon={<ShareAltOutlined />}
-                    onClick={() => void copyTextToClipboard(`${window.location.origin}${window.location.pathname}`, "已复制当前页面链接。")}
+                    disabled={disabled}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        void onShare?.(message);
+                    }}
                 />
             </Tooltip>
             <Tooltip title="重新生成">
                 <Button
                     type="text"
                     size="small"
-                    icon={<ReloadOutlined />}
-                    onClick={() => antdMessage.info("重新生成入口已预留，当前请重新发送问题。")}
+                    icon={<ReloadOutlined spin={regenerating} />}
+                    loading={regenerating}
+                    disabled={disabled || regenerating}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        void onRegenerate?.(message);
+                    }}
                 />
             </Tooltip>
             <Popover trigger="click" placement="top" content={moreContent}>
-                <Button type="text" size="small" icon={<MoreOutlined />} />
+                <Button
+                    type="text"
+                    size="small"
+                    icon={<MoreOutlined />}
+                    onClick={(event) => event.stopPropagation()}
+                />
             </Popover>
             {hasCitations ? (
                 <Button
@@ -1379,7 +1502,10 @@ function AssistantQuickActions({
                     type={activeCitation ? "primary" : "default"}
                     size="small"
                     icon={<FileTextOutlined />}
-                    onClick={onSelectCitations}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onSelectCitations();
+                    }}
                 >
                     来源 {citationCount}
                 </Button>
@@ -2038,12 +2164,49 @@ async function copyTextToClipboard(text: string, successMessage: string) {
     }
 
     try {
-        await navigator.clipboard.writeText(normalized);
+        await writeClipboardText(normalized);
         antdMessage.success(successMessage);
-    } catch {
+    } catch (error) {
+        console.error("[clipboard] write failed", error);
         antdMessage.error("复制失败，请手动选择内容。");
     }
 }
+
+async function writeClipboardText(text: string) {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+        const copied = document.execCommand("copy");
+        if (!copied) {
+            throw new Error("document.execCommand('copy') returned false.");
+        }
+    } finally {
+        document.body.removeChild(textarea);
+    }
+}
+
+function buildMessageShareText(message: ChatMessageView, sessionTitle?: string | null) {
+    const parts = [
+        "CarbonRag 对话分享",
+        sessionTitle ? `会话：${sessionTitle}` : null,
+        `时间：${formatTimestamp(message.created_at)}`,
+        "",
+        message.content.trim(),
+    ].filter((item): item is string => item !== null);
+    return parts.join("\n");
+}
+
 
 function normalizeAskStreamMemoryState(memoryState: AskStreamMetadataEvent["memory_state"]): SessionDetail["memory_state"] {
     if (!memoryState || typeof memoryState !== "object") {
