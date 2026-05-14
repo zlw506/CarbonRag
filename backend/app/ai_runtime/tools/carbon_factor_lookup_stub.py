@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from typing import Any, Mapping
 
 from app.ai_runtime.schemas.tool import ToolResult
@@ -6,6 +7,12 @@ from app.ai_runtime.tools.base import BaseTool, ToolDefinition
 from app.carbon.factor_loader import CarbonFactorLoader, FactorLoadError
 from app.carbon.factors.schema import FactorRecord
 
+
+_SKILL_NAME = "carbon-factor-library"
+_SKILL_INDEX_RELATIVE_PATH = (
+    "backend/app/ai_runtime/agent_skills/carbon-factor-library/references/carbon-factor-index.md"
+)
+_SKILL_INDEX_PATH = Path(__file__).resolve().parents[1] / "agent_skills" / _SKILL_NAME / "references" / "carbon-factor-index.md"
 
 _ACTIVITY_ALIASES: dict[str, tuple[str, ...]] = {
     "electricity": ("外购电力", "用电", "电量", "电力", "购电", "kwh", "度电", "purchased_electricity"),
@@ -54,6 +61,32 @@ def _query_terms(query: str) -> list[str]:
 def _has_activity_probe(query: str) -> bool:
     normalized = _normalize_query(query)
     return any(alias.lower() in normalized for aliases in _ACTIVITY_ALIASES.values() for alias in aliases)
+
+
+def _requested_activity_keys(query: str) -> list[str]:
+    normalized = _normalize_query(query)
+    return [
+        canonical
+        for canonical, aliases in _ACTIVITY_ALIASES.items()
+        if any(alias.lower() in normalized for alias in aliases)
+    ]
+
+
+def _registry_summary(records: list[FactorRecord]) -> dict[str, Any]:
+    activity_pairs = {
+        (record.activity_category or "-", record.activity_name or "-")
+        for record in records
+    }
+    categories = {record.activity_category for record in records if record.activity_category}
+    official_count = sum(1 for record in records if record.is_official or record.source_type == "official")
+    return {
+        "record_count": len(records),
+        "unique_activity_count": len(activity_pairs),
+        "category_count": len(categories),
+        "official_record_count": official_count,
+        "index_path": _SKILL_INDEX_RELATIVE_PATH,
+        "index_available": _SKILL_INDEX_PATH.exists(),
+    }
 
 
 def _should_return_generic_factor_defaults(query: str) -> bool:
@@ -141,8 +174,12 @@ def _group_key(record: FactorRecord) -> tuple[str, str]:
         return ("canonical_activity", "gasoline")
     if activity_name in {"lpg", "液化石油气"}:
         return ("canonical_activity", "lpg")
+    if "煤" in combined or activity_name == "coal":
+        return ("canonical_activity", "coal")
     if "蒸汽" in combined or activity_name == "steam":
         return ("canonical_activity", "steam")
+    if "用水" in combined or "自来水" in combined or activity_name == "water":
+        return ("canonical_activity", "water")
     if "制冷剂" in combined or "refrigerant" in combined:
         return ("canonical_activity", "refrigerant")
     return (record.activity_category or "", record.activity_name or "")
@@ -256,6 +293,7 @@ class CarbonFactorLookupTool(BaseTool):
             top_k = 5
         top_k = min(max(top_k, 1), 10)
         terms = _query_terms(query)
+        requested_activity_keys = _requested_activity_keys(query)
         try:
             records = CarbonFactorLoader().load_registry().records
         except FactorLoadError as exc:
@@ -266,10 +304,16 @@ class CarbonFactorLookupTool(BaseTool):
                     "query": query,
                     "hits": [],
                     "hit_count": 0,
+                    "skill": {
+                        "name": _SKILL_NAME,
+                        "triggered": True,
+                        "index_path": _SKILL_INDEX_RELATIVE_PATH,
+                    },
                     "error": str(exc),
                 },
                 metadata={"trace_id": trace_id},
             )
+        registry_summary = _registry_summary(records)
 
         scored: list[tuple[float, FactorRecord]] = []
         for record in records:
@@ -300,15 +344,43 @@ class CarbonFactorLookupTool(BaseTool):
         )
         diverse_scored = _diverse_hits(scored, top_k=top_k)
         hits = [_record_to_hit(record, score=score) for score, record in diverse_scored]
+        returned_activity_keys = sorted(
+            {
+                key[1]
+                for _, record in diverse_scored
+                for key in [_group_key(record)]
+                if key[0] == "canonical_activity"
+            }
+        )
+        missing_requested_activity_keys = [
+            key for key in requested_activity_keys if key not in returned_activity_keys
+        ]
         warnings: list[str] = []
         if not hits:
             warnings.append("本地碳因子库未命中与问题直接相关的因子。")
+        if missing_requested_activity_keys:
+            warnings.append(
+                "以下活动在本轮按需检索中未返回计算就绪因子："
+                + "、".join(missing_requested_activity_keys)
+                + "。如当前注册表确无记录，不得编造因子。"
+            )
         return ToolResult(
             name=self.definition.name,
             status="success",
             output={
                 "query": query,
                 "terms": terms,
+                "skill": {
+                    "name": _SKILL_NAME,
+                    "triggered": True,
+                    "index_path": _SKILL_INDEX_RELATIVE_PATH,
+                    "index_available": _SKILL_INDEX_PATH.exists(),
+                    "progressive_disclosure": "read factor-name index first, then query details for selected activities",
+                },
+                "registry": registry_summary,
+                "requested_activity_keys": requested_activity_keys,
+                "returned_activity_keys": returned_activity_keys,
+                "missing_requested_activity_keys": missing_requested_activity_keys,
                 "hits": hits,
                 "hit_count": len(hits),
                 "warnings": warnings,

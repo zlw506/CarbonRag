@@ -140,20 +140,28 @@ class AIRuntimeOrchestrator:
             tool_sequence,
         )
 
+        def build_tool_arguments(tool_name: str) -> dict:
+            requested_top_k = int(request.payload.get("top_k", 5) or 5)
+            # Carbon factor rows are compact and often span multiple activity
+            # types. Keep RAG top_k unchanged, but expose enough factors for
+            # carbon accounting questions instead of truncating at AskPage's 5.
+            effective_top_k = 10 if tool_name == "carbon_factor_lookup" else requested_top_k
+            return {
+                "mode": request.mode,
+                "question": request.user_input,
+                "user_input": request.user_input,
+                "top_k": effective_top_k,
+                "knowledge_scope": request.payload.get("knowledge_scope_effective", "public"),
+                "allowed_knowledge_item_ids": request.payload.get("attached_knowledge_item_ids", []),
+                "kb_id": request.payload.get("kb_id"),
+                "rag_mode": request.payload.get("rag_mode", "hybrid_rerank"),
+                "payload": request.payload,
+            }
+
         tool_calls = [
             ToolCall(
                 name=tool_name,
-                arguments={
-                    "mode": request.mode,
-                    "question": request.user_input,
-                    "user_input": request.user_input,
-                    "top_k": request.payload.get("top_k", 5),
-                    "knowledge_scope": request.payload.get("knowledge_scope_effective", "public"),
-                    "allowed_knowledge_item_ids": request.payload.get("attached_knowledge_item_ids", []),
-                    "kb_id": request.payload.get("kb_id"),
-                    "rag_mode": request.payload.get("rag_mode", "hybrid_rerank"),
-                    "payload": request.payload,
-                },
+                arguments=build_tool_arguments(tool_name),
             )
             for tool_name in tool_sequence
         ]

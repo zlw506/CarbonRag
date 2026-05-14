@@ -172,6 +172,19 @@ def test_context_builder_injects_carbon_factor_lookup_hits() -> None:
             name="carbon_factor_lookup",
             status="success",
             output={
+                "skill": {
+                    "name": "carbon-factor-library",
+                    "index_path": "backend/app/ai_runtime/agent_skills/carbon-factor-library/references/carbon-factor-index.md",
+                    "index_available": True,
+                },
+                "registry": {
+                    "record_count": 366,
+                    "unique_activity_count": 315,
+                    "index_path": "backend/app/ai_runtime/agent_skills/carbon-factor-library/references/carbon-factor-index.md",
+                },
+                "requested_activity_keys": ["electricity"],
+                "returned_activity_keys": ["electricity"],
+                "hit_count": 1,
                 "hits": [
                     {
                         "title": "electricity 碳因子",
@@ -200,6 +213,8 @@ def test_context_builder_injects_carbon_factor_lookup_hits() -> None:
     system_prompt = bundle["system_prompt"]
 
     assert "CarbonRag 本地碳因子库" in system_prompt
+    assert "本地碳因子库共有 366 条记录" in system_prompt
+    assert "本轮只按需注入 1 条匹配因子，不代表库总量" in system_prompt
     assert "0.5306 kgCO2/kWh" in system_prompt
     assert "不要再回答“没有碳因子数据”" in system_prompt
     assert bundle["carbon_factor_context"]["ready"] is True

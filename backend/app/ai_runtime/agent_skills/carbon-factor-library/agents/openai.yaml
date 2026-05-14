@@ -1,0 +1,4 @@
+interface:
+  display_name: "Carbon Factor Library"
+  short_description: "按需检索 CarbonRag 碳因子目录与详情"
+  default_prompt: "Use $carbon-factor-library to identify relevant carbon factor names first, then query details only for those factors."

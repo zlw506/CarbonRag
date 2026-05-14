@@ -49,6 +49,10 @@ def test_carbon_factor_lookup_returns_real_factor_records() -> None:
     )
 
     assert result.status == "success"
+    assert result.output["skill"]["name"] == "carbon-factor-library"
+    assert result.output["skill"]["index_available"] is True
+    assert result.output["registry"]["record_count"] > 100
+    assert result.output["registry"]["unique_activity_count"] > 50
     assert result.output["hit_count"] >= 1
     first_hit = result.output["hits"][0]
     assert first_hit["source_type"] == "carbon_factor"
@@ -69,6 +73,10 @@ def test_carbon_factor_lookup_diversifies_multi_source_queries() -> None:
 
     activity_names = {hit["activity_name"] for hit in result.output["hits"]}
 
+    assert result.output["requested_activity_keys"] == ["electricity", "natural_gas", "diesel", "gasoline", "steam"]
+    assert {"electricity", "natural_gas", "diesel", "gasoline", "steam"}.issubset(
+        set(result.output["returned_activity_keys"])
+    )
     assert "electricity" in activity_names
     assert "natural_gas" in activity_names or "天然气" in activity_names
     assert "diesel" in activity_names or "柴油" in activity_names
@@ -88,3 +96,20 @@ def test_carbon_factor_lookup_does_not_return_unrelated_electricity_for_refriger
 
     assert result.output["hits"] == []
     assert result.output["warnings"]
+    assert result.output["requested_activity_keys"] == ["refrigerant"]
+    assert result.output["missing_requested_activity_keys"] == ["refrigerant"]
+
+
+def test_carbon_factor_lookup_reports_registry_size_for_generic_count_question() -> None:
+    registry = build_default_registry()
+
+    result = registry.invoke(
+        "carbon_factor_lookup",
+        arguments={"question": "你那里一共可以看到多少碳因子？", "top_k": 5},
+        context={},
+        trace_id="trace-factor-count",
+    )
+
+    assert result.output["registry"]["record_count"] == 366
+    assert result.output["registry"]["unique_activity_count"] == 315
+    assert result.output["hit_count"] == 5

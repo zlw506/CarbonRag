@@ -127,6 +127,28 @@ def test_orchestrator_returns_runtime_result_for_ok_request() -> None:
     assert "forbidden_capabilities" in result.metadata
 
 
+def test_orchestrator_expands_carbon_factor_lookup_top_k() -> None:
+    orchestrator = AIRuntimeOrchestrator(
+        chat_provider=FakeChatProvider(),
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    request = ChatRequest(
+        mode="ask",
+        user_input="外购电力、天然气、柴油、汽油、外购蒸汽分别用什么碳因子？",
+        payload={
+            "session_id": "session-demo",
+            "knowledge_scope_requested": "public",
+            "knowledge_scope_effective": "public",
+            "top_k": 5,
+        },
+    )
+
+    result = orchestrator.run(request)
+
+    factor_call = next(call for call in result.tool_calls if call.name == "carbon_factor_lookup")
+    assert factor_call.arguments["top_k"] == 10
+
+
 def test_orchestrator_returns_provider_error_when_chat_provider_fails() -> None:
     orchestrator = AIRuntimeOrchestrator(
         chat_provider=FailingChatProvider(),

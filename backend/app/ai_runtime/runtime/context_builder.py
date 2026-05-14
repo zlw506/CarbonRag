@@ -229,6 +229,29 @@ def build_context_bundle(
                 evidence_lines.append(
                     "注意：本轮已命中用户上传文件片段。请优先基于这些片段回答用户关于报告、附件或文档内容的问题；不要再声称无法读取该文件。"
                 )
+        if carbon_factor_outputs:
+            for output in carbon_factor_outputs:
+                registry = output.get("registry") if isinstance(output.get("registry"), dict) else {}
+                skill = output.get("skill") if isinstance(output.get("skill"), dict) else {}
+                requested_keys = output.get("requested_activity_keys") or []
+                returned_keys = output.get("returned_activity_keys") or []
+                index_path = skill.get("index_path") or registry.get("index_path") or "carbon-factor-library index"
+                registry_count = registry.get("record_count")
+                activity_count = registry.get("unique_activity_count")
+                hit_count = output.get("hit_count", 0)
+                if registry_count is not None:
+                    evidence_lines.append(
+                        f"Carbon factor skill 已触发：{skill.get('name') or 'carbon-factor-library'}。"
+                        f"本地碳因子库共有 {registry_count} 条记录、{activity_count or '未知'} 个活动名称；"
+                        f"本轮只按需注入 {hit_count} 条匹配因子，不代表库总量。索引目录：{index_path}。"
+                    )
+                if requested_keys:
+                    evidence_lines.append(
+                        "本轮识别到的碳因子活动需求："
+                        + "、".join(str(item) for item in requested_keys)
+                        + "；已返回活动："
+                        + ("、".join(str(item) for item in returned_keys) if returned_keys else "无")
+                    )
         if carbon_factor_hits:
             evidence_lines.append("当前已从 CarbonRag 本地碳因子库检索到以下可用于核算的因子记录：")
             for index, hit in enumerate(carbon_factor_hits, start=1):
@@ -250,7 +273,11 @@ def build_context_bundle(
                 "不要再回答“没有碳因子数据”。若用户给出活动量，应明确公式为 活动量 × 因子，并注明单位换算假设。"
             )
         elif carbon_factor_outputs:
-            evidence_lines.append("本轮已查询 CarbonRag 本地碳因子库，但未命中与问题直接相关的因子记录。")
+            evidence_lines.append("本轮已查询 CarbonRag 本地碳因子库，但未命中与问题直接相关的计算就绪因子记录。")
+            for output in carbon_factor_outputs:
+                warnings = output.get("warnings") or []
+                if isinstance(warnings, list) and warnings:
+                    evidence_lines.append("碳因子检索警告：" + "；".join(str(item) for item in warnings[:3]))
         if file_overviews:
             evidence_lines.append("当前显式选择的上传文件结构化摘录如下，用于覆盖报告文字、表格、数字和早期章节；回答附件问题时应优先综合这些摘录与检索命中片段：")
             for file_index, overview in enumerate(file_overviews, start=1):
