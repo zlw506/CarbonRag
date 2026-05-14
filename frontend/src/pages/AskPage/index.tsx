@@ -66,6 +66,7 @@ import type {
 import type { KnowledgeItem } from "../../types/knowledge";
 import type { KnowledgeBase, RagRetrievalMode } from "../../types/kb";
 import type { SessionAttachment, SessionDetail, SessionMessage, SessionSummary } from "../../types/session";
+import { normalizeAssistantMarkdown } from "./markdownNormalize";
 
 type AssistantLifecycleState = "pending" | "connecting" | "thinking" | "reconnecting" | "streaming" | "done" | "error" | "failed";
 
@@ -467,7 +468,7 @@ export function AskPage() {
                                 ...draft.assistantMessage,
                                 status: nextState.status,
                                 client_state: nextState.client_state,
-                                status_note: nextState.status_note,
+                                status_note: event.status_note ?? nextState.status_note,
                             },
                         };
                     });
@@ -1964,33 +1965,20 @@ function renderMessageContent(message: ChatMessageView, isAssistant: boolean) {
         return <Typography.Paragraph>{content}</Typography.Paragraph>;
     }
 
-    return <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizeAssistantMarkdown(content)}</ReactMarkdown>;
-}
-
-function normalizeAssistantMarkdown(content: string) {
-    return content
-        .split(/(```[\s\S]*?```)/g)
-        .map((segment) => (segment.startsWith("```") ? segment : normalizeMarkdownTextSegment(segment)))
-        .join("");
-}
-
-function normalizeMarkdownTextSegment(segment: string) {
-    const normalized = segment
-        .replace(/(^|\n)\s*#{1,6}\s+(?=\d+\.)/g, "$1")
-        .replace(/(^|\n)\s*[-*]\s*(?=\n|$)/g, "$1")
-        .replace(/([^\n])(\s+)(#{1,6})\s+(?=\S)/g, "$1\n\n$3 ")
-        .replace(/([^\n])(\s*)(#{1,6})(?=\S)/g, "$1\n\n$3 ")
-        .replace(/(^|\n)(#{1,6})(?=\S)/g, "$1$2 ")
-        .replace(/([^\n])(\s+)-(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1\n- ")
-        .replace(/(^|\n)-(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1- ")
-        .replace(/([^\n])(\s+)(\d+)\.(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1\n$3. ")
-        .replace(/(^|\n)(\d+)\.(?=[\p{Script=Han}A-Za-z0-9*])/gu, "$1$2. ")
-        .replace(/([。！？:：])(\s*)([-*]\s)/g, "$1\n$3")
-        .replace(/([。！？:：])(\s*)(\d+\.\s)/g, "$1\n$3");
-    return normalized.replace(/(^|\n)\s{0,3}#{1,6}\s*([^\n]+)/g, (_match, prefix: string, title: string) => {
-        const cleanTitle = title.trim();
-        return cleanTitle ? `${prefix}**${cleanTitle}**` : prefix;
-    });
+    return (
+        <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+                table: ({ children }) => (
+                    <div className="chat-markdown-table-scroll">
+                        <table>{children}</table>
+                    </div>
+                ),
+            }}
+        >
+            {normalizeAssistantMarkdown(content)}
+        </ReactMarkdown>
+    );
 }
 
 async function copyTextToClipboard(text: string, successMessage: string) {
@@ -2187,8 +2175,8 @@ function mapLifecycleStatusToMessageState(
         case "thinking":
             return {
                 status: "thinking" as const,
-                client_state: "connecting" as const,
-                status_note: recovered ? `第 ${attempt ?? 1} 次重连成功，正在等待模型输出…` : "正在等待模型开始输出…",
+                client_state: "thinking" as const,
+                status_note: recovered ? `第 ${attempt ?? 1} 次重连成功，正在思考…` : "思考中…",
             };
         case "reconnecting":
             return {

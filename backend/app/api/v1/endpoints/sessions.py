@@ -463,36 +463,22 @@ def run_stream_worker(
         )
         return
 
-    current_session = session_service.get_session(owner_user_id=current_user.user_id, session_id=stream_session.session_id)
-    current_title = current_session.title if current_session else ""
-
-    stream_session.append(
-        event="message_start",
-        data={
-            "trace_id": stream_session.trace_id,
-            "user_message_id": stream_session.user_message_id,
-            "assistant_message_id": stream_session.assistant_message_id,
-            "request_group_id": stream_session.request_group_id,
-            "title_updated": False,
-            "session_title": current_title,
-        },
-    )
-
     attempt = 1
     title_update_started = False
     while attempt <= max_attempts:
         stream_session.attempt = attempt
         synthetic_thinking_emitted = False
         handle = None
-        stream_session.append(
-            event="status",
-            data=build_stream_status_payload(
-                status="connecting" if attempt == 1 else "reconnecting",
-                stream_session=stream_session,
-                attempt=attempt,
-                max_attempts=max_attempts,
-            ),
-        )
+        if attempt > 1:
+            stream_session.append(
+                event="status",
+                data=build_stream_status_payload(
+                    status="reconnecting",
+                    stream_session=stream_session,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                ),
+            )
 
         try:
             handle = AIRuntimeOrchestrator(chat_provider=chat_provider).run_stream(chat_request)
@@ -936,6 +922,26 @@ def ask_in_session_stream(
             user_message_id=user_message.message_id,
             assistant_message_id=assistant_placeholder.message_id,
             trace_id=chat_request.trace_id,
+        )
+        stream_session.append(
+            event="message_start",
+            data={
+                "trace_id": stream_session.trace_id,
+                "user_message_id": stream_session.user_message_id,
+                "assistant_message_id": stream_session.assistant_message_id,
+                "request_group_id": stream_session.request_group_id,
+                "title_updated": False,
+                "session_title": session.title,
+            },
+        )
+        stream_session.append(
+            event="status",
+            data=build_stream_status_payload(
+                status="connecting",
+                stream_session=stream_session,
+                attempt=1,
+                max_attempts=5,
+            ),
         )
         threading.Thread(
             target=run_stream_worker,

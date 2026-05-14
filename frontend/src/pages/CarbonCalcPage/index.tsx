@@ -99,7 +99,7 @@ export function CarbonCalcPage() {
         } catch {
             setCalculatorGroups([]);
             setCalculatorItems([]);
-            setTransportError("当前无法读取个人碳计算器条目，请稍后重试。");
+            setTransportError("当前无法读取企业碳计算器条目，请稍后重试。");
         } finally {
             setCatalogLoading(false);
         }
@@ -246,13 +246,13 @@ export function CarbonCalcPage() {
                     title={
                         <div className="carbon-calculator-title">
                             <span>生活碳计算器</span>
-                            <Tag color="green">个人生活条目</Tag>
+                            <Tag color="green">企业条目</Tag>
                         </div>
                     }
                     extra={<Tag color="blue">{activeSession?.title ?? "未选择会话"}</Tag>}
                 >
                     <Typography.Paragraph type="secondary" className="carbon-calculator-intro">
-                        选择衣、食、住、行、用中的个人生活条目并输入活动数据。计算器条目参考 CarbonStop 中国碳数据库公开碳计算器，结果会保存到当前会话，供报告和后续问答引用。
+                        选择衣、食、住、行、用中的企业条目并输入活动数据。计算器条目参考 CarbonStop 中国碳数据库公开碳计算器，结果会保存到当前会话，供报告和后续问答引用。
                     </Typography.Paragraph>
 
                     <div className="chat-session-state carbon-calculator-meta">
