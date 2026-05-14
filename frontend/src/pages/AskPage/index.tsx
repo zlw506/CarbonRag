@@ -41,6 +41,7 @@ import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
 import { useSettings } from "../../app/SettingsContext";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
+import { FilePreviewDrawer } from "../../components/FilePreviewDrawer";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { uploadSessionFile } from "../../services/files";
@@ -65,6 +66,7 @@ import type {
 } from "../../types/ask";
 import type { KnowledgeItem } from "../../types/knowledge";
 import type { KnowledgeBase, RagRetrievalMode } from "../../types/kb";
+import type { FilePreviewTarget } from "../../types/filePreview";
 import type { SessionAttachment, SessionDetail, SessionMessage, SessionSummary } from "../../types/session";
 import { normalizeAssistantMarkdown } from "./markdownNormalize";
 
@@ -119,6 +121,7 @@ export function AskPage() {
     const shouldAutoFollowMessageStreamRef = useRef(true);
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
     const [selectedCitationMessageId, setSelectedCitationMessageId] = useState<string | null>(null);
+    const [filePreviewTarget, setFilePreviewTarget] = useState<FilePreviewTarget | null>(null);
     const [streamDraft, setStreamDraft] = useState<ChatDraft | null>(null);
     const [streamMemoryState, setStreamMemoryState] = useState<SessionDetail["memory_state"] | null>(null);
     const [streamContextSource, setStreamContextSource] = useState<StreamContextSource | null>(null);
@@ -926,6 +929,7 @@ export function AskPage() {
                                                 setQuestion(content);
                                                 antdMessage.info("已放回输入框，可继续编辑后发送。");
                                             }}
+                                            onOpenFilePreview={setFilePreviewTarget}
                                         />
                                     ))
                                 )}
@@ -966,6 +970,7 @@ export function AskPage() {
                                         key={attachment.file_id}
                                         attachment={attachment}
                                         onRemove={() => dismissUploadedAttachment(attachment.file_id)}
+                                        onOpenPreview={() => setFilePreviewTarget(filePreviewTargetFromAttachment(attachment))}
                                     />
                                 ))}
                                 {privateAttachments.length > 0 ? <Tag color="magenta">知识条目 {privateAttachments.length}</Tag> : null}
@@ -1021,7 +1026,7 @@ export function AskPage() {
                             className="chat-citation-collapse"
                             ghost
                             defaultActiveKey={[]}
-                            items={buildCitationCollapseItems(citationGroups)}
+                            items={buildCitationCollapseItems(citationGroups, setFilePreviewTarget)}
                         />
                     ) : (
                         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选中一条带依据的助手消息后，这里会展示来源片段。" />
@@ -1093,6 +1098,12 @@ export function AskPage() {
                     />
                 )}
             </Drawer>
+
+            <FilePreviewDrawer
+                open={Boolean(filePreviewTarget)}
+                target={filePreviewTarget}
+                onClose={() => setFilePreviewTarget(null)}
+            />
         </div>
     );
 }
@@ -1104,11 +1115,12 @@ interface MessageBubbleProps {
     onOpenThinking: () => void;
     onSelectCitations: () => void;
     onEditUserMessage?: (content: string) => void;
+    onOpenFilePreview?: (target: FilePreviewTarget) => void;
 }
 
-function ComposerAttachmentChip({ attachment, onRemove }: { attachment: SessionAttachment; onRemove: () => void }) {
+function ComposerAttachmentChip({ attachment, onRemove, onOpenPreview }: { attachment: SessionAttachment; onRemove: () => void; onOpenPreview?: () => void }) {
     return (
-        <Popover trigger="click" content={<FileAttachmentPopover attachment={attachment} />}>
+        <Popover trigger="click" content={<FileAttachmentPopover attachment={attachment} onOpenPreview={onOpenPreview} />}>
             <Tag
                 className="chat-composer-attachment"
                 closable
@@ -1127,14 +1139,14 @@ function ComposerAttachmentChip({ attachment, onRemove }: { attachment: SessionA
     );
 }
 
-function MessageAttachmentStrip({ attachments }: { attachments: SessionAttachment[] }) {
+function MessageAttachmentStrip({ attachments, onOpenPreview }: { attachments: SessionAttachment[]; onOpenPreview?: (target: FilePreviewTarget) => void }) {
     if (!attachments.length) {
         return null;
     }
     return (
         <div className="chat-message-attachments">
             {attachments.map((attachment) => (
-                <Popover key={attachment.file_id} trigger="click" content={<FileAttachmentPopover attachment={attachment} />}>
+                <Popover key={attachment.file_id} trigger="click" content={<FileAttachmentPopover attachment={attachment} onOpenPreview={() => onOpenPreview?.(filePreviewTargetFromAttachment(attachment))} />}>
                     <span className="chat-message-attachment">
                         <FileTextOutlined />
                         <span className="chat-message-attachment__name">{attachment.filename}</span>
@@ -1146,7 +1158,7 @@ function MessageAttachmentStrip({ attachments }: { attachments: SessionAttachmen
     );
 }
 
-function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onSelectCitations, onEditUserMessage }: MessageBubbleProps) {
+function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onSelectCitations, onEditUserMessage, onOpenFilePreview }: MessageBubbleProps) {
     const isAssistant = message.role === "assistant";
     const isSystem = message.role === "system";
     const hasCitations = isAssistant && message.citations.length > 0;
@@ -1249,7 +1261,7 @@ function MessageBubble({ message, sessionId, activeCitation, onOpenThinking, onS
                     <div className={isAssistant ? "chat-message__content chat-message__content--assistant" : "chat-message__content"}>
                         {renderMessageContent(message, isAssistant)}
                     </div>
-                    {!isAssistant && !isSystem ? <MessageAttachmentStrip attachments={message.client_attachments ?? []} /> : null}
+                    {!isAssistant && !isSystem ? <MessageAttachmentStrip attachments={message.client_attachments ?? []} onOpenPreview={onOpenFilePreview} /> : null}
                     {!isAssistant && !isSystem ? (
                         <div className="chat-message__quick-actions chat-message__quick-actions--user">
                             <Tooltip title="复制">
@@ -1380,7 +1392,7 @@ interface CitationGroupProps {
     citations: AskCitation[];
 }
 
-function FileAttachmentPopover({ attachment }: { attachment: SessionAttachment }) {
+function FileAttachmentPopover({ attachment, onOpenPreview }: { attachment: SessionAttachment; onOpenPreview?: () => void }) {
     const detailParts = [
         attachment.page_count ? `${attachment.page_count} 页` : null,
         attachment.sheet_count ? `${attachment.sheet_count} 个表` : null,
@@ -1394,11 +1406,16 @@ function FileAttachmentPopover({ attachment }: { attachment: SessionAttachment }
             {detailParts.length ? <Typography.Text type="secondary">{detailParts.join(" · ")}</Typography.Text> : null}
             {attachment.summary ? <Typography.Paragraph ellipsis={{ rows: 3 }}>{attachment.summary}</Typography.Paragraph> : null}
             {attachment.error_message ? <Typography.Text type="danger">{attachment.error_message}</Typography.Text> : null}
+            {onOpenPreview ? (
+                <Button size="small" icon={<FileTextOutlined />} onClick={onOpenPreview}>
+                    查看文件
+                </Button>
+            ) : null}
         </Space>
     );
 }
 
-function CitationGroup({ citations }: CitationGroupProps) {
+function CitationGroup({ citations, onOpenPreview }: CitationGroupProps & { onOpenPreview?: (target: FilePreviewTarget) => void }) {
     return (
         <div className="chat-citation-group">
             <List
@@ -1418,15 +1435,30 @@ function CitationGroup({ citations }: CitationGroupProps) {
                                 {citation.snippet}
                             </Typography.Paragraph>
                             {citation.source_url?.startsWith("http") ? (
-                                <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
-                                    <LinkOutlined /> 查看来源
-                                </Typography.Link>
+                                <Space size={12} wrap>
+                                    <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
+                                        <LinkOutlined /> 查看来源
+                                    </Typography.Link>
+                                    {filePreviewTargetFromCitation(citation) ? (
+                                        <Button size="small" icon={<FileTextOutlined />} onClick={() => onOpenPreview?.(filePreviewTargetFromCitation(citation)!)}>查看文件</Button>
+                                    ) : null}
+                                </Space>
                             ) : citation.source_type === "public_policy_demo" ? (
                                 <Typography.Text type="secondary">该条依据来自内置演示样例，不代表真实官方政策。</Typography.Text>
                             ) : citation.source_type === "private_upload" ? (
-                                <Typography.Text type="secondary">该条依据来自当前用户已入库的个人上传文档。</Typography.Text>
+                                <Space size={12} wrap>
+                                    <Typography.Text type="secondary">该条依据来自当前用户已入库的个人上传文档。</Typography.Text>
+                                    {filePreviewTargetFromCitation(citation) ? (
+                                        <Button size="small" icon={<FileTextOutlined />} onClick={() => onOpenPreview?.(filePreviewTargetFromCitation(citation)!)}>查看文件</Button>
+                                    ) : null}
+                                </Space>
                             ) : (
-                                <Typography.Text type="secondary">该条依据来自仓库内脱敏知识条目。</Typography.Text>
+                                <Space size={12} wrap>
+                                    <Typography.Text type="secondary">该条依据来自仓库内脱敏知识条目。</Typography.Text>
+                                    {filePreviewTargetFromCitation(citation) ? (
+                                        <Button size="small" icon={<FileTextOutlined />} onClick={() => onOpenPreview?.(filePreviewTargetFromCitation(citation)!)}>查看文件</Button>
+                                    ) : null}
+                                </Space>
                             )}
                         </div>
                     </List.Item>
@@ -1434,6 +1466,23 @@ function CitationGroup({ citations }: CitationGroupProps) {
             />
         </div>
     );
+}
+
+function filePreviewTargetFromAttachment(attachment: SessionAttachment): FilePreviewTarget {
+    if (attachment.knowledge_item_id && attachment.source_type !== "uploaded_file") {
+        return { sourceType: "knowledge_item", sourceId: attachment.knowledge_item_id };
+    }
+    return { sourceType: "session_file", sourceId: attachment.file_id };
+}
+
+function filePreviewTargetFromCitation(citation: AskCitation): FilePreviewTarget | null {
+    if (citation.file_id) {
+        return { sourceType: "session_file", sourceId: citation.file_id };
+    }
+    if (citation.knowledge_item_id) {
+        return { sourceType: "knowledge_item", sourceId: citation.knowledge_item_id };
+    }
+    return null;
 }
 
 function citationSourceLabel(sourceType: AskCitation["source_type"]) {
@@ -1693,7 +1742,7 @@ function buildPanelSourceSummary(citations: AskCitation[], fallback?: AskSourceS
     };
 }
 
-function buildCitationCollapseItems(groups: ReturnType<typeof groupCitationsBySource>) {
+function buildCitationCollapseItems(groups: ReturnType<typeof groupCitationsBySource>, onOpenPreview?: (target: FilePreviewTarget) => void) {
     return [
         groups.public_policy.length
             ? {
@@ -1704,7 +1753,7 @@ function buildCitationCollapseItems(groups: ReturnType<typeof groupCitationsBySo
                         <Tag color="blue">{groups.public_policy.length}</Tag>
                     </Space>
                 ),
-                children: <CitationGroup citations={groups.public_policy} />,
+                children: <CitationGroup citations={groups.public_policy} onOpenPreview={onOpenPreview} />,
             }
             : null,
         groups.public_policy_demo.length
@@ -1716,7 +1765,7 @@ function buildCitationCollapseItems(groups: ReturnType<typeof groupCitationsBySo
                         <Tag color="orange">{groups.public_policy_demo.length}</Tag>
                     </Space>
                 ),
-                children: <CitationGroup citations={groups.public_policy_demo} />,
+                children: <CitationGroup citations={groups.public_policy_demo} onOpenPreview={onOpenPreview} />,
             }
             : null,
         groups.private_sample.length
@@ -1728,7 +1777,7 @@ function buildCitationCollapseItems(groups: ReturnType<typeof groupCitationsBySo
                         <Tag color="magenta">{groups.private_sample.length}</Tag>
                     </Space>
                 ),
-                children: <CitationGroup citations={groups.private_sample} />,
+                children: <CitationGroup citations={groups.private_sample} onOpenPreview={onOpenPreview} />,
             }
             : null,
         groups.private_upload.length
@@ -1740,7 +1789,7 @@ function buildCitationCollapseItems(groups: ReturnType<typeof groupCitationsBySo
                         <Tag color="green">{groups.private_upload.length}</Tag>
                     </Space>
                 ),
-                children: <CitationGroup citations={groups.private_upload} />,
+                children: <CitationGroup citations={groups.private_upload} onOpenPreview={onOpenPreview} />,
             }
             : null,
     ].filter(Boolean) as Array<{ key: string; label: any; children: any }>;

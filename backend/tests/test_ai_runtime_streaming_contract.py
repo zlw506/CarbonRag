@@ -96,7 +96,7 @@ def test_context_builder_orders_summary_recent_messages_memory_and_grounding() -
     assert system_prompt.index("[history-1]") < system_prompt.index("以下是用户级长期记忆预留条目")
     assert system_prompt.index("以下是用户级长期记忆预留条目") < system_prompt.index("当前已检索到以下公共政策片段")
     assert "不要使用 Markdown 的 # / ## / ### 标题" in system_prompt
-    assert "优先使用 Markdown 表格" in system_prompt
+    assert "优先使用合法 Markdown 管道表格" in system_prompt
     assert "先给一句结论" in system_prompt
     assert "当前未检索到足够依据。" not in system_prompt
     assert bundle["policy_context"]["hit_count"] == 1

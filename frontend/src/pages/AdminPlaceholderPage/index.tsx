@@ -31,6 +31,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../app/AuthContext";
+import { FilePreviewDrawer } from "../../components/FilePreviewDrawer";
 import {
     deleteAdminUsers,
     getAdminFeedbackOverview,
@@ -71,6 +72,7 @@ import type {
     PolicyShowcaseSourceSummary,
     PolicyShowcaseStatus,
 } from "../../types/admin";
+import type { FilePreviewTarget } from "../../types/filePreview";
 import type { KnowledgeItem, KnowledgeTask } from "../../types/knowledge";
 
 type KnowledgeTaskRefreshAction = "scan" | "rebuild" | null;
@@ -240,6 +242,7 @@ export function AdminPlaceholderPage() {
     const [loadingPolicySourceId, setLoadingPolicySourceId] = useState<string | null>(null);
     const [runningCrawlerSourceId, setRunningCrawlerSourceId] = useState<string | null>(null);
     const [reviewingCandidateId, setReviewingCandidateId] = useState<string | null>(null);
+    const [filePreviewTarget, setFilePreviewTarget] = useState<FilePreviewTarget | null>(null);
     const [selectedTask, setSelectedTask] = useState<KnowledgeTask | null>(null);
     const [selectedDeleteUserIds, setSelectedDeleteUserIds] = useState<string[]>([]);
     const [deleteUsersModalOpen, setDeleteUsersModalOpen] = useState(false);
@@ -1424,6 +1427,21 @@ export function AdminPlaceholderPage() {
                                     <List.Item
                                         actions={[
                                             <Button
+                                                key="preview"
+                                                size="small"
+                                                icon={<EyeOutlined />}
+                                                onClick={() => setFilePreviewTarget({ sourceType: "crawler_candidate", sourceId: candidate.candidate_id })}
+                                            >
+                                                查看抓取文件
+                                            </Button>,
+                                            ...(candidate.url?.startsWith("http")
+                                                ? [
+                                                      <Button key="open-url" size="small" href={candidate.url} target="_blank" rel="noreferrer">
+                                                          打开原网页
+                                                      </Button>,
+                                                  ]
+                                                : []),
+                                            <Button
                                                 key="publish-rag"
                                                 type="primary"
                                                 size="small"
@@ -1811,6 +1829,11 @@ export function AdminPlaceholderPage() {
                     </div>
                 ) : null}
             </Modal>
+            <FilePreviewDrawer
+                open={Boolean(filePreviewTarget)}
+                target={filePreviewTarget}
+                onClose={() => setFilePreviewTarget(null)}
+            />
         </Space>
     );
 }

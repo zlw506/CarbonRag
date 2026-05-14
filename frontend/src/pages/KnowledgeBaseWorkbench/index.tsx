@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "../../app/SettingsContext";
+import { FilePreviewDrawer } from "../../components/FilePreviewDrawer";
 import {
     chunkKbDocument,
     createKbDocument,
@@ -29,6 +30,7 @@ import {
 import { listAttachableKnowledgeItems } from "../../services/knowledge";
 import { runRagEval, runRagTestQA, searchRagSpine } from "../../services/rag";
 import type { KnowledgeItem } from "../../types/knowledge";
+import type { FilePreviewTarget } from "../../types/filePreview";
 import type { KnowledgeBase, RagChunk, RagDocument, RagDocumentStatus, RagEvalRun, RagHit, RagPipelineBatchResult, RagPipelineMode, RagPipelineResult, RagSearchResult, RagTestQAResult, RagTimingTrace } from "../../types/kb";
 
 type StageName = "parse" | "chunk" | "index";
@@ -96,6 +98,7 @@ export function KnowledgeBaseWorkbench() {
     const [loading, setLoading] = useState(false);
     const [runningStage, setRunningStage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [filePreviewTarget, setFilePreviewTarget] = useState<FilePreviewTarget | null>(null);
 
     const activeKb = useMemo(() => kbs.find((item) => item.kb_id === activeKbId), [activeKbId, kbs]);
     const activeDoc = useMemo(() => documents.find((item) => item.doc_id === activeDocId), [activeDocId, documents]);
@@ -460,6 +463,16 @@ export function KnowledgeBaseWorkbench() {
                                                         <Tag>{doc.chunk_count ?? 0} 片段</Tag>
                                                         <Tag color={(doc.indexed_chunk_count ?? 0) > 0 ? "green" : "default"}>{doc.indexed_chunk_count ?? 0} 已入库</Tag>
                                                         {doc.error_stage ? <Tag color="red">{pipelineStageLabel(doc.error_stage)}</Tag> : null}
+                                                        <Button
+                                                            size="small"
+                                                            type="link"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                setFilePreviewTarget({ sourceType: "rag_document", sourceId: doc.doc_id, kbId: doc.kb_id });
+                                                            }}
+                                                        >
+                                                            查看文件
+                                                        </Button>
                                                     </Space>
                                                 </Space>
                                             }
@@ -531,6 +544,7 @@ export function KnowledgeBaseWorkbench() {
                                                     {stageMeta.index.label}
                                                 </Button>
                                                 <Button onClick={() => handleLoadChunks(activeDoc)}>查看片段</Button>
+                                                <Button onClick={() => setFilePreviewTarget({ sourceType: "rag_document", sourceId: activeDoc.doc_id, kbId: activeDoc.kb_id })}>查看文件</Button>
                                             </Space>
                                             {pipelineResult ? <PipelineResultAlert result={pipelineResult} /> : null}
                                         </Space>
@@ -568,6 +582,11 @@ export function KnowledgeBaseWorkbench() {
                                                     </Tag>
                                                     {typeof qaResult.confidence === "number" ? <Tag>可信度 {Math.round(qaResult.confidence * 100)}%</Tag> : null}
                                                     {qaResult.selected_chunks?.length ? <Tag color="blue">已选引用片段 {qaResult.selected_chunks.length}</Tag> : null}
+                                                    {activeDoc ? (
+                                                        <Button size="small" onClick={() => setFilePreviewTarget({ sourceType: "rag_document", sourceId: activeDoc.doc_id, kbId: activeDoc.kb_id })}>
+                                                            查看文件
+                                                        </Button>
+                                                    ) : null}
                                                 </Space>
                                                 <Typography.Paragraph>{qaResult.answer}</Typography.Paragraph>
                                                 <TracePanel mode="qa" hits={qaResult.hits} trace={qaResult.retrieval_trace} />
@@ -618,6 +637,11 @@ export function KnowledgeBaseWorkbench() {
                     />
                 </Card>
             </div>
+            <FilePreviewDrawer
+                open={Boolean(filePreviewTarget)}
+                target={filePreviewTarget}
+                onClose={() => setFilePreviewTarget(null)}
+            />
         </div>
     );
 }

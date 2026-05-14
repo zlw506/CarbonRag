@@ -745,6 +745,36 @@ class KnowledgeStore:
         payload["ocr_used"] = bool(payload.get("ocr_used", False))
         return payload
 
+    def get_uploaded_file_detail_any_owner(self, *, file_id: str) -> dict[str, Any] | None:
+        rows = self._select(
+            """
+            SELECT
+                f.*,
+                i.knowledge_item_id,
+                i.index_status,
+                r.summary,
+                COALESCE(r.chunk_count, 0) AS chunk_count
+            FROM files f
+            LEFT JOIN knowledge_items i ON i.file_id = f.file_id
+            LEFT JOIN file_parse_results r ON r.file_id = f.file_id
+            WHERE f.file_id = {p}
+            """,
+            [file_id],
+        )
+        if not rows:
+            return None
+        payload = dict(rows[0])
+        payload["ocr_used"] = bool(payload.get("ocr_used", False))
+        return payload
+
+    def get_file_parse_result(self, *, file_id: str) -> dict[str, Any] | None:
+        rows = self._select("SELECT * FROM file_parse_results WHERE file_id = {p}", [file_id])
+        if not rows:
+            return None
+        payload = dict(rows[0])
+        payload["metadata"] = _parse_json_object(payload.pop("metadata_json", None))
+        return payload
+
     def update_file_parse_state(
         self,
         *,
