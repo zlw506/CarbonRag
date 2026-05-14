@@ -359,6 +359,10 @@ class AuthService:
 
         created_at = self._utcnow().isoformat()
         user_id = f"user-{uuid4().hex[:12]}"
+        display_name = request.display_name or self._default_display_name(role="user", user_id=user_id)
+        existing_display_name = self._fetch_user_by_display_name(display_name)
+        if existing_display_name is not None:
+            raise UserAlreadyExistsError("display name already exists.")
         password_hash = self.password_hasher.hash(request.password)
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
@@ -383,7 +387,7 @@ class AuthService:
                         (
                             user_id,
                             request.username,
-                            request.username,
+                            display_name,
                             None,
                             password_hash,
                             "user",
@@ -414,7 +418,7 @@ class AuthService:
                     (
                         user_id,
                         request.username,
-                        request.username,
+                        display_name,
                         None,
                         password_hash,
                         "user",

@@ -22,6 +22,7 @@ import {
 } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
 import { useSettings } from "../../app/SettingsContext";
 import { useTheme } from "../../app/ThemeContext";
@@ -31,9 +32,7 @@ import { bulkDeleteSessions } from "../../services/sessions";
 import type {
     AppearanceSettings,
     ChatPreferenceSettings,
-    CredentialStorageMode,
     DataPrivacySettings,
-    LocalProviderProfile,
     ProviderProfile,
     ProviderType,
 } from "../../types/settings";
@@ -46,7 +45,6 @@ type ProviderDraft = {
     baseUrl: string;
     apiKey: string;
     modelName: string;
-    storageMode: CredentialStorageMode;
     models: string[];
     configJson: Record<string, unknown>;
 };
@@ -61,27 +59,27 @@ const providerTypeOptions = [
     { label: "DeepSeek", value: "deepseek" },
 ] as const;
 
-function buildBlankProviderDraft(storageMode: CredentialStorageMode = "local_only"): ProviderDraft {
+const BUILTIN_PROVIDER_REF = "builtin:carbonrag-cloud";
+
+function buildBlankProviderDraft(): ProviderDraft {
     return {
         providerType: "openai_compatible",
-        displayName: storageMode === "local_only" ? "我的本地模型" : "我的账号模型",
+        displayName: "我的账号模型",
         baseUrl: "",
         apiKey: "",
         modelName: "",
-        storageMode,
         models: [],
         configJson: {},
     };
 }
 
-function buildOllamaDeepSeekDraft(storageMode: CredentialStorageMode = "local_only"): ProviderDraft {
+function buildOllamaDeepSeekDraft(): ProviderDraft {
     return {
         providerType: "ollama",
         displayName: "本地 DeepSeek-R1 8B",
         baseUrl: "http://localhost:11434",
         apiKey: "",
         modelName: "deepseek-r1:8b",
-        storageMode,
         models: ["deepseek-r1:8b"],
         configJson: {
             timeout_seconds: 180,
@@ -96,6 +94,7 @@ function buildOllamaDeepSeekDraft(storageMode: CredentialStorageMode = "local_on
 
 export function SettingsPage() {
     const { modal, message: messageApi } = AntdApp.useApp();
+    const navigate = useNavigate();
     const { user, updateProfile, deleteAccount } = useAuth();
     const {
         sessions: shellSessions,
@@ -107,14 +106,11 @@ export function SettingsPage() {
     const {
         settings,
         providerList,
-        localProfiles,
         loading,
         saveSettings,
         createAccountProviderProfile,
         updateAccountProviderProfile,
         deleteAccountProviderProfile,
-        upsertLocalProfile,
-        deleteLocalProfile,
     } = useSettings();
     const [transportError, setTransportError] = useState<string | null>(null);
     const [providerDraft, setProviderDraft] = useState<ProviderDraft>(() => buildBlankProviderDraft());
@@ -237,6 +233,10 @@ export function SettingsPage() {
     }
 
     async function handleSetActiveProvider(providerRef: string) {
+        if (providerRef.startsWith("local:")) {
+            setTransportError("本地 Provider 已停用，请保存为账号 Provider 后再启用。");
+            return;
+        }
         try {
             setTransportError(null);
             await saveSettings({ active_provider_ref: providerRef });
@@ -456,38 +456,24 @@ export function SettingsPage() {
         setSavingProvider(true);
         try {
             setTransportError(null);
-            if (providerDraft.storageMode === "local_only") {
-                const profileId = providerDraft.profileId ?? `local-${Date.now().toString(36)}`;
-                await upsertLocalProfile({
-                    profile_id: profileId,
-                    provider_type: providerDraft.providerType,
-                    display_name: providerDraft.displayName,
-                    base_url: providerDraft.baseUrl || undefined,
-                    api_key: providerDraft.apiKey || undefined,
-                    model_name: providerDraft.modelName || undefined,
-                    config_json: providerDraft.configJson,
-                });
-                await handleSetActiveProvider(`local:${profileId}`);
+            const payload = {
+                provider_type: providerDraft.providerType,
+                display_name: providerDraft.displayName,
+                base_url: providerDraft.baseUrl || undefined,
+                api_key: providerDraft.apiKey || undefined,
+                model_name: providerDraft.modelName || undefined,
+                config_json: providerDraft.configJson,
+                storage_mode: "account" as const,
+            };
+            let profileId = providerDraft.profileId;
+            if (profileId) {
+                await updateAccountProviderProfile(profileId, payload);
             } else {
-                const payload = {
-                    provider_type: providerDraft.providerType,
-                    display_name: providerDraft.displayName,
-                    base_url: providerDraft.baseUrl || undefined,
-                    api_key: providerDraft.apiKey || undefined,
-                    model_name: providerDraft.modelName || undefined,
-                    config_json: providerDraft.configJson,
-                    storage_mode: "account" as const,
-                };
-                let profileId = providerDraft.profileId;
-                if (profileId) {
-                    await updateAccountProviderProfile(profileId, payload);
-                } else {
-                    const created = await createAccountProviderProfile(payload);
-                    profileId = created.profile_id;
-                }
-                await handleSetActiveProvider(`account:${profileId}`);
+                const created = await createAccountProviderProfile(payload);
+                profileId = created.profile_id;
             }
-            setProviderDraft(buildBlankProviderDraft(providerDraft.storageMode));
+            await handleSetActiveProvider(`account:${profileId}`);
+            setProviderDraft(buildBlankProviderDraft());
             messageApi.success("Provider 配置已保存。");
         } catch {
             setTransportError("当前无法保存 provider 配置。");
@@ -504,21 +490,6 @@ export function SettingsPage() {
             baseUrl: profile.base_url ?? "",
             apiKey: "",
             modelName: profile.model_name ?? "",
-            storageMode: "account",
-            models: [],
-            configJson: profile.config_json ?? {},
-        });
-    }
-
-    function editLocalProfile(profile: LocalProviderProfile) {
-        setProviderDraft({
-            profileId: profile.profile_id,
-            providerType: profile.provider_type,
-            displayName: profile.display_name,
-            baseUrl: profile.base_url ?? "",
-            apiKey: profile.api_key ?? "",
-            modelName: profile.model_name ?? "",
-            storageMode: "local_only",
             models: [],
             configJson: profile.config_json ?? {},
         });
@@ -826,16 +797,13 @@ export function SettingsPage() {
     const providerTab = (
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <div className="settings-provider-toolbar">
-                <Button icon={<CloudServerOutlined />} onClick={() => void handleSetActiveProvider("builtin:carbonrag-cloud")}>
+                <Button icon={<CloudServerOutlined />} onClick={() => void handleSetActiveProvider(BUILTIN_PROVIDER_REF)}>
                     切回默认云端
                 </Button>
-                <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildOllamaDeepSeekDraft("local_only"))}>
+                <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildOllamaDeepSeekDraft())}>
                     一键填充 Ollama / DeepSeek-R1 8B
                 </Button>
-                <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildBlankProviderDraft("local_only"))}>
-                    新建本地 Provider
-                </Button>
-                <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildBlankProviderDraft("account"))}>
+                <Button icon={<PlusOutlined />} onClick={() => setProviderDraft(buildBlankProviderDraft())}>
                     新建账号 Provider
                 </Button>
                 <Tag color="blue">当前：{settings.active_provider_ref}</Tag>
@@ -845,9 +813,8 @@ export function SettingsPage() {
                 <Card className="settings-section-card" title="当前可用 Provider">
                     <List
                         dataSource={[
-                            { key: "builtin:carbonrag-cloud", label: "CarbonRag 默认云端", type: "builtin" as const },
+                            { key: BUILTIN_PROVIDER_REF, label: "CarbonRag 默认云端", type: "builtin" as const },
                             ...providerList.profiles.map((item) => ({ key: `account:${item.profile_id}`, label: item.display_name, type: "account" as const, profile: item })),
-                            ...localProfiles.map((item) => ({ key: `local:${item.profile_id}`, label: item.display_name, type: "local" as const, profile: item })),
                         ]}
                         renderItem={(item) => (
                             <List.Item
@@ -858,14 +825,8 @@ export function SettingsPage() {
                                     item.type === "account" ? (
                                         <Button key="edit" size="small" onClick={() => editAccountProfile(item.profile as ProviderProfile)}>编辑</Button>
                                     ) : null,
-                                    item.type === "local" ? (
-                                        <Button key="edit" size="small" onClick={() => editLocalProfile(item.profile as LocalProviderProfile)}>编辑</Button>
-                                    ) : null,
                                     item.type === "account" ? (
                                         <Button key="delete" size="small" danger onClick={() => void deleteAccountProviderProfile((item.profile as ProviderProfile).profile_id)}>删除</Button>
-                                    ) : null,
-                                    item.type === "local" ? (
-                                        <Button key="delete" size="small" danger onClick={() => void deleteLocalProfile((item.profile as LocalProviderProfile).profile_id)}>删除</Button>
                                     ) : null,
                                 ].filter(Boolean)}
                             >
@@ -880,14 +841,11 @@ export function SettingsPage() {
 
                 <Card className="settings-section-card" title="Provider 编辑器">
                     <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                        <Segmented
-                            block
-                            value={providerDraft.storageMode}
-                            options={[
-                                { label: "仅当前设备", value: "local_only" },
-                                { label: "保存到账号", value: "account" },
-                            ]}
-                            onChange={(value) => setProviderDraft({ ...buildBlankProviderDraft(value as CredentialStorageMode), profileId: undefined })}
+                        <Alert
+                            type="info"
+                            showIcon
+                            message="Provider 配置按账号隔离保存"
+                            description="本地设备级 Provider 已停用。API Key 只会加密保存到当前账号，不会在其他账号中显示。"
                         />
                         <Select
                             value={providerDraft.providerType}
@@ -942,13 +900,8 @@ export function SettingsPage() {
             <Card className="settings-section-card" title="凭据保存">
                 <Space direction="vertical" size={14}>
                     <SettingSwitch
-                        checked={settings.data_privacy.store_local_provider_keys_in_browser}
-                        label="允许本地私有 Provider 凭据保存在浏览器中"
-                        onChange={(checked) => void handleSaveDataPrivacy({ store_local_provider_keys_in_browser: checked })}
-                    />
-                    <SettingSwitch
                         checked={settings.data_privacy.allow_account_saved_provider_keys}
-                        label="允许账号保存加密凭据"
+                        label="允许当前账号保存加密 Provider Key"
                         onChange={(checked) => void handleSaveDataPrivacy({ allow_account_saved_provider_keys: checked })}
                     />
                 </Space>
@@ -975,13 +928,9 @@ export function SettingsPage() {
                     <Typography.Text type="secondary">
                         当前生效 Provider：{settings.active_provider_ref}
                     </Typography.Text>
-                    {localProfiles.length ? (
-                        <Typography.Text type="secondary">
-                            当前设备已保存 {localProfiles.length} 个本地 Provider；其敏感 key 不会回传后端。
-                        </Typography.Text>
-                    ) : (
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前还没有本地 Provider。" />
-                    )}
+                    <Typography.Text type="secondary">
+                        Provider 配置仅按账号保存和读取。本地设备级 Provider 已关闭，避免不同账号之间串配置。
+                    </Typography.Text>
                 </Space>
             </Card>
         </div>
@@ -1011,13 +960,24 @@ export function SettingsPage() {
                             </div>
                         </div>
                         <Space direction="vertical" size={10} style={{ width: "100%" }}>
-                            <Input
-                                value={profileNameDraft}
-                                maxLength={32}
-                                placeholder="输入展示名称"
-                                onChange={(event) => setProfileNameDraft(event.target.value)}
-                                onPressEnter={() => void handleSaveProfile()}
-                            />
+                            <div className="settings-field">
+                                <Typography.Text strong>账号</Typography.Text>
+                                <Input value={user.username} disabled />
+                            </div>
+                            <div className="settings-field">
+                                <Typography.Text strong>昵称</Typography.Text>
+                                <Input
+                                    value={profileNameDraft}
+                                    maxLength={64}
+                                    placeholder="输入昵称"
+                                    onChange={(event) => setProfileNameDraft(event.target.value)}
+                                    onPressEnter={() => void handleSaveProfile()}
+                                />
+                            </div>
+                            <div className="settings-field">
+                                <Typography.Text strong>密码</Typography.Text>
+                                <Button onClick={() => navigate("/change-password")}>修改密码</Button>
+                            </div>
                             <Space wrap>
                                 <Button icon={<UploadOutlined />} onClick={() => avatarInputRef.current?.click()}>
                                     上传头像
@@ -1027,7 +987,7 @@ export function SettingsPage() {
                                     保存资料
                                 </Button>
                             </Space>
-                            <Typography.Text type="secondary">名称不可重复；admin / user 仅作为身份标签显示。</Typography.Text>
+                            <Typography.Text type="secondary">昵称不可重复；admin / user 仅作为身份标签显示。</Typography.Text>
                             <input
                                 ref={avatarInputRef}
                                 type="file"

@@ -9,13 +9,12 @@ import {
     patchSettings,
     updateProviderProfile,
 } from "../services/settings";
+import { useTheme } from "./ThemeContext";
 import type {
     AppearanceSettings,
     ChatPreferenceSettings,
     DataPrivacySettings,
     AdvancedSettings,
-    LocalProviderOverride,
-    LocalProviderProfile,
     ProviderListResponse,
     ProviderProfile,
     UpdateUserSettingsRequest,
@@ -23,7 +22,6 @@ import type {
     UserSettingsEnvelope,
 } from "../types/settings";
 
-const LOCAL_PROVIDER_STORAGE_KEY = "carbonrag-local-provider-profiles";
 const BUILTIN_PROVIDER_REF = "builtin:carbonrag-cloud";
 
 const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
@@ -44,7 +42,7 @@ const DEFAULT_CHAT_SETTINGS: ChatPreferenceSettings = {
 };
 
 const DEFAULT_DATA_PRIVACY_SETTINGS: DataPrivacySettings = {
-    store_local_provider_keys_in_browser: true,
+    store_local_provider_keys_in_browser: false,
     allow_account_saved_provider_keys: true,
 };
 
@@ -55,44 +53,21 @@ const DEFAULT_ADVANCED_SETTINGS: AdvancedSettings = {
 interface SettingsContextValue {
     settings: UserSettingsEnvelope | null;
     providerList: ProviderListResponse | null;
-    localProfiles: LocalProviderProfile[];
     loading: boolean;
     refresh: () => Promise<void>;
     saveSettings: (payload: UpdateUserSettingsRequest) => Promise<UserSettingsEnvelope>;
     createAccountProviderProfile: (payload: UpsertProviderProfileRequest) => Promise<ProviderProfile>;
     updateAccountProviderProfile: (profileId: string, payload: UpsertProviderProfileRequest) => Promise<ProviderProfile>;
     deleteAccountProviderProfile: (profileId: string) => Promise<void>;
-    upsertLocalProfile: (profile: LocalProviderProfile) => Promise<void>;
-    deleteLocalProfile: (profileId: string) => Promise<void>;
-    getActiveProviderOverride: () => LocalProviderOverride | undefined;
+    getActiveProviderOverride: () => undefined;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
-function readLocalProfiles(): LocalProviderProfile[] {
-    if (typeof window === "undefined") {
-        return [];
-    }
-    try {
-        const raw = window.localStorage.getItem(LOCAL_PROVIDER_STORAGE_KEY);
-        if (!raw) {
-            return [];
-        }
-        const parsed = JSON.parse(raw) as LocalProviderProfile[];
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
-}
-
-function writeLocalProfiles(profiles: LocalProviderProfile[]) {
-    if (typeof window === "undefined") {
-        return;
-    }
-    window.localStorage.setItem(LOCAL_PROVIDER_STORAGE_KEY, JSON.stringify(profiles));
-}
-
 function normalizeSettingsEnvelope(settings: UserSettingsEnvelope | null | undefined): UserSettingsEnvelope {
+    const activeProviderRef = settings?.active_provider_ref?.startsWith("local:")
+        ? BUILTIN_PROVIDER_REF
+        : settings?.active_provider_ref || BUILTIN_PROVIDER_REF;
     return {
         appearance: {
             ...DEFAULT_APPEARANCE_SETTINGS,
@@ -109,11 +84,9 @@ function normalizeSettingsEnvelope(settings: UserSettingsEnvelope | null | undef
         advanced: {
             ...DEFAULT_ADVANCED_SETTINGS,
             ...(settings?.advanced ?? {}),
-            local_provider_profile_ids: Array.isArray(settings?.advanced?.local_provider_profile_ids)
-                ? settings.advanced.local_provider_profile_ids
-                : [],
+            local_provider_profile_ids: [],
         },
-        active_provider_ref: settings?.active_provider_ref || BUILTIN_PROVIDER_REF,
+        active_provider_ref: activeProviderRef,
     };
 }
 
@@ -127,19 +100,17 @@ function buildProviderListFallback(activeProviderRef: string): ProviderListRespo
 
 export function SettingsProvider({ children }: PropsWithChildren) {
     const { user } = useAuth();
+    const { setThemeMode, setThemePreset } = useTheme();
     const [settings, setSettings] = useState<UserSettingsEnvelope | null>(null);
     const [providerList, setProviderList] = useState<ProviderListResponse | null>(null);
-    const [localProfiles, setLocalProfiles] = useState<LocalProviderProfile[]>(() => readLocalProfiles());
     const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        writeLocalProfiles(localProfiles);
-    }, [localProfiles]);
 
     useEffect(() => {
         if (!user) {
             setSettings(null);
             setProviderList(null);
+            setThemeMode(DEFAULT_APPEARANCE_SETTINGS.theme_mode);
+            setThemePreset(DEFAULT_APPEARANCE_SETTINGS.theme_preset);
             setLoading(false);
             return;
         }
@@ -155,6 +126,8 @@ export function SettingsProvider({ children }: PropsWithChildren) {
             return;
         }
         const normalized = normalizeSettingsEnvelope(settings);
+        setThemeMode(normalized.appearance.theme_mode);
+        setThemePreset(normalized.appearance.theme_preset);
         root.dataset.chatDensity = normalized.appearance.bubble_density;
         root.dataset.fontScale = normalized.appearance.font_size;
         root.dataset.sidebarDefault = normalized.appearance.sidebar_default;
@@ -167,14 +140,19 @@ export function SettingsProvider({ children }: PropsWithChildren) {
         setLoading(true);
         try {
             const nextSettings = normalizeSettingsEnvelope(await getSettings());
+            setThemeMode(nextSettings.appearance.theme_mode);
+            setThemePreset(nextSettings.appearance.theme_preset);
             setSettings(nextSettings);
             try {
                 const nextProviders = await listProviderProfiles();
+                const nextActiveProviderRef = nextProviders.active_provider_ref?.startsWith("local:")
+                    ? BUILTIN_PROVIDER_REF
+                    : nextProviders.active_provider_ref || nextSettings.active_provider_ref;
                 setProviderList({
                     builtin_provider_refs: nextProviders.builtin_provider_refs?.length
                         ? nextProviders.builtin_provider_refs
                         : [BUILTIN_PROVIDER_REF],
-                    active_provider_ref: nextProviders.active_provider_ref || nextSettings.active_provider_ref,
+                    active_provider_ref: nextActiveProviderRef,
                     profiles: Array.isArray(nextProviders.profiles) ? nextProviders.profiles : [],
                 });
             } catch {
@@ -186,7 +164,18 @@ export function SettingsProvider({ children }: PropsWithChildren) {
     }
 
     async function saveSettings(payload: UpdateUserSettingsRequest) {
-        const next = normalizeSettingsEnvelope(await patchSettings(payload));
+        const normalizedPayload = {
+            ...payload,
+            active_provider_ref: payload.active_provider_ref?.startsWith("local:")
+                ? BUILTIN_PROVIDER_REF
+                : payload.active_provider_ref,
+            advanced: payload.advanced
+                ? { ...payload.advanced, local_provider_profile_ids: [] }
+                : payload.advanced,
+        };
+        const next = normalizeSettingsEnvelope(await patchSettings(normalizedPayload));
+        setThemeMode(next.appearance.theme_mode);
+        setThemePreset(next.appearance.theme_preset);
         setSettings(next);
         setProviderList((current) =>
             current ? { ...current, active_provider_ref: next.active_provider_ref } : current,
@@ -211,79 +200,23 @@ export function SettingsProvider({ children }: PropsWithChildren) {
         await refresh();
     }
 
-    async function upsertLocalProfile(profile: LocalProviderProfile) {
-        const nextProfiles = [...localProfiles];
-        const existingIndex = nextProfiles.findIndex((item) => item.profile_id === profile.profile_id);
-        if (existingIndex >= 0) {
-            nextProfiles[existingIndex] = profile;
-        } else {
-            nextProfiles.unshift(profile);
-        }
-        setLocalProfiles(nextProfiles);
-        if (settings) {
-            await saveSettings({
-                advanced: {
-                    ...settings.advanced,
-                    local_provider_profile_ids: nextProfiles.map((item) => item.profile_id),
-                },
-            });
-        }
-    }
-
-    async function deleteLocalProfileInternal(profileId: string) {
-        const nextProfiles = localProfiles.filter((item) => item.profile_id !== profileId);
-        setLocalProfiles(nextProfiles);
-        if (settings) {
-            const nextPayload: UpdateUserSettingsRequest = {
-                advanced: {
-                    ...settings.advanced,
-                    local_provider_profile_ids: nextProfiles.map((item) => item.profile_id),
-                },
-            };
-            if (settings.active_provider_ref === `local:${profileId}`) {
-                nextPayload.active_provider_ref = "builtin:carbonrag-cloud";
-            }
-            await saveSettings(nextPayload);
-        }
-    }
-
     function getActiveProviderOverride() {
-        const activeProviderRef = settings?.active_provider_ref;
-        if (!activeProviderRef?.startsWith("local:")) {
-            return undefined;
-        }
-        const profileId = activeProviderRef.split(":", 2)[1];
-        const profile = localProfiles.find((item) => item.profile_id === profileId);
-        if (!profile) {
-            return undefined;
-        }
-        return {
-            profile_id: profile.profile_id,
-            provider_type: profile.provider_type,
-            display_name: profile.display_name,
-            base_url: profile.base_url,
-            model_name: profile.model_name,
-            api_key: profile.api_key,
-            config_json: profile.config_json,
-        } satisfies LocalProviderOverride;
+        return undefined;
     }
 
     const value = useMemo<SettingsContextValue>(
         () => ({
             settings,
             providerList,
-            localProfiles,
             loading,
             refresh,
             saveSettings,
             createAccountProviderProfile: createAccountProviderProfileInternal,
             updateAccountProviderProfile: updateAccountProviderProfileInternal,
             deleteAccountProviderProfile: deleteAccountProviderProfileInternal,
-            upsertLocalProfile,
-            deleteLocalProfile: deleteLocalProfileInternal,
             getActiveProviderOverride,
         }),
-        [settings, providerList, localProfiles, loading],
+        [settings, providerList, loading],
     );
 
     return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

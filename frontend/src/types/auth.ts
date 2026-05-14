@@ -22,7 +22,9 @@ export interface LoginRequest {
     password: string;
 }
 
-export interface RegisterRequest extends LoginRequest {}
+export interface RegisterRequest extends LoginRequest {
+    display_name?: string;
+}
 
 export interface LoginResponse extends AuthUserEnvelope {
     must_change_password: boolean;

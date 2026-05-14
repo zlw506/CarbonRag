@@ -23,6 +23,7 @@ class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     username: str
+    display_name: str | None = None
     password: str
 
     @field_validator("username")
@@ -34,7 +35,21 @@ class RegisterRequest(BaseModel):
         if len(normalized) < 3 or len(normalized) > 32:
             raise ValueError("username must be between 3 and 32 characters.")
         if any(character not in "abcdefghijklmnopqrstuvwxyz0123456789_-" for character in normalized):
-            raise ValueError("username may only contain lowercase letters, digits, '_' or '-'.")
+            raise ValueError("username may only contain letters, digits, '_' or '-'.")
+        return normalized
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_register_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if len(normalized) > 64:
+            raise ValueError("display_name must be 64 characters or fewer.")
+        if any(character in "\r\n\t\0" for character in normalized):
+            raise ValueError("display_name may not contain control characters.")
         return normalized
 
     @field_validator("password")
@@ -48,8 +63,33 @@ class RegisterRequest(BaseModel):
         return normalized
 
 
-class LoginRequest(RegisterRequest):
-    pass
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str
+    password: str
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("username is required.")
+        if len(normalized) < 3 or len(normalized) > 32:
+            raise ValueError("username must be between 3 and 32 characters.")
+        if any(character not in "abcdefghijklmnopqrstuvwxyz0123456789_-" for character in normalized):
+            raise ValueError("username may only contain letters, digits, '_' or '-'.")
+        return normalized
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 6:
+            raise ValueError("password must be at least 6 characters.")
+        if len(normalized) > 128:
+            raise ValueError("password must be 128 characters or fewer.")
+        return normalized
 
 
 class ChangePasswordRequest(BaseModel):
@@ -99,8 +139,10 @@ class UpdateProfileRequest(BaseModel):
         normalized = value.strip()
         if not normalized:
             raise ValueError("display_name is required.")
-        if len(normalized) < 2 or len(normalized) > 32:
-            raise ValueError("display_name must be between 2 and 32 characters.")
+        if len(normalized) > 64:
+            raise ValueError("display_name must be 64 characters or fewer.")
+        if any(character in "\r\n\t\0" for character in normalized):
+            raise ValueError("display_name may not contain control characters.")
         return normalized
 
     @field_validator("avatar_url")
