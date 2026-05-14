@@ -2751,6 +2751,16 @@ body {
     padding: 12px 14px;
 }
 
+.admin-crawler-hit-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    border: 1px solid var(--cr-border);
+    border-radius: 8px;
+    background: var(--cr-surface-strong);
+}
+
 .kb-console {
     display: flex;
     width: 100%;

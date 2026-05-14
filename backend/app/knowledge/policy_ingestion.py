@@ -912,14 +912,22 @@ def _run_scrapy_crawler_subprocess(request: PolicyCrawlRequest) -> list[CrawledD
             "--output",
             str(output_path),
         ]
-        completed = subprocess.run(
-            command,
-            cwd=backend_dir,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=backend_dir,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                "Scrapy runner timed out after "
+                f"{timeout_seconds:.1f} seconds "
+                f"(crawl timeout={request.timeout_seconds:.1f}s, "
+                f"max_pages={request.max_pages}, max_depth={request.max_depth})."
+            ) from exc
         if completed.returncode != 0:
             stderr = completed.stderr.strip() or completed.stdout.strip() or "Scrapy runner failed."
             raise RuntimeError(stderr)
@@ -993,7 +1001,11 @@ def _discover_policy_documents_with_urllib(request: PolicyCrawlRequest) -> list[
 
 
 def _local_scrapy_subprocess_timeout_seconds(request: PolicyCrawlRequest) -> float:
-    return max(1.0, min(float(request.timeout_seconds), LOCAL_SCRAPY_SUBPROCESS_TIMEOUT_CAP_SECONDS))
+    return _scrapy_subprocess_timeout(request)
+
+
+def _scrapy_subprocess_timeout(request: PolicyCrawlRequest) -> float:
+    return min(360.0, max(request.timeout_seconds + 45.0, request.timeout_seconds * 1.5))
 
 
 def _urllib_discovery_timeout_seconds(request: PolicyCrawlRequest) -> float:
