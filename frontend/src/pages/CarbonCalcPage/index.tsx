@@ -609,12 +609,19 @@ function toCarbonScope(value: string): "scope1" | "scope2" | "scope3" {
 }
 
 function resultUnitToKgco2eMultiplier(unit: string) {
-    const normalized = unit.replace("₂", "2").toLowerCase();
-    const resultUnit = normalized.includes("/") ? normalized.split("/", 1)[0] : normalized;
-    if (resultUnit.includes("tco2e")) {
+    const resultUnit = unit
+        .replace(/₂/g, "2")
+        .replace(/\s+/g, "")
+        .toLowerCase()
+        .split(/[\/／]/, 1)[0];
+
+    if (/^(t|ton|tonne|metricton)co2e/.test(resultUnit) || resultUnit.includes("吨co2e")) {
         return 1000;
     }
-    if (resultUnit.includes("gco2e")) {
+    if (/^(kg|千克|公斤)co2e/.test(resultUnit) || resultUnit.includes("千克co2e") || resultUnit.includes("公斤co2e")) {
+        return 1;
+    }
+    if (/^(g|克)co2e/.test(resultUnit) || resultUnit.includes("克co2e")) {
         return 0.001;
     }
     return 1;
