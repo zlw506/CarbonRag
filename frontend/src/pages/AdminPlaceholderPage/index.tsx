@@ -45,6 +45,7 @@ import {
     listPolicyShowcaseChunks,
     listPolicyShowcaseSources,
     publishPolicyCrawlerCandidate,
+    publishPolicyCrawlerCandidateToRag,
     rejectPolicyCrawlerCandidate,
     resetAdminUserPassword,
     runPolicyCrawlerSource,
@@ -823,10 +824,24 @@ export function AdminPlaceholderPage() {
         setErrorMessage(null);
         try {
             await publishPolicyCrawlerCandidate(candidateId);
-            message.success("候选政策已发布，已进入 crawl_ingest 队列。");
+            message.success("候选政策已发布到旧知识条目链路。");
             await Promise.all([fetchPolicyCrawlerWorkspace(), loadKnowledgeWorkspace()]);
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "发布候选政策失败。");
+            setErrorMessage(extractDetailMessage(error) ?? "发布到旧知识条目失败。");
+        } finally {
+            setReviewingCandidateId(null);
+        }
+    }
+
+    async function handlePublishPolicyCandidateToRag(candidateId: string) {
+        setReviewingCandidateId(candidateId);
+        setErrorMessage(null);
+        try {
+            await publishPolicyCrawlerCandidateToRag(candidateId);
+            message.success("候选政策已发布到 RAG 知识库，并执行快速入库。");
+            await Promise.all([fetchPolicyCrawlerWorkspace(), loadKnowledgeWorkspace()]);
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "发布到 RAG 知识库失败。");
         } finally {
             setReviewingCandidateId(null);
         }
@@ -1207,7 +1222,7 @@ export function AdminPlaceholderPage() {
                                 showIcon
                                 type="warning"
                                 message="官方白名单自动更新知识库"
-                                description="实时政策爬虫只访问 gov.cn、ndrc.gov.cn、mee.gov.cn、miit.gov.cn、fgw.beijing.gov.cn、beijing.gov.cn 六类官方白名单域名；抓取到的双碳政策和技术标准会自动创建或刷新 public_policy_web，并立即进入解析、入库和索引链路。"
+                                description="实时政策爬虫只访问 gov.cn、ndrc.gov.cn、mee.gov.cn、miit.gov.cn、fgw.beijing.gov.cn、beijing.gov.cn 六类官方白名单域名；V1.7.0 默认只手动抓取和人工发布，命中的政策候选需要点击“发布到 RAG”后才进入 RAG-Pro 知识库 quick pipeline。"
                             />
                             <Alert
                                 showIcon
@@ -1219,7 +1234,7 @@ export function AdminPlaceholderPage() {
                                 }
                                 description={
                                     policyCrawlerStatus?.provider_available
-                                        ? "点击下方任一官方源的“抓取并自动入库”会真实访问该白名单站点，页面会展示抓到的政策文件、匹配关键词、解析入库与索引结果。"
+                                        ? "点击下方任一官方源的“手动抓取”会真实访问该白名单站点；候选内容会先进入审核区，再由管理员发布到 RAG 知识库。"
                                         : `请确认正在运行的后端使用 backend/.venv，并执行 ${String(
                                                   policyCrawlerStatus?.safe_limits.scrapy_install_command ??
                                                   "backend\\.venv\\Scripts\\python.exe -m pip install scrapy==2.15.2",
@@ -1359,7 +1374,7 @@ export function AdminPlaceholderPage() {
                                                               latestRun?.status
                                                             : "尚未抓取"}
                                                     </Tag>
-                                                    <Tag>{sourceCandidates.length} 条入库记录</Tag>
+                                                    <Tag>{sourceCandidates.length} 条候选</Tag>
                                                     {latestRun ? <Tag>{latestRun.document_count} 个文档</Tag> : null}
                                                 </Space>
                                                 {source.last_error || latestRun?.error_detail ? (
@@ -1372,7 +1387,7 @@ export function AdminPlaceholderPage() {
                                                     </Typography.Text>
                                                 )}
                                                 <Space size={8} wrap>
-                                                    <Tooltip title={disabledReason ?? "真实运行 Scrapy，并遵守 robots、限速、深度和页数限制；命中的政策文件会自动入库索引。"}>
+                                                    <Tooltip title={disabledReason ?? "真实运行 Scrapy，并遵守 robots、限速、深度和页数限制；命中的政策文件会进入候选审核，不自动发布。"}>
                                                         <Button
                                                             type="primary"
                                                             icon={<ReloadOutlined />}
@@ -1380,7 +1395,7 @@ export function AdminPlaceholderPage() {
                                                             loading={runningCrawlerSourceId === source.source_id}
                                                             onClick={() => void handleRunPolicyCrawler(source.source_id)}
                                                         >
-                                                            抓取并自动入库
+                                                            手动抓取
                                                         </Button>
                                                     </Tooltip>
                                                     <Button icon={<SyncOutlined />} onClick={() => void fetchPolicyCrawlerWorkspace()}>
@@ -1396,11 +1411,43 @@ export function AdminPlaceholderPage() {
                             <List
                                 className="admin-compact-list"
                                 size="small"
-                                header={<Typography.Text strong>自动入库记录</Typography.Text>}
+                                header={<Typography.Text strong>候选与 RAG 发布记录</Typography.Text>}
                                 dataSource={policyCrawlerCandidates.slice(0, 8)}
-                                locale={{ emptyText: "暂无记录。抓取成功后会显示政策文件、来源、摘要、匹配关键词和索引结果。" }}
+                                locale={{ emptyText: "暂无记录。抓取成功后会显示政策文件、来源、摘要、匹配关键词和 RAG 发布状态。" }}
                                 renderItem={(candidate) => (
-                                    <List.Item>
+                                    <List.Item
+                                        actions={[
+                                            <Button
+                                                key="publish-rag"
+                                                type="primary"
+                                                size="small"
+                                                loading={reviewingCandidateId === candidate.candidate_id}
+                                                disabled={candidate.status === "rejected"}
+                                                onClick={() => void handlePublishPolicyCandidateToRag(candidate.candidate_id)}
+                                            >
+                                                发布到 RAG
+                                            </Button>,
+                                            <Button
+                                                key="publish-legacy"
+                                                size="small"
+                                                disabled={candidate.status !== "pending_review"}
+                                                loading={reviewingCandidateId === candidate.candidate_id}
+                                                onClick={() => void handlePublishPolicyCandidate(candidate.candidate_id)}
+                                            >
+                                                旧知识条目发布
+                                            </Button>,
+                                            <Button
+                                                key="reject"
+                                                danger
+                                                size="small"
+                                                disabled={candidate.status !== "pending_review"}
+                                                loading={reviewingCandidateId === candidate.candidate_id}
+                                                onClick={() => void handleRejectPolicyCandidate(candidate.candidate_id)}
+                                            >
+                                                拒绝
+                                            </Button>,
+                                        ]}
+                                    >
                                         <Space direction="vertical" size={4} style={{ width: "100%" }}>
                                             <Space size={8} wrap>
                                                 <Typography.Text strong>{candidate.title ?? candidate.url}</Typography.Text>
@@ -1408,6 +1455,11 @@ export function AdminPlaceholderPage() {
                                                     {candidateStatusLabelMap[candidate.status] ?? candidate.status}
                                                 </Tag>
                                                 <Tag>{candidate.content_type}</Tag>
+                                                {candidate.rag_pipeline_status ? (
+                                                    <Tag color={candidate.rag_pipeline_status === "indexed" ? "green" : "gold"}>
+                                                        RAG {candidate.rag_pipeline_status}
+                                                    </Tag>
+                                                ) : null}
                                             </Space>
                                             <Typography.Text type="secondary">{candidate.url}</Typography.Text>
                                             <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>
@@ -1434,6 +1486,34 @@ export function AdminPlaceholderPage() {
                                                 <Descriptions.Item label="入库结果">
                                                     {candidate.review_note || (candidate.knowledge_item_id ? "已创建知识条目" : "等待自动处理")}
                                                 </Descriptions.Item>
+                                                <Descriptions.Item label="RAG KB">
+                                                    {candidate.rag_kb_id ? (
+                                                        <Typography.Text code>{candidate.rag_kb_id}</Typography.Text>
+                                                    ) : (
+                                                        "未发布"
+                                                    )}
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="RAG 文档">
+                                                    {candidate.rag_doc_id ? (
+                                                        <Typography.Text code>{candidate.rag_doc_id}</Typography.Text>
+                                                    ) : (
+                                                        "未创建"
+                                                    )}
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="RAG 索引">
+                                                    {candidate.rag_pipeline_status
+                                                        ? `${candidate.rag_pipeline_status} / ${candidate.rag_indexed_chunk_count ?? 0} chunks / smoke ${
+                                                              candidate.rag_search_smoke_passed ? "通过" : "未通过"
+                                                          }`
+                                                        : "待发布到 RAG"}
+                                                </Descriptions.Item>
+                                                {candidate.rag_error_stage ? (
+                                                    <Descriptions.Item label="RAG 失败阶段" span={3}>
+                                                        <Typography.Text type="danger">
+                                                            {candidate.rag_error_stage}: {formatMetadataText(candidate.metadata.rag_error_detail) || "未记录"}
+                                                        </Typography.Text>
+                                                    </Descriptions.Item>
+                                                ) : null}
                                             </Descriptions>
                                             <Typography.Text type="secondary">
                                                 hash {candidate.content_hash.slice(0, 12)} / {formatTimestamp(candidate.updated_at)}
@@ -1804,8 +1884,8 @@ const crawlerRunStatusColorMap: Record<string, string> = {
 };
 
 const candidateStatusLabelMap: Record<string, string> = {
-    pending_review: "待自动处理",
-    published: "已入库",
+    pending_review: "待审核",
+    published: "已发布",
     rejected: "已拒绝",
 };
 

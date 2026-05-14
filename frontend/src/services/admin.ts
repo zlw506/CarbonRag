@@ -133,6 +133,14 @@ export async function publishPolicyCrawlerCandidate(candidateId: string) {
     return response.data;
 }
 
+export async function publishPolicyCrawlerCandidateToRag(candidateId: string) {
+    const response = await httpClient.post<PolicyCrawlerCandidateSummary>(
+        `/v1/admin/policy-crawler/candidates/${candidateId}/publish-to-rag`,
+        {},
+    );
+    return response.data;
+}
+
 export async function rejectPolicyCrawlerCandidate(candidateId: string) {
     const response = await httpClient.post<PolicyCrawlerCandidateSummary>(
         `/v1/admin/policy-crawler/candidates/${candidateId}/reject`,

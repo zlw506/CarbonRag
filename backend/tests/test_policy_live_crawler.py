@@ -92,7 +92,7 @@ def test_policy_live_crawler_backend_defaults_to_local_scrapy(tmp_path) -> None:
     assert status.provider_mode == "scrapy"
     assert status.manual_enabled is True
     assert status.scheduled_enabled is False
-    assert status.auto_publish_enabled is True
+    assert status.auto_publish_enabled is False
 
 
 def test_policy_live_crawler_scrapyd_unavailable_does_not_crash(tmp_path) -> None:
@@ -245,6 +245,12 @@ def test_policy_live_crawler_stages_candidates_without_indexing_when_auto_publis
     assert candidates[0].metadata["seed_url"] == "https://www.gov.cn/zhengce/"
     assert candidates[0].metadata["candidate_summary"]
     assert candidates[0].metadata["candidate_content_length"] > 0
+    assert candidates[0].metadata["change_type"] == "new"
+    assert candidates[0].metadata["raw_storage_path"] == candidates[0].storage_path
+    assert candidates[0].metadata["cleaned_storage_path"]
+    assert candidates[0].metadata["markdown_storage_path"]
+    assert Path(candidates[0].metadata["cleaned_storage_path"]).exists()
+    assert Path(candidates[0].metadata["markdown_storage_path"]).exists()
     assert knowledge_store.get_item_by_source(
         owner_user_id=None,
         library_scope="shared",
@@ -276,6 +282,28 @@ def test_policy_live_crawler_writes_binary_candidate_payload(tmp_path) -> None:
     assert run.status == "succeeded"
     assert candidate.content_type == "application/pdf"
     assert Path(candidate.storage_path).read_bytes() == raw_pdf
+
+
+def test_crawler_candidate_dedup_by_content_hash(tmp_path) -> None:
+    document = _official_document("https://www.gov.cn/zhengce/dedupe-policy.html")
+    scheduler = _build_scheduler(
+        tmp_path,
+        provider=FakeCrawlerProvider(documents=[document]),
+        settings_overrides={"rag_policy_live_crawler_auto_publish": False},
+    )
+    scheduler.start()
+
+    first_run = scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
+    first_candidate = scheduler.list_candidates()[0]
+    second_run = scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
+    second_candidate = scheduler.list_candidates()[0]
+
+    assert first_run.status == "succeeded"
+    assert second_run.status == "succeeded"
+    assert first_candidate.candidate_id == second_candidate.candidate_id
+    assert second_candidate.metadata["change_type"] == "unchanged"
+    assert second_candidate.metadata["skip_reason"] == "duplicate_content_hash"
+    assert second_candidate.metadata["previous_content_hash"] == first_candidate.content_hash
 
 
 def test_policy_live_crawler_publish_candidate_enqueues_crawl_ingest(monkeypatch, tmp_path) -> None:
@@ -316,7 +344,11 @@ def test_policy_live_crawler_auto_publishes_and_indexes_matching_policy(monkeypa
     )
     monkeypatch.setattr("app.knowledge.service.get_knowledge_service", lambda: service)
     monkeypatch.setattr("app.knowledge.runner.get_knowledge_task_runner", lambda: runner)
-    scheduler = _build_scheduler(tmp_path, provider=FakeCrawlerProvider(documents=[document]))
+    scheduler = _build_scheduler(
+        tmp_path,
+        provider=FakeCrawlerProvider(documents=[document]),
+        settings_overrides={"rag_policy_live_crawler_auto_publish": True},
+    )
     scheduler.start()
 
     run = scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)

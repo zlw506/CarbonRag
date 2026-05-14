@@ -1,6 +1,6 @@
 # CarbonRag
 
-当前状态：`V1.6.33 RAG-Pro Parity Freeze / RAG 主线进入 baseline 冻结 / #1 冻结 RAG 基线 / #3 接手体验优化`
+当前状态：`V1.7.0 Crawler-to-RAG Auto Update Baseline / 官方政策 crawler 接入 RAG-Pro quick pipeline`
 
 CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标不是做一个泛用聊天壳，而是把“政策问答、私有知识、碳核算、报告生成、反馈闭环、多人治理”整合成一套可试用、可部署、可协作演进的垂直系统。
 
@@ -12,6 +12,7 @@ CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标
 - GitNexus + Codex MCP 怎么跑：看 [docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md](docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md)
 - Mattermost + Codex 多 Agent 协同怎么跑：看 [docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md](docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md)
 - RAG-Pro / Milvus / BGE-M3 怎么跑：看 [docs/architecture/RAG_RUNTIME_PROFILES.md](docs/architecture/RAG_RUNTIME_PROFILES.md)
+- 官方政策 crawler 如何发布到 RAG：看 [docs/architecture/CRAWLER_TO_RAG_AUTO_UPDATE_ARCHITECTURE.md](docs/architecture/CRAWLER_TO_RAG_AUTO_UPDATE_ARCHITECTURE.md)
 - 本地 Ollama / DeepSeek-R1 / vLLM / LM Studio 怎么接：看 [docs/architecture/LOCAL_LLM_RUNTIME_PROFILES.md](docs/architecture/LOCAL_LLM_RUNTIME_PROFILES.md) 和 [docs/architecture/LOCAL_LLM_PROVIDER_ARCHITECTURE.md](docs/architecture/LOCAL_LLM_PROVIDER_ARCHITECTURE.md)
 - PR 怎么审：看 [docs/governance/PR_REVIEW_RUNBOOK.md](docs/governance/PR_REVIEW_RUNBOOK.md)
 - 本地怎么跑：看 [docs/DEVELOPMENT_BOOTSTRAP.md](docs/DEVELOPMENT_BOOTSTRAP.md)

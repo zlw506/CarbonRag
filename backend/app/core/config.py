@@ -77,9 +77,9 @@ class Settings(BaseSettings):
     rag_policy_scrapyd_poll_timeout_seconds: float = 60.0
     rag_policy_scrapyd_feed_url_template: str | None = None
     rag_policy_live_crawler_manual_enabled: bool = True
-    rag_policy_live_crawler_scheduled_enabled: bool = True
+    rag_policy_live_crawler_scheduled_enabled: bool = False
     rag_policy_live_crawler_startup_seed_sources: bool = True
-    rag_policy_live_crawler_auto_publish: bool = True
+    rag_policy_live_crawler_auto_publish: bool = False
     rag_policy_live_crawler_initial_delay_seconds: float = 60.0
     rag_policy_live_crawler_interval_seconds: int = 86_400
     rag_policy_live_crawler_failure_backoff_seconds: int = 3_600

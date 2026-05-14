@@ -196,6 +196,12 @@ export interface PolicyCrawlerCandidateSummary {
     created_at: string;
     updated_at: string;
     metadata: Record<string, unknown>;
+    rag_kb_id: string | null;
+    rag_doc_id: string | null;
+    rag_pipeline_status: string | null;
+    rag_indexed_chunk_count: number | null;
+    rag_search_smoke_passed: boolean | null;
+    rag_error_stage: string | null;
 }
 
 export interface PolicyCrawlerStatusSummary {

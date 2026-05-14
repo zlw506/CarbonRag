@@ -269,6 +269,27 @@ def publish_admin_policy_crawler_candidate(
         raise HTTPException(status_code=409, detail=f"Candidate content file is missing: {exc}") from exc
 
 
+@router.post("/policy-crawler/candidates/{candidate_id}/publish-to-rag", response_model=PolicyCrawlerCandidateSummary)
+def publish_admin_policy_crawler_candidate_to_rag(
+    candidate_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerCandidateSummary:
+    try:
+        return get_admin_service().publish_policy_crawler_candidate_to_rag(
+            candidate_id=candidate_id,
+            reviewed_by_user_id=current_user.user_id,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy crawler candidate not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=f"Candidate content file is missing: {exc}") from exc
+    except Exception as exc:
+        logger.exception("Policy crawler candidate RAG publish failed; candidate_id=%s", candidate_id)
+        raise HTTPException(status_code=500, detail=f"Candidate RAG publish failed: {exc}") from exc
+
+
 @router.post("/policy-crawler/candidates/{candidate_id}/reject", response_model=PolicyCrawlerCandidateSummary)
 def reject_admin_policy_crawler_candidate(
     candidate_id: str,

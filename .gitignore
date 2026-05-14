@@ -53,6 +53,7 @@ data/outputs/*
 backend/backend/
 backend/data/outputs/*
 backend/data/public/policy_crawl_candidates/
+backend/data/public/policy_crawl_artifacts/
 data/public/policy_staging/
 backend/data/public/policy_staging/
 uploads/

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.auth.schemas import UserRole
 from app.knowledge.schemas import KnowledgeItemSummary, KnowledgeTaskSummary
@@ -204,13 +204,33 @@ class PolicyCrawlerCandidateSummary(BaseModel):
     created_at: datetime
     updated_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
+    rag_kb_id: str | None = None
+    rag_doc_id: str | None = None
+    rag_pipeline_status: str | None = None
+    rag_indexed_chunk_count: int | None = None
+    rag_search_smoke_passed: bool | None = None
+    rag_error_stage: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def derive_rag_fields(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        metadata = value.get("metadata") if isinstance(value.get("metadata"), dict) else {}
+        value.setdefault("rag_kb_id", metadata.get("rag_kb_id"))
+        value.setdefault("rag_doc_id", metadata.get("rag_doc_id"))
+        value.setdefault("rag_pipeline_status", metadata.get("rag_pipeline_status"))
+        value.setdefault("rag_indexed_chunk_count", metadata.get("rag_indexed_chunk_count") or metadata.get("indexed_chunk_count"))
+        value.setdefault("rag_search_smoke_passed", metadata.get("rag_search_smoke_passed"))
+        value.setdefault("rag_error_stage", metadata.get("rag_error_stage") or metadata.get("error_stage"))
+        return value
 
 
 class PolicyCrawlerStatusSummary(BaseModel):
     scheduler_started: bool
     scheduled_enabled: bool
     manual_enabled: bool
-    auto_publish_enabled: bool = True
+    auto_publish_enabled: bool = False
     running: bool
     crawler_backend: str
     provider_name: str

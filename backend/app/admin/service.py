@@ -41,6 +41,7 @@ from app.private_samples.catalog import (
     list_admin_private_sample_catalog,
     refresh_private_sample_catalog,
 )
+from app.rag.kb.crawler_bridge import publish_crawled_candidate_to_rag_kb
 from app.knowledge.schemas import KnowledgeItemSummary, KnowledgeTaskSummary
 from app.retrieval.mixed_retriever import get_mixed_scope_retriever
 from app.retrieval.private_retriever import get_private_sample_retriever
@@ -393,6 +394,23 @@ class AdminService:
             candidate_id=candidate_id,
             reviewed_by_user_id=reviewed_by_user_id,
         )
+        self._clear_retrieval_caches("public_policy")
+        return PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
+
+    def publish_policy_crawler_candidate_to_rag(
+        self,
+        *,
+        candidate_id: str,
+        reviewed_by_user_id: str | None,
+    ) -> PolicyCrawlerCandidateSummary:
+        publish_crawled_candidate_to_rag_kb(
+            candidate_id=candidate_id,
+            reviewed_by_user_id=reviewed_by_user_id,
+        )
+        scheduler = get_policy_crawler_scheduler()
+        candidate = scheduler.store.get_candidate(candidate_id)
+        if candidate is None:
+            raise KeyError(candidate_id)
         self._clear_retrieval_caches("public_policy")
         return PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
 

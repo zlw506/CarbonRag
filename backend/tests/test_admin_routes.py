@@ -288,8 +288,8 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
 
     status_response = client.get("/api/v1/admin/policy-crawler/status")
     assert status_response.status_code == 200
-    assert status_response.json()["scheduled_enabled"] is True
-    assert status_response.json()["auto_publish_enabled"] is True
+    assert status_response.json()["scheduled_enabled"] is False
+    assert status_response.json()["auto_publish_enabled"] is False
 
     sources_response = client.get("/api/v1/admin/policy-crawler/sources")
     assert sources_response.status_code == 200
@@ -302,20 +302,45 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     candidates_response = client.get("/api/v1/admin/policy-crawler/candidates")
     assert candidates_response.status_code == 200
     candidate = candidates_response.json()[0]
-    assert candidate["status"] == "published"
+    assert candidate["status"] == "pending_review"
     assert candidate["metadata"]["candidate_summary"]
     assert candidate["metadata"]["candidate_content_length"] > 0
     assert candidate["metadata"]["seed_url"] == "https://www.gov.cn/zhengce/"
-    assert candidate["metadata"]["policy_review_required"] is False
+    assert candidate["metadata"]["policy_review_required"] is True
     assert candidate["metadata"]["matched_policy_keywords"]
-    assert candidate["metadata"]["index_status"] == "indexed"
-    assert candidate["knowledge_item_id"]
+    assert candidate["knowledge_item_id"] is None
+
+    def fake_publish_to_rag(candidate_id: str, reviewed_by_user_id: str | None):
+        scheduler.store.update_candidate_review(
+            candidate_id=candidate_id,
+            status="published",
+            reviewed_by_user_id=reviewed_by_user_id,
+            review_note="Published to RAG KB and quick pipeline completed.",
+            metadata={
+                "rag_kb_id": "kb-policy",
+                "rag_doc_id": "rag-doc-policy",
+                "rag_pipeline_status": "indexed",
+                "rag_indexed_chunk_count": 2,
+                "rag_search_smoke_passed": True,
+            },
+        )
+
+    monkeypatch.setattr("app.admin.service.publish_crawled_candidate_to_rag_kb", fake_publish_to_rag)
+    rag_publish_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/publish-to-rag")
+    assert rag_publish_response.status_code == 200
+    rag_candidate = rag_publish_response.json()
+    assert rag_candidate["status"] == "published"
+    assert rag_candidate["rag_kb_id"] == "kb-policy"
+    assert rag_candidate["rag_doc_id"] == "rag-doc-policy"
+    assert rag_candidate["rag_pipeline_status"] == "indexed"
+    assert rag_candidate["rag_indexed_chunk_count"] == 2
+    assert rag_candidate["rag_search_smoke_passed"] is True
 
     runs_response = client.get("/api/v1/admin/policy-crawler/runs")
     assert runs_response.status_code == 200
     assert runs_response.json()[0]["candidate_count"] == 1
-    assert runs_response.json()[0]["metadata"]["auto_published_count"] == 1
-    assert runs_response.json()[0]["metadata"]["auto_indexed_count"] == 1
+    assert runs_response.json()[0]["metadata"]["auto_published_count"] == 0
+    assert runs_response.json()[0]["metadata"]["auto_indexed_count"] == 0
 
 
 def test_admin_policy_live_crawler_reject_flow(monkeypatch, tmp_path) -> None:

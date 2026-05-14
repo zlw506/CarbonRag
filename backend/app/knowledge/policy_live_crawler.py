@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import base64
+import html
 import re
 import sqlite3
 import threading
@@ -478,9 +479,44 @@ class PolicyCrawlerStore:
     ) -> PolicyCrawlerCandidate:
         now = self.utcnow()
         content_hash = document.content_hash or hash_content(document.content)
-        candidate_id = f"pcand-{hash_content(f'{source_id}:{document.url}:{content_hash}')[:12]}"
+        candidate_id = _candidate_id_for(source_id=source_id, url=document.url, content_hash=content_hash)
         existing = self.get_candidate(candidate_id)
-        metadata_json = json.dumps({**document.metadata, **(metadata or {})}, ensure_ascii=False)
+        previous = existing or self.get_latest_candidate_for_url(
+            source_id=source_id,
+            url=document.url,
+            exclude_candidate_id=candidate_id,
+        )
+        previous_hash = previous.content_hash if previous is not None else None
+        change_type = "new"
+        skip_reason = None
+        if previous_hash:
+            change_type = "unchanged" if previous_hash == content_hash else "changed"
+            if change_type == "unchanged":
+                skip_reason = "duplicate_content_hash"
+        merged_metadata = {
+            **document.metadata,
+            **(metadata or {}),
+            "source_id": source_id,
+            "run_id": run_id,
+            "candidate_id": candidate_id,
+            "url": document.url,
+            "canonical_url": str(document.metadata.get("response_url") or document.url),
+            "title": document.title,
+            "content_type": document.content_type,
+            "http_status": document.metadata.get("status") or document.metadata.get("http_status"),
+            "fetched_at": document.fetched_at.isoformat() if document.fetched_at else now.isoformat(),
+            "raw_storage_path": storage_path,
+            "content_hash": content_hash,
+            "previous_content_hash": previous_hash,
+            "change_type": change_type,
+            "skip_reason": skip_reason,
+            "crawler_backend": document.metadata.get("provider_name") or document.metadata.get("crawler_backend"),
+            "robots_obey": document.metadata.get("robots_obey", True),
+            "duration_ms": document.metadata.get("duration_ms"),
+            "error_stage": document.metadata.get("error_stage"),
+            "error_detail": document.metadata.get("error_detail"),
+        }
+        metadata_json = json.dumps(merged_metadata, ensure_ascii=False)
         if existing is None:
             self._execute(
                 """
@@ -534,6 +570,29 @@ class PolicyCrawlerStore:
 
     def get_candidate(self, candidate_id: str) -> PolicyCrawlerCandidate | None:
         rows = self._select("SELECT * FROM policy_crawl_candidates WHERE candidate_id = {p}", [candidate_id])
+        return self._row_to_candidate(rows[0]) if rows else None
+
+    def get_latest_candidate_for_url(
+        self,
+        *,
+        source_id: str,
+        url: str,
+        exclude_candidate_id: str | None = None,
+    ) -> PolicyCrawlerCandidate | None:
+        clauses = ["source_id = {p}", "url = {p}"]
+        params: list[object] = [source_id, url]
+        if exclude_candidate_id:
+            clauses.append("candidate_id <> {p}")
+            params.append(exclude_candidate_id)
+        rows = self._select(
+            f"""
+            SELECT * FROM policy_crawl_candidates
+            WHERE {" AND ".join(clauses)}
+            ORDER BY updated_at DESC, candidate_seq DESC
+            LIMIT 1
+            """,
+            params,
+        )
         return self._row_to_candidate(rows[0]) if rows else None
 
     def list_candidates(
@@ -1013,19 +1072,25 @@ class PolicyCrawlerScheduler:
             if not matched_keywords:
                 skipped_by_topic.append(document.url)
                 continue
-            storage_path = self._write_candidate_document(source=source, document=document)
+            storage_path, artifact_metadata = self._write_candidate_artifacts(
+                run_id=run.run_id,
+                source=source,
+                document=document,
+                provider_name=descriptor.name,
+            )
             candidate = self.store.upsert_candidate(
                 run_id=run.run_id,
                 source_id=source.source_id,
                 document=document,
                 storage_path=str(storage_path),
                 metadata={
+                    **artifact_metadata,
                     "source_title": source.title,
                     "source_label": source.source_label,
                     "allowed_domain": source.allowed_domain,
                     "seed_url": source.source_url,
                     "start_urls": start_urls,
-                    "policy_review_required": False,
+                    "policy_review_required": not self.settings.rag_policy_live_crawler_auto_publish,
                     "auto_publish_enabled": self.settings.rag_policy_live_crawler_auto_publish,
                     "matched_policy_keywords": matched_keywords,
                     "candidate_summary": _candidate_summary(document),
@@ -1033,6 +1098,8 @@ class PolicyCrawlerScheduler:
                     "candidate_depth": document.metadata.get("depth"),
                     "candidate_response_url": document.metadata.get("response_url"),
                     "provider_metadata": result.metadata,
+                    "crawler_backend": self.settings.rag_policy_crawler_backend,
+                    "robots_obey": True,
                 },
             )
             candidates.append(candidate)
@@ -1090,6 +1157,34 @@ class PolicyCrawlerScheduler:
         target_path = self.candidate_dir / f"{source.source_id}-{hash_content(document.url)[:10]}-{content_hash[:10]}{suffix}"
         target_path.write_bytes(_document_content_bytes(document))
         return target_path
+
+    def _write_candidate_artifacts(
+        self,
+        *,
+        run_id: str,
+        source: PolicyCrawlerSource,
+        document: CrawledDocument,
+        provider_name: str,
+    ) -> tuple[Path, dict[str, Any]]:
+        raw_path = self._write_candidate_document(source=source, document=document)
+        content_hash = document.content_hash or hash_content(document.content)
+        candidate_id = _candidate_id_for(source_id=source.source_id, url=document.url, content_hash=content_hash)
+        artifact_dir = Path(self.settings.public_data_dir) / "policy_crawl_artifacts" / run_id / candidate_id
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        cleaned_text = _clean_candidate_text(document)
+        cleaned_path = artifact_dir / "cleaned.txt"
+        markdown_path = artifact_dir / "document.md"
+        cleaned_path.write_text(cleaned_text, encoding="utf-8")
+        markdown_path.write_text(_candidate_markdown(document=document, cleaned_text=cleaned_text), encoding="utf-8")
+        return raw_path, {
+            "raw_storage_path": str(raw_path),
+            "cleaned_storage_path": str(cleaned_path),
+            "markdown_storage_path": str(markdown_path),
+            "crawler_backend": self.settings.rag_policy_crawler_backend,
+            "crawler_provider": provider_name,
+            "error_stage": None,
+            "error_detail": None,
+        }
 
     def _safe_limits(self) -> dict[str, Any]:
         return {
@@ -1224,6 +1319,10 @@ def _optional_int(value: object) -> int | None:
         return None
 
 
+def _candidate_id_for(*, source_id: str, url: str, content_hash: str) -> str:
+    return f"pcand-{hash_content(f'{source_id}:{url}:{content_hash}')[:12]}"
+
+
 def _suffix_for_content_type(content_type: str) -> str:
     normalized = content_type.split(";", 1)[0].strip().lower()
     if normalized == "application/pdf":
@@ -1260,6 +1359,36 @@ def _read_text_candidate(path: Path) -> str:
         except UnicodeDecodeError:
             continue
     return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _clean_candidate_text(document: CrawledDocument) -> str:
+    normalized = document.content_type.split(";", 1)[0].strip().lower()
+    if normalized in {"application/pdf", "application/ofd", "application/vnd.ofd"}:
+        return _candidate_summary(document)
+    text = document.content
+    text = re.sub(r"<(script|style|noscript|svg|canvas)[^>]*>.*?</\1>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"</(p|div|section|article|header|footer|li|tr|h[1-6])>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+    return "\n".join(line for line in lines if line)
+
+
+def _candidate_markdown(*, document: CrawledDocument, cleaned_text: str) -> str:
+    title = (document.title or document.source_name or document.url).strip()
+    source_name = document.source_name or "unknown"
+    fetched_at = document.fetched_at.isoformat() if document.fetched_at else ""
+    parts = [
+        f"# {title}",
+        "",
+        f"- Source: {source_name}",
+        f"- URL: {document.url}",
+    ]
+    if fetched_at:
+        parts.append(f"- Fetched At: {fetched_at}")
+    parts.extend(["", cleaned_text.strip()])
+    return "\n".join(parts).strip() + "\n"
 
 
 def _candidate_content_length(document: CrawledDocument) -> int:
