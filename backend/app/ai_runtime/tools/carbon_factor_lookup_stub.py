@@ -16,6 +16,19 @@ _ACTIVITY_ALIASES: dict[str, tuple[str, ...]] = {
     "coal": ("煤", "原煤", "coal"),
     "steam": ("蒸汽", "steam"),
     "water": ("自来水", "用水", "water"),
+    "refrigerant": ("制冷剂", "冷媒", "r410a", "r134a", "refrigerant"),
+}
+
+_SCORING_STOP_TERMS = {
+    "和",
+    "及",
+    "与",
+    "或",
+    "的",
+    "碳因子",
+    "排放因子",
+    "碳核算",
+    "排放量",
 }
 
 
@@ -32,10 +45,19 @@ def _query_terms(query: str) -> list[str]:
             terms.update(alias.lower() for alias in aliases)
     # Keep short Chinese trigger words as substring probes; word splitting does
     # not help much for "外购电力排放因子" style queries.
-    for probe in ("外购电力", "天然气", "柴油", "汽油", "液化石油气", "蒸汽", "煤", "碳因子", "排放因子"):
+    for probe in ("外购电力", "天然气", "柴油", "汽油", "液化石油气", "蒸汽", "煤", "制冷剂", "碳因子", "排放因子"):
         if probe in normalized:
             terms.add(probe)
     return sorted(terms, key=len, reverse=True)
+
+
+def _has_activity_probe(query: str) -> bool:
+    normalized = _normalize_query(query)
+    return any(alias.lower() in normalized for aliases in _ACTIVITY_ALIASES.values() for alias in aliases)
+
+
+def _should_return_generic_factor_defaults(query: str) -> bool:
+    return any(marker in query for marker in ("碳因子", "排放因子", "碳核算", "排放量")) and not _has_activity_probe(query)
 
 
 def _record_haystack(record: FactorRecord) -> str:
@@ -69,14 +91,26 @@ def _score_record(record: FactorRecord, terms: list[str], query: str) -> float:
         if not term:
             continue
         term_lower = term.lower()
+        if term_lower in _SCORING_STOP_TERMS:
+            continue
         if term_lower == record.factor_id.lower():
             score += 100.0
         elif term_lower == (record.activity_name or "").lower():
             score += 45.0
         elif term_lower == (record.activity_category or "").lower():
             score += 30.0
+        elif term_lower in (record.activity_name or "").lower():
+            score += 25.0
+        elif term_lower in (record.activity_category or "").lower():
+            score += 25.0
         elif term_lower in haystack:
             score += 12.0 if len(term_lower) >= 3 else 5.0
+
+    # Source quality is a tie-breaker, not a match criterion. Otherwise generic
+    # queries containing "碳因子" cause every official electricity factor to
+    # crowd out the actually requested categories such as steam or fuels.
+    if score <= 0:
+        return 0.0
 
     normalized_query = _normalize_query(query)
     if ("官方" in normalized_query or "国家" in normalized_query) and (record.is_official or record.source_type == "official"):
@@ -91,6 +125,70 @@ def _score_record(record: FactorRecord, terms: list[str], query: str) -> float:
         score += 4.0
     score += min(record.source_priority, 100) / 100.0
     return score
+
+
+def _group_key(record: FactorRecord) -> tuple[str, str]:
+    activity_name = (record.activity_name or "").lower()
+    activity_category = (record.activity_category or "").lower()
+    combined = f"{activity_name} {activity_category}"
+    if activity_name in {"electricity", "用电", "电力"} or activity_category == "电力" or "purchased_electricity" in combined:
+        return ("canonical_activity", "electricity")
+    if activity_name in {"natural_gas", "天然气"}:
+        return ("canonical_activity", "natural_gas")
+    if activity_name in {"diesel", "柴油"}:
+        return ("canonical_activity", "diesel")
+    if activity_name in {"gasoline", "汽油"}:
+        return ("canonical_activity", "gasoline")
+    if activity_name in {"lpg", "液化石油气"}:
+        return ("canonical_activity", "lpg")
+    if "蒸汽" in combined or activity_name == "steam":
+        return ("canonical_activity", "steam")
+    if "制冷剂" in combined or "refrigerant" in combined:
+        return ("canonical_activity", "refrigerant")
+    return (record.activity_category or "", record.activity_name or "")
+
+
+def _diverse_hits(scored: list[tuple[float, FactorRecord]], *, top_k: int) -> list[tuple[float, FactorRecord]]:
+    grouped: dict[tuple[str, str], list[tuple[float, FactorRecord]]] = {}
+    for score, record in scored:
+        grouped.setdefault(_group_key(record), []).append((score, record))
+
+    for values in grouped.values():
+        values.sort(
+            key=lambda item: (
+                item[0],
+                int(item[1].is_official or item[1].source_type == "official"),
+                item[1].effective_year or item[1].year or 0,
+                item[1].source_priority,
+            ),
+            reverse=True,
+        )
+
+    selected: list[tuple[float, FactorRecord]] = []
+    seen: set[tuple[str, str]] = set()
+    best_per_group = sorted(
+        (values[0] for values in grouped.values()),
+        key=lambda item: (
+            item[0],
+            int(item[1].is_official or item[1].source_type == "official"),
+            item[1].effective_year or item[1].year or 0,
+            item[1].source_priority,
+        ),
+        reverse=True,
+    )
+    for item in best_per_group:
+        if len(selected) >= top_k:
+            return selected
+        selected.append(item)
+        seen.add(_group_key(item[1]))
+
+    for score, record in scored:
+        if len(selected) >= top_k:
+            return selected
+        key = _group_key(record)
+        if key in seen:
+            selected.append((score, record))
+    return selected
 
 
 def _record_to_hit(record: FactorRecord, *, score: float) -> dict[str, Any]:
@@ -178,7 +276,7 @@ class CarbonFactorLookupTool(BaseTool):
             score = _score_record(record, terms, query)
             if score > 0:
                 scored.append((score, record))
-        if not scored and any(marker in query for marker in ("碳因子", "排放因子", "碳核算", "排放量")):
+        if not scored and _should_return_generic_factor_defaults(query):
             scored = [
                 (
                     1.0
@@ -200,7 +298,8 @@ class CarbonFactorLookupTool(BaseTool):
             ),
             reverse=True,
         )
-        hits = [_record_to_hit(record, score=score) for score, record in scored[:top_k]]
+        diverse_scored = _diverse_hits(scored, top_k=top_k)
+        hits = [_record_to_hit(record, score=score) for score, record in diverse_scored]
         warnings: list[str] = []
         if not hits:
             warnings.append("本地碳因子库未命中与问题直接相关的因子。")

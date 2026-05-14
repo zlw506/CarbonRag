@@ -55,3 +55,36 @@ def test_carbon_factor_lookup_returns_real_factor_records() -> None:
     assert first_hit["factor_value"] > 0
     assert first_hit["factor_unit"]
     assert first_hit["factor_id"] != "electricity_grid_factor_stub"
+
+
+def test_carbon_factor_lookup_diversifies_multi_source_queries() -> None:
+    registry = build_default_registry()
+
+    result = registry.invoke(
+        "carbon_factor_lookup",
+        arguments={"question": "外购电力、天然气、柴油、汽油、外购蒸汽分别用什么碳因子？", "top_k": 8},
+        context={},
+        trace_id="trace-factor-multi",
+    )
+
+    activity_names = {hit["activity_name"] for hit in result.output["hits"]}
+
+    assert "electricity" in activity_names
+    assert "natural_gas" in activity_names or "天然气" in activity_names
+    assert "diesel" in activity_names or "柴油" in activity_names
+    assert "gasoline" in activity_names or "汽油" in activity_names
+    assert any("蒸汽" in name for name in activity_names)
+
+
+def test_carbon_factor_lookup_does_not_return_unrelated_electricity_for_refrigerant_query() -> None:
+    registry = build_default_registry()
+
+    result = registry.invoke(
+        "carbon_factor_lookup",
+        arguments={"question": "R410A 和 R134a 制冷剂碳因子是多少？", "top_k": 5},
+        context={},
+        trace_id="trace-factor-refrigerant",
+    )
+
+    assert result.output["hits"] == []
+    assert result.output["warnings"]
