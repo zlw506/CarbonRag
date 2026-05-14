@@ -1,0 +1,3 @@
+display_name: Report File Generation
+short_description: Generate downloadable DOCX/PDF reports from chat evidence.
+default_prompt: Generate a report file from the current CarbonRag conversation when the user asks for DOCX, PDF, or report export.

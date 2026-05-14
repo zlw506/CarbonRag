@@ -54,6 +54,18 @@ def _extract_report_carbon_outputs(tool_results: list[ToolResult] | None) -> lis
     return outputs
 
 
+def _extract_report_file_outputs(tool_results: list[ToolResult] | None) -> list[dict]:
+    if not tool_results:
+        return []
+    outputs: list[dict] = []
+    for tool_result in tool_results:
+        if tool_result.name != "report_file_generate":
+            continue
+        if isinstance(tool_result.output, dict):
+            outputs.append(tool_result.output)
+    return outputs
+
+
 def _extract_carbon_factor_outputs(tool_results: list[ToolResult] | None) -> list[dict]:
     if not tool_results:
         return []
@@ -122,6 +134,7 @@ def build_context_bundle(
         retrieval_hits = _extract_hits(tool_results)
         file_overviews = _extract_file_overviews(tool_results)
         report_carbon_outputs = _extract_report_carbon_outputs(tool_results)
+        report_file_outputs = _extract_report_file_outputs(tool_results)
         carbon_factor_outputs = _extract_carbon_factor_outputs(tool_results)
         carbon_factor_hits = [
             hit
@@ -414,6 +427,38 @@ def build_context_bundle(
                 )
             if warnings:
                 evidence_lines.append("报告抽取/核算警告：" + "；".join(str(item) for item in warnings))
+        if report_file_outputs:
+            evidence_lines.append("当前已尝试执行聊天内报告文件生成工具：")
+            for index, output in enumerate(report_file_outputs, start=1):
+                files = output.get("files") or []
+                if isinstance(files, list) and files:
+                    evidence_lines.extend(
+                        [
+                            f"[generated-report-{index}] 标题：{output.get('title') or '未命名报告'}",
+                            f"报告类型：{output.get('report_type') or '未知'}；report_id：{output.get('report_id') or '未知'}",
+                            "已生成文件：",
+                        ]
+                    )
+                    for file_item in files:
+                        if not isinstance(file_item, dict):
+                            continue
+                        evidence_lines.append(
+                            f"- {file_item.get('filename')}（{file_item.get('format')}）：{file_item.get('download_url')}"
+                        )
+                    evidence_lines.append(
+                        "约束：回答用户时必须明确这些文件已经生成，并给出文件名和下载链接；不要再说聊天页无法生成文件。"
+                    )
+                else:
+                    evidence_lines.extend(
+                        [
+                            f"[generated-report-{index}-failed] 报告文件未生成。",
+                            f"失败阶段：{output.get('error_stage') or 'unknown'}",
+                            f"失败原因：{output.get('error_message') or '未知错误'}",
+                        ]
+                    )
+                    warnings = output.get("warnings") or []
+                    if isinstance(warnings, list) and warnings:
+                        evidence_lines.append("报告文件生成建议：" + "；".join(str(item) for item in warnings[:3]))
         if not evidence_lines:
             evidence_lines = [
                 "当前未检索到足够依据。",
@@ -493,6 +538,10 @@ def build_context_bundle(
             "report_carbon_context": {
                 "ready": bool(report_carbon_outputs),
                 "outputs": report_carbon_outputs,
+            },
+            "report_file_context": {
+                "ready": bool(report_file_outputs),
+                "outputs": report_file_outputs,
             },
             "carbon_factor_context": {
                 "ready": bool(carbon_factor_hits),

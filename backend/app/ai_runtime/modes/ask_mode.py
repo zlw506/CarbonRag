@@ -12,6 +12,7 @@ ALLOWED_TOOLS = (
     "langchain_rag_answer",
     "carbon_factor_lookup",
     "report_carbon_extract_calc",
+    "report_file_generate",
 )
 DEFAULT_STUB_TOOL_SEQUENCE = ("policy_retrieve",)
 PROMPT_POLICY = (

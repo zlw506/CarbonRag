@@ -97,6 +97,28 @@ class AIRuntimeOrchestrator:
             )
             return any(keyword in question for keyword in keywords)
 
+        def should_generate_report_file() -> bool:
+            question = request.user_input.lower()
+            keywords = (
+                "生成报告",
+                "导出报告",
+                "下载报告",
+                "生成文件",
+                "导出文件",
+                "保存为",
+                "整理成报告",
+                "写成报告",
+                "做成报告",
+                "report file",
+                "export report",
+                "download report",
+            )
+            if any(keyword in question for keyword in keywords):
+                return True
+            file_words = ("word", "docx", "pdf")
+            action_words = ("生成", "导出", "下载", "保存", "整理", "做成", "写成", "create", "export", "download", "save")
+            return any(word in question for word in file_words) and any(word in question for word in action_words)
+
         if get_settings().rag_langchain_enabled:
             tool_sequence = ["rag_pro_search"]
             if request.payload.get("attached_file_knowledge_item_ids"):
@@ -108,6 +130,8 @@ class AIRuntimeOrchestrator:
                 tool_sequence.append("carbon_factor_lookup")
             if should_extract_report_carbon():
                 tool_sequence.append("report_carbon_extract_calc")
+            if should_generate_report_file():
+                tool_sequence.append("report_file_generate")
             return tuple(tool_sequence)
         effective_scope = request.payload.get("knowledge_scope_effective", "public")
         tool_sequence: list[str]
@@ -123,6 +147,8 @@ class AIRuntimeOrchestrator:
             tool_sequence.append("carbon_factor_lookup")
         if should_extract_report_carbon():
             tool_sequence.append("report_carbon_extract_calc")
+        if should_generate_report_file():
+            tool_sequence.append("report_file_generate")
         return tuple(tool_sequence)
 
     def _prepare_runtime(self, request: ChatRequest) -> PreparedRuntimeContext:

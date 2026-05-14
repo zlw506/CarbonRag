@@ -44,6 +44,29 @@ def _extract_retrieval_traces(tool_results: list[ToolResult]) -> list[dict]:
     return traces
 
 
+def _extract_generated_reports(tool_results: list[ToolResult]) -> list[dict]:
+    reports: list[dict] = []
+    for tool_result in tool_results:
+        if tool_result.name != "report_file_generate":
+            continue
+        output = tool_result.output
+        if not isinstance(output, dict):
+            continue
+        reports.append(
+            {
+                "status": tool_result.status,
+                "report_id": output.get("report_id"),
+                "report_type": output.get("report_type"),
+                "title": output.get("title"),
+                "files": output.get("files") or [],
+                "download_urls": output.get("download_urls") or [],
+                "error_stage": output.get("error_stage"),
+                "error_message": output.get("error_message"),
+            }
+        )
+    return reports
+
+
 def _build_source_summary(*, knowledge_scope: str, citations: list[dict]) -> dict:
     public_policy_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy")
     public_policy_demo_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy_demo")
@@ -81,7 +104,10 @@ def format_runtime_result(
     )
     source_summary = _build_source_summary(knowledge_scope=knowledge_scope, citations=citations)
     retrieval_traces = _extract_retrieval_traces(tool_results)
+    generated_reports = _extract_generated_reports(tool_results)
     latest_retrieval_trace = dict(retrieval_traces[-1]) if retrieval_traces else None
+    if latest_retrieval_trace is None and generated_reports:
+        latest_retrieval_trace = {"tool": "report_file_generate"}
     if latest_retrieval_trace is not None:
         latest_retrieval_trace.update(
             {
@@ -91,6 +117,8 @@ def format_runtime_result(
                 "thinking_content": provider_result.metadata.get("thinking_content"),
             }
         )
+        if generated_reports:
+            latest_retrieval_trace["generated_reports"] = generated_reports
     context_summary = {
         "payload_keys": context_bundle.get("payload_keys", []),
         "memory_reserved": not context_bundle.get("memory_slot", {}).get("implemented", False),
@@ -118,6 +146,8 @@ def format_runtime_result(
                 "source_summary": source_summary,
                 "kb_id": context_bundle.get("session_state", {}).get("kb_id"),
                 "rag_mode": context_bundle.get("session_state", {}).get("rag_mode"),
+                "generated_reports": generated_reports,
+                "generated_report_count": len(generated_reports),
             }
         )
     else:
@@ -156,5 +186,6 @@ def format_runtime_result(
             "forbidden_capabilities": list(guard_snapshot.forbidden_capabilities),
             "provider_metadata": provider_result.metadata,
             "retrieval_traces": retrieval_traces,
+            "generated_reports": generated_reports,
         },
     )

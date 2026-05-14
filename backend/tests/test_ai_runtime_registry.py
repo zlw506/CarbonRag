@@ -19,6 +19,7 @@ def test_default_registry_contains_all_stub_tools() -> None:
         "rag_pro_search",
         "report_carbon_extract_calc",
         "report_draft",
+        "report_file_generate",
         "session_file_search",
     ]
 

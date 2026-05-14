@@ -149,6 +149,41 @@ def test_orchestrator_expands_carbon_factor_lookup_top_k() -> None:
     assert factor_call.arguments["top_k"] == 10
 
 
+def test_orchestrator_adds_report_file_generation_tool_for_export_intent() -> None:
+    request = ChatRequest(
+        mode="ask",
+        user_input="请把刚才的分析导出成 DOCX 和 PDF 报告文件",
+        payload={
+            "session_id": "session-demo",
+            "knowledge_scope_requested": "public",
+            "knowledge_scope_effective": "public",
+            "top_k": 5,
+        },
+    )
+
+    tool_sequence = AIRuntimeOrchestrator._resolve_ask_tool_sequence(request)
+
+    assert "report_file_generate" in tool_sequence
+    assert tool_sequence[-1] == "report_file_generate"
+
+
+def test_orchestrator_does_not_treat_plain_pdf_question_as_file_export_intent() -> None:
+    request = ChatRequest(
+        mode="ask",
+        user_input="这个 PDF 文件里写了什么？",
+        payload={
+            "session_id": "session-demo",
+            "knowledge_scope_requested": "public",
+            "knowledge_scope_effective": "public",
+            "top_k": 5,
+        },
+    )
+
+    tool_sequence = AIRuntimeOrchestrator._resolve_ask_tool_sequence(request)
+
+    assert "report_file_generate" not in tool_sequence
+
+
 def test_orchestrator_returns_provider_error_when_chat_provider_fails() -> None:
     orchestrator = AIRuntimeOrchestrator(
         chat_provider=FailingChatProvider(),
