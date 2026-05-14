@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 from app.core.config import Settings, get_settings
 from app.knowledge.policy_ingestion import (
     DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS,
+    LOCAL_SCRAPY_SUBPROCESS_TIMEOUT_CAP_SECONDS,
+    URLLIB_DISCOVERY_TIMEOUT_CAP_SECONDS,
     CrawledDocument,
     CrawlerProvider,
     PolicyCrawlRequest,
@@ -1194,6 +1196,8 @@ class PolicyCrawlerScheduler:
             "download_delay_seconds": self.settings.rag_policy_live_crawler_download_delay_seconds,
             "concurrent_requests_per_domain": self.settings.rag_policy_live_crawler_concurrent_per_domain,
             "timeout_seconds": self.settings.rag_policy_live_crawler_timeout_seconds,
+            "local_scrapy_subprocess_timeout_seconds": LOCAL_SCRAPY_SUBPROCESS_TIMEOUT_CAP_SECONDS,
+            "urllib_discovery_timeout_seconds": URLLIB_DISCOVERY_TIMEOUT_CAP_SECONDS,
             "failure_backoff_seconds": self.settings.rag_policy_live_crawler_failure_backoff_seconds,
             "user_agent": self.settings.rag_policy_live_crawler_user_agent,
         }

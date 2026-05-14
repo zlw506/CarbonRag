@@ -1229,12 +1229,12 @@ export function AdminPlaceholderPage() {
                                 type={policyCrawlerStatus?.provider_available ? "success" : "info"}
                                 message={
                                     policyCrawlerStatus?.provider_available
-                                        ? "当前后端已能导入 Scrapy，可以执行真实官方源抓取"
+                                        ? "当前后端已能导入 Scrapy，并启用快速 fallback"
                                         : "当前后端 Python 环境还不能导入 Scrapy"
                                 }
                                 description={
                                     policyCrawlerStatus?.provider_available
-                                        ? "点击下方任一官方源的“手动抓取”会真实访问该白名单站点；候选内容会先进入审核区，再由管理员发布到 RAG 知识库。"
+                                        ? "点击“手动抓取”会先运行 Local Scrapy；如果 Scrapy 子进程超时或空结果，系统会自动切到 urllib 快速发现政策链接。候选内容会先进入审核区，再由管理员发布到 RAG 知识库。"
                                         : `请确认正在运行的后端使用 backend/.venv，并执行 ${String(
                                                   policyCrawlerStatus?.safe_limits.scrapy_install_command ??
                                                   "backend\\.venv\\Scripts\\python.exe -m pip install scrapy==2.15.2",
@@ -1297,7 +1297,10 @@ export function AdminPlaceholderPage() {
                                         {formatMetadataValue(policyCrawlerStatus.safe_limits.max_pages)}, delay=
                                         {formatMetadataValue(policyCrawlerStatus.safe_limits.download_delay_seconds)}s,
                                         concurrency=
-                                        {formatMetadataValue(policyCrawlerStatus.safe_limits.concurrent_requests_per_domain)}
+                                        {formatMetadataValue(policyCrawlerStatus.safe_limits.concurrent_requests_per_domain)}, scrapy=
+                                        {formatMetadataValue(policyCrawlerStatus.safe_limits.local_scrapy_subprocess_timeout_seconds)}s,
+                                        urllib=
+                                        {formatMetadataValue(policyCrawlerStatus.safe_limits.urllib_discovery_timeout_seconds)}s
                                     </Descriptions.Item>
                                     <Descriptions.Item label="官方白名单" span={2}>
                                         <Space size={6} wrap>
@@ -1376,6 +1379,9 @@ export function AdminPlaceholderPage() {
                                                     </Tag>
                                                     <Tag>{sourceCandidates.length} 条候选</Tag>
                                                     {latestRun ? <Tag>{latestRun.document_count} 个文档</Tag> : null}
+                                                    {latestRun?.metadata.fallback_reason ? (
+                                                        <Tag color="gold">{formatCrawlerFallbackLabel(latestRun.metadata.fallback_reason)}</Tag>
+                                                    ) : null}
                                                 </Space>
                                                 {source.last_error || latestRun?.error_detail ? (
                                                     <Typography.Paragraph type="danger" ellipsis={{ rows: 2 }}>
@@ -1383,11 +1389,11 @@ export function AdminPlaceholderPage() {
                                                     </Typography.Paragraph>
                                                 ) : (
                                                     <Typography.Text type="secondary">
-                                                        点击后会真实访问该官方白名单源，匹配双碳政策/技术标准后自动进入知识库。
+                                                        点击后先运行 Local Scrapy；若超时或空结果会自动切到 urllib 快速发现。命中的政策文件进入候选审核区。
                                                     </Typography.Text>
                                                 )}
                                                 <Space size={8} wrap>
-                                                    <Tooltip title={disabledReason ?? "真实运行 Scrapy，并遵守 robots、限速、深度和页数限制；命中的政策文件会进入候选审核，不自动发布。"}>
+                                                    <Tooltip title={disabledReason ?? "先运行 Local Scrapy；若 Scrapy 超时或空结果，自动转 urllib 快速发现。命中的政策文件会进入候选审核，不自动发布。"}>
                                                         <Button
                                                             type="primary"
                                                             icon={<ReloadOutlined />}
@@ -1548,10 +1554,18 @@ export function AdminPlaceholderPage() {
                                                 {typeof run.metadata.skipped_topic_count === "number" ? (
                                                     <Tag color="gold">{run.metadata.skipped_topic_count} 主题过滤</Tag>
                                                 ) : null}
+                                                {run.metadata.fallback_reason ? (
+                                                    <Tag color="gold">{formatCrawlerFallbackLabel(run.metadata.fallback_reason)}</Tag>
+                                                ) : null}
                                             </Space>
                                             <Typography.Text type={run.error_detail ? "danger" : "secondary"}>
                                                 {run.error_detail ?? `${formatTimestamp(run.started_at)} / ${run.provider_name ?? "unknown"}`}
                                             </Typography.Text>
+                                            {run.metadata.scrapy_error ? (
+                                                <Typography.Text type="secondary">
+                                                    {formatMetadataText(run.metadata.scrapy_error)}
+                                                </Typography.Text>
+                                            ) : null}
                                         </Space>
                                     </List.Item>
                                 )}
@@ -1943,6 +1957,20 @@ function formatCrawlerBackend(value?: string | null) {
         return "Scrapyd";
     }
     return "Local Scrapy";
+}
+
+function formatCrawlerFallbackLabel(value: unknown) {
+    const reason = formatMetadataText(value);
+    if (reason === "scrapy_timeout") {
+        return "Scrapy 超时后 urllib";
+    }
+    if (reason === "scrapy_returned_no_documents") {
+        return "Scrapy 空结果后 urllib";
+    }
+    if (reason === "scrapy_error") {
+        return "Scrapy 异常后 urllib";
+    }
+    return reason ? `fallback: ${reason}` : "fallback";
 }
 
 function availabilityLabel(value?: boolean | null) {

@@ -35,6 +35,9 @@ DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS: tuple[str, ...] = (
     "beijing.gov.cn",
 )
 
+LOCAL_SCRAPY_SUBPROCESS_TIMEOUT_CAP_SECONDS = 18.0
+URLLIB_DISCOVERY_TIMEOUT_CAP_SECONDS = 8.0
+
 PolicyCrawlerStatus = Literal["disabled", "unavailable", "succeeded", "failed", "rejected"]
 PolicyExpiryStatus = Literal["active", "expired", "unknown"]
 
@@ -208,19 +211,54 @@ class ScrapyCrawlerProvider:
             return CrawlResult(provider_name=self.provider_name, status="rejected", errors=[str(exc)])
         if not self.crawler_available:
             return CrawlResult(provider_name=self.provider_name, status="unavailable", errors=["Scrapy is not installed."])
+        errors: list[str] = []
+        fallback_reason: str | None = None
+        fallback_used = False
         try:
             documents = self.runner(request) if self.runner is not None else _run_scrapy_crawler_subprocess(request)
-            fallback_used = False
             if not documents and request.max_depth > 0:
+                fallback_reason = "scrapy_returned_no_documents"
                 documents = _discover_policy_documents_with_urllib(request)
                 fallback_used = bool(documents)
+        except subprocess.TimeoutExpired as exc:
+            fallback_reason = "scrapy_timeout"
+            errors.append(_format_timeout_error(exc))
+            documents = _discover_policy_documents_with_urllib(request)
+            fallback_used = bool(documents)
         except Exception as exc:  # noqa: BLE001
-            return CrawlResult(provider_name=self.provider_name, status="failed", errors=[str(exc)])
+            fallback_reason = "scrapy_error"
+            errors.append(str(exc))
+            documents = _discover_policy_documents_with_urllib(request) if request.max_depth > 0 else []
+            fallback_used = bool(documents)
+            if not documents:
+                return CrawlResult(
+                    provider_name=self.provider_name,
+                    status="failed",
+                    errors=errors,
+                    metadata={
+                        **_scrapy_settings_metadata(request),
+                        "error_stage": "fetch",
+                        "fallback_reason": fallback_reason,
+                        "fallback_provider": "urllib",
+                        "link_discovery_fallback_used": False,
+                    },
+                )
+        status: PolicyCrawlerStatus = "succeeded"
+        if errors and not documents:
+            status = "failed"
         return CrawlResult(
             provider_name=self.provider_name,
-            status="succeeded",
+            status=status,
             documents=documents,
-            metadata={**_scrapy_settings_metadata(request), "link_discovery_fallback_used": fallback_used},
+            errors=[] if documents else errors,
+            metadata={
+                **_scrapy_settings_metadata(request),
+                "error_stage": "fetch" if errors else None,
+                "scrapy_error": errors[0] if errors else None,
+                "fallback_reason": fallback_reason,
+                "fallback_provider": "urllib" if fallback_reason else None,
+                "link_discovery_fallback_used": fallback_used,
+            },
         )
 
 
@@ -860,6 +898,7 @@ def _scrapy_settings_metadata(request: PolicyCrawlRequest) -> dict[str, Any]:
 
 def _run_scrapy_crawler_subprocess(request: PolicyCrawlRequest) -> list[CrawledDocument]:
     backend_dir = Path(__file__).resolve().parents[2]
+    timeout_seconds = _local_scrapy_subprocess_timeout_seconds(request)
     with tempfile.TemporaryDirectory(prefix="carbonrag-scrapy-") as tmp_dir:
         request_path = Path(tmp_dir) / "request.json"
         output_path = Path(tmp_dir) / "documents.json"
@@ -878,7 +917,7 @@ def _run_scrapy_crawler_subprocess(request: PolicyCrawlRequest) -> list[CrawledD
             cwd=backend_dir,
             capture_output=True,
             text=True,
-            timeout=request.timeout_seconds,
+            timeout=timeout_seconds,
             check=False,
         )
         if completed.returncode != 0:
@@ -894,18 +933,41 @@ def _run_scrapy_crawler_subprocess(request: PolicyCrawlRequest) -> list[CrawledD
 
 def _discover_policy_documents_with_urllib(request: PolicyCrawlRequest) -> list[CrawledDocument]:
     documents: list[CrawledDocument] = []
+    timeout_seconds = _urllib_discovery_timeout_seconds(request)
     for seed_url in request.start_urls:
         if len(documents) >= request.max_pages:
             break
         try:
-            seed_html = _fetch_text_url(seed_url, timeout_seconds=request.timeout_seconds, user_agent=request.user_agent)
+            seed_html = _fetch_text_url(seed_url, timeout_seconds=timeout_seconds, user_agent=request.user_agent)
         except Exception:
             continue
+        if _looks_like_direct_policy_document_url(seed_url, _extract_html_title(seed_html) or ""):
+            documents.append(
+                CrawledDocument(
+                    url=seed_url,
+                    title=_extract_html_title(seed_html),
+                    content=seed_html,
+                    content_type="text/html",
+                    source_name=_infer_authority_from_url(seed_url),
+                    metadata={
+                        **request.metadata,
+                        "crawler_name": "carbonrag_policy_seed_fetch",
+                        "seed_url": seed_url,
+                        "response_url": seed_url,
+                        "depth": 0,
+                        "content_length": len(seed_html.encode("utf-8")),
+                        "content_transfer_encoding": "text",
+                        "fallback_provider": "urllib",
+                    },
+                )
+            )
+            if len(documents) >= request.max_pages:
+                break
         for policy_url in _extract_policy_links(seed_html, base_url=seed_url, allowed_domains=request.allowed_domains):
             if len(documents) >= request.max_pages:
                 break
             try:
-                raw_html = _fetch_text_url(policy_url, timeout_seconds=request.timeout_seconds, user_agent=request.user_agent)
+                raw_html = _fetch_text_url(policy_url, timeout_seconds=timeout_seconds, user_agent=request.user_agent)
             except Exception:
                 continue
             documents.append(
@@ -923,10 +985,24 @@ def _discover_policy_documents_with_urllib(request: PolicyCrawlRequest) -> list[
                         "depth": 1,
                         "content_length": len(raw_html.encode("utf-8")),
                         "content_transfer_encoding": "text",
+                        "fallback_provider": "urllib",
                     },
                 )
             )
     return documents
+
+
+def _local_scrapy_subprocess_timeout_seconds(request: PolicyCrawlRequest) -> float:
+    return max(1.0, min(float(request.timeout_seconds), LOCAL_SCRAPY_SUBPROCESS_TIMEOUT_CAP_SECONDS))
+
+
+def _urllib_discovery_timeout_seconds(request: PolicyCrawlRequest) -> float:
+    return max(1.0, min(float(request.timeout_seconds), URLLIB_DISCOVERY_TIMEOUT_CAP_SECONDS))
+
+
+def _format_timeout_error(exc: subprocess.TimeoutExpired) -> str:
+    timeout = exc.timeout if isinstance(exc.timeout, (int, float)) else LOCAL_SCRAPY_SUBPROCESS_TIMEOUT_CAP_SECONDS
+    return f"local Scrapy runner timed out after {timeout:.1f}s; falling back to urllib link discovery"
 
 
 def _fetch_text_url(url: str, *, timeout_seconds: float, user_agent: str | None) -> str:
@@ -956,6 +1032,8 @@ def _extract_policy_links(html: str, *, base_url: str, allowed_domains: list[str
             continue
         if not is_allowed_policy_url(clean_url, allowed_domains=allowed_domains):
             continue
+        if _is_policy_search_or_listing_url(clean_url):
+            continue
         if _looks_like_policy_link(clean_url, label):
             links.append(clean_url)
     return links
@@ -968,6 +1046,19 @@ def _looks_like_policy_link(url: str, label: str) -> bool:
     return any(token in lowered for token in url_tokens) and (
         not label or any(token in label for token in title_tokens) or "/content/" in lowered
     )
+
+
+def _looks_like_direct_policy_document_url(url: str, title: str) -> bool:
+    lowered = url.lower()
+    if _is_policy_search_or_listing_url(lowered):
+        return False
+    direct_tokens = ("/zhengce/content/", "/content/", "/zcfb/", "/zcwj/")
+    return any(token in lowered for token in direct_tokens) and _looks_like_policy_link(url, title)
+
+
+def _is_policy_search_or_listing_url(url: str) -> bool:
+    lowered = url.lower()
+    return any(token in lowered for token in ("search", "policydocumentlibrary", "/zcwjk/", "list", "index"))
 
 
 def _extract_html_title(html: str) -> str | None:

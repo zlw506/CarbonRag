@@ -1,6 +1,6 @@
 # CarbonRag
 
-当前状态：`V1.7.0 Crawler-to-RAG Auto Update Baseline / 官方政策 crawler 接入 RAG-Pro quick pipeline`
+当前状态：`V1.7.1 Policy Crawler Runtime Fallback Fix / 官方政策 crawler 可用性修复`
 
 CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标不是做一个泛用聊天壳，而是把“政策问答、私有知识、碳核算、报告生成、反馈闭环、多人治理”整合成一套可试用、可部署、可协作演进的垂直系统。
 

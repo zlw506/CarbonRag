@@ -2,6 +2,7 @@
 
 import base64
 import json
+import subprocess
 from pathlib import Path
 
 from app.core.config import Settings
@@ -222,6 +223,46 @@ def test_policy_live_crawler_scrapy_is_available_in_normal_backend_env() -> None
 
     assert descriptor.enabled is True
     assert descriptor.available is True
+
+
+def test_policy_live_crawler_scrapy_timeout_uses_urllib_fallback(monkeypatch, tmp_path) -> None:
+    def timeout_runner(request: PolicyCrawlRequest):
+        del request
+        raise subprocess.TimeoutExpired(cmd=["scrapy"], timeout=18)
+
+    def fake_fetch(url: str, *, timeout_seconds: float, user_agent: str | None) -> str:
+        del timeout_seconds, user_agent
+        if url == "https://www.gov.cn/zhengce/":
+            return """
+            <html><body>
+              <a href="/zhengce/content/carbon-peak-policy.html">碳达峰行动方案</a>
+            </body></html>
+            """
+        return """
+        <html>
+          <head><title>碳达峰行动方案</title></head>
+          <body><p>国务院政策文件推进碳达峰、碳中和、节能降碳和碳核算。</p></body>
+        </html>
+        """
+
+    monkeypatch.setattr("app.knowledge.policy_ingestion._fetch_text_url", fake_fetch)
+    scheduler = _build_scheduler(
+        tmp_path,
+        provider=ScrapyCrawlerProvider(enabled=True, runner=timeout_runner),
+        settings_overrides={"rag_policy_live_crawler_auto_publish": False},
+    )
+    scheduler.start()
+
+    run = scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
+    candidates = scheduler.list_candidates()
+
+    assert run.status == "succeeded"
+    assert run.document_count >= 1
+    assert run.candidate_count >= 1
+    assert run.metadata["fallback_reason"] == "scrapy_timeout"
+    assert run.metadata["link_discovery_fallback_used"] is True
+    assert candidates[0].status == "pending_review"
+    assert candidates[0].metadata["provider_metadata"]["fallback_provider"] == "urllib"
 
 
 def test_policy_live_crawler_stages_candidates_without_indexing_when_auto_publish_disabled(tmp_path) -> None:
