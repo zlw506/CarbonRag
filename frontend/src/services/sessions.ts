@@ -25,6 +25,8 @@ import type {
 
 const STREAM_RECOVERY_DELAYS_MS = [800, 1600, 3200, 5000, 8000];
 const MAX_STREAM_RECOVERY_ATTEMPTS = 5;
+const STREAM_FIRST_EVENT_SLOW_MS = 15_000;
+const STREAM_FIRST_EVENT_TIMEOUT_MS = 30_000;
 
 interface StreamAccumulatedState {
     answer: string;
@@ -170,7 +172,7 @@ export async function submitSessionAskStreamRequest(
 
     let attempt = 0;
     callbacks.onStatus?.({
-        status: "pending",
+        status: "connecting",
         request_group_id: requestGroupId,
         attempt: 1,
         max_attempts: MAX_STREAM_RECOVERY_ATTEMPTS,
@@ -285,20 +287,55 @@ export async function submitSessionAskStreamRequest(
         const parserState = createSseParserState();
         const decoder = new TextDecoder();
         const reader = fallbackResponse.body.getReader();
+        let receivedAnyEvent = state.last_event_seq > 0;
+        let slowNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+        const clearSlowNoticeTimer = () => {
+            if (slowNoticeTimer !== null) {
+                clearTimeout(slowNoticeTimer);
+                slowNoticeTimer = null;
+            }
+        };
+        const armSlowNoticeTimer = () => {
+            if (receivedAnyEvent || slowNoticeTimer !== null) {
+                return;
+            }
+            slowNoticeTimer = setTimeout(() => {
+                callbacks.onStatus?.({
+                    status: "connecting",
+                    status_note: "模型连接较慢，仍在等待响应…",
+                    request_group_id: requestGroupId,
+                    trace_id: state.trace_id || undefined,
+                    user_message_id: state.user_message_id,
+                    assistant_message_id: state.assistant_message_id,
+                    attempt,
+                    max_attempts: MAX_STREAM_RECOVERY_ATTEMPTS,
+                    recovered: false,
+                    resume_supported: true,
+                    provider_ref: state.provider_ref,
+                });
+            }, STREAM_FIRST_EVENT_SLOW_MS);
+        };
 
         try {
+            armSlowNoticeTimer();
             while (true) {
-                const { done, value } = await reader.read();
+                const { done, value } = receivedAnyEvent
+                    ? await reader.read()
+                    : await readStreamChunkWithTimeout(reader, STREAM_FIRST_EVENT_TIMEOUT_MS);
                 if (value) {
                     const text = decoder.decode(value, { stream: !done });
                     const events = consumeSseTextChunk(text, parserState);
                     for (const event of events) {
+                        receivedAnyEvent = true;
+                        clearSlowNoticeTimer();
                         applyStreamEvent(event, state, callbacks);
                     }
                 }
                 if (done) {
                     const finalEvent = flushSseState(parserState);
                     if (finalEvent) {
+                        receivedAnyEvent = true;
+                        clearSlowNoticeTimer();
                         applyStreamEvent(finalEvent, state, callbacks);
                     }
                     break;
@@ -318,6 +355,7 @@ export async function submitSessionAskStreamRequest(
             await waitFor(STREAM_RECOVERY_DELAYS_MS[Math.min(attempt - 1, STREAM_RECOVERY_DELAYS_MS.length - 1)]);
             continue;
         } finally {
+            clearSlowNoticeTimer();
             reader.releaseLock();
         }
 
@@ -363,6 +401,27 @@ export async function submitSessionAskStreamRequest(
             },
         trace_id: state.trace_id,
     };
+}
+
+function readStreamChunkWithTimeout(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    timeoutMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            reject(new Error("SSE first event timeout."));
+        }, timeoutMs);
+        reader.read().then(
+            (result) => {
+                clearTimeout(timer);
+                resolve(result);
+            },
+            (error) => {
+                clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
 }
 
 function hasRecoverableStreamAnswer(state: StreamAccumulatedState): boolean {

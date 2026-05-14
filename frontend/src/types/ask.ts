@@ -85,6 +85,7 @@ export interface AskStreamSessionTitleEvent {
 
 export interface AskStreamStatusEvent {
     status: AskStreamLifecycleStatus;
+    status_note?: string | null;
     user_message_id?: string | null;
     assistant_message_id?: string | null;
     trace_id?: string | null;
