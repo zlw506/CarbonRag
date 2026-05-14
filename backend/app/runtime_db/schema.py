@@ -41,6 +41,7 @@ CORE_TABLES = (
     "carbon_inventory_summaries",
     "reports",
     "report_sources",
+    "report_files",
     "private_sample_catalog_overrides",
     "knowledge_refresh_tasks",
     "policy_crawl_sources",
@@ -61,6 +62,7 @@ OWNER_TABLES = (
     "carbon_calculations",
     "carbon_inventories",
     "reports",
+    "report_files",
 )
 
 SQLITE_SCHEMA_SCRIPT = """
@@ -758,6 +760,25 @@ CREATE TABLE IF NOT EXISTS report_sources (
     FOREIGN KEY (report_id) REFERENCES reports(report_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS report_files (
+    file_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id TEXT NOT NULL UNIQUE,
+    owner_user_id TEXT NOT NULL,
+    report_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    format TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    file_size_bytes INTEGER NOT NULL,
+    checksum_sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (report_id) REFERENCES reports(report_id) ON DELETE CASCADE,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS private_sample_catalog_overrides (
     doc_id TEXT PRIMARY KEY,
     is_enabled INTEGER NOT NULL DEFAULT 1,
@@ -931,6 +952,10 @@ CREATE INDEX IF NOT EXISTS idx_reports_owner_session_updated_at
     ON reports(owner_user_id, session_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_report_sources_report_order
     ON report_sources(report_id, order_index ASC);
+CREATE INDEX IF NOT EXISTS idx_report_files_owner_report_created
+    ON report_files(owner_user_id, report_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_report_files_owner_file
+    ON report_files(owner_user_id, file_id);
 CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled
     ON private_sample_catalog_overrides(is_enabled, session_attachable);
 CREATE INDEX IF NOT EXISTS idx_knowledge_refresh_tasks_scope_created_at
@@ -1630,6 +1655,23 @@ POSTGRES_SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS report_files (
+        file_seq BIGSERIAL PRIMARY KEY,
+        file_id TEXT NOT NULL UNIQUE,
+        owner_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        report_id TEXT NOT NULL REFERENCES reports(report_id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+        format TEXT NOT NULL,
+        template_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        file_size_bytes BIGINT NOT NULL,
+        checksum_sha256 TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS private_sample_catalog_overrides (
         doc_id TEXT PRIMARY KEY,
         is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1855,6 +1897,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_carbon_evidence_inventory ON carbon_evidence_references(inventory_id, evidence_seq ASC)",
     "CREATE INDEX IF NOT EXISTS idx_reports_owner_session_updated_at ON reports(owner_user_id, session_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_report_sources_report_order ON report_sources(report_id, order_index ASC)",
+    "CREATE INDEX IF NOT EXISTS idx_report_files_owner_report_created ON report_files(owner_user_id, report_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_report_files_owner_file ON report_files(owner_user_id, file_id)",
     "CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled ON private_sample_catalog_overrides(is_enabled, session_attachable)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_refresh_tasks_scope_created_at ON knowledge_refresh_tasks(scope, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_policy_crawl_sources_enabled ON policy_crawl_sources(is_enabled, updated_at DESC)",

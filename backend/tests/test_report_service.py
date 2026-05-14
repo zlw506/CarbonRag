@@ -151,6 +151,56 @@ def test_report_service_generates_mixed_report_and_appends_system_message(monkey
     assert created.report_id in refreshed.messages[-1].content
 
 
+def test_report_service_treats_private_upload_as_private_evidence(monkeypatch, tmp_path) -> None:
+    session_service, _, report_service = build_services(tmp_path)
+    monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
+    owner_user_id = create_test_user_id(session_service.store.db_path, prefix="report-upload")
+    session = session_service.create_session(owner_user_id=owner_user_id)
+    session_service.record_exchange(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        user_content="Use policy and uploaded report evidence.",
+        assistant_content="This answer cites an uploaded report.",
+        assistant_status="ok",
+        trace_id="trace-upload",
+        citations=[
+            AskCitation(
+                doc_id="policy_001",
+                title="Policy Basis",
+                source_type="public_policy",
+                source="State Council",
+                source_url="https://example.com/policy",
+                snippet="Policy requirement snippet",
+                chunk_id="policy_001_chunk_01",
+            ),
+            AskCitation(
+                doc_id="uploaded_report_001",
+                title="Uploaded Carbon Report",
+                source_type="private_upload",
+                source="用户上传报告",
+                source_url=None,
+                snippet="Uploaded report snippet",
+                chunk_id="uploaded_report_001_chunk_01",
+            ),
+        ],
+        knowledge_scope="mixed",
+    )
+    session_detail = session_service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
+
+    created = report_service.create_report(
+        owner_user_id=owner_user_id,
+        payload=CreateReportRequest(
+            session_id=session.session_id,
+            report_type="mixed_analysis",
+            source_message_ids=[session_detail.messages[-1].message_id],
+        ),
+    )
+
+    assert created.source_summary.public_policy_count == 1
+    assert created.source_summary.private_upload_count == 1
+    assert any(citation.source_type == "private_upload" for citation in created.citations)
+
+
 def test_report_service_generates_carbon_summary(monkeypatch, tmp_path) -> None:
     session_service, carbon_service, report_service = build_services(tmp_path)
     monkeypatch.setattr("app.report.service.get_chat_provider", lambda: FakeChatProvider())
