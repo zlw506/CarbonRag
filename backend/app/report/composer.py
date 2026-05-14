@@ -48,6 +48,7 @@ class ReportComposer:
             public_policy_count=sum(1 for item in citations if item.source_type == "public_policy"),
             public_policy_demo_count=sum(1 for item in citations if item.source_type == "public_policy_demo"),
             private_sample_count=sum(1 for item in citations if item.source_type == "private_sample"),
+            private_upload_count=sum(1 for item in citations if item.source_type == "private_upload"),
             carbon_factor_count=sum(1 for item in citations if item.source_type == "carbon_factor"),
             total_citation_count=len(citations),
         )

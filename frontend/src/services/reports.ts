@@ -2,7 +2,10 @@ import axios from "axios";
 import { httpClient } from "./http";
 import type {
     CreateReportRequest,
+    CreateReportExportRequest,
     ReportDetail,
+    ReportExportResponse,
+    ReportFileSummary,
     ReportSummary,
     SessionCarbonCalculationSummary,
     UpdateReportRequest,
@@ -47,4 +50,50 @@ export async function updateReport(reportId: string, payload: UpdateReportReques
         }
         throw error;
     }
+}
+
+export async function listReportExports(reportId: string) {
+    const response = await httpClient.get<ReportExportResponse>(`/v1/reports/${reportId}/exports`);
+    return response.data;
+}
+
+export async function createReportExports(reportId: string, payload: CreateReportExportRequest) {
+    try {
+        const response = await httpClient.post<ReportExportResponse>(`/v1/reports/${reportId}/exports`, payload);
+        return response.data;
+    } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.data) {
+            throw error.response.data;
+        }
+        throw error;
+    }
+}
+
+function normalizeDownloadUrl(downloadUrl: string) {
+    if (downloadUrl.startsWith("/api/")) {
+        return downloadUrl.slice("/api".length);
+    }
+    return downloadUrl;
+}
+
+function parseContentDispositionFilename(contentDisposition: string | undefined) {
+    if (!contentDisposition) {
+        return null;
+    }
+    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+        return decodeURIComponent(utf8Match[1].trim().replace(/^"|"$/g, ""));
+    }
+    const asciiMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+    return asciiMatch?.[1]?.trim() || null;
+}
+
+export async function downloadReportFile(file: ReportFileSummary) {
+    const response = await httpClient.get<Blob>(normalizeDownloadUrl(file.download_url), {
+        responseType: "blob",
+    });
+    return {
+        blob: response.data,
+        filename: parseContentDispositionFilename(response.headers["content-disposition"]) ?? file.filename,
+    };
 }

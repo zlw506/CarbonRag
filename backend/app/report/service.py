@@ -223,6 +223,10 @@ class ReportService:
         return stored
 
     @staticmethod
+    def _is_private_citation(source_type: str) -> bool:
+        return source_type in {"private_sample", "private_upload"}
+
+    @staticmethod
     def _pick_default_message(messages: list[SessionMessage], report_type: str) -> SessionMessage | None:
         candidates = [
             message
@@ -238,7 +242,7 @@ class ReportService:
                     message
                     for message in candidates
                     if any(citation.source_type == "public_policy" for citation in message.citations)
-                    and any(citation.source_type == "private_sample" for citation in message.citations)
+                    and any(ReportService._is_private_citation(citation.source_type) for citation in message.citations)
                 ),
                 None,
             ) or candidates[0]
@@ -282,7 +286,7 @@ class ReportService:
                 for citation in message.citations
             )
             has_private = any(
-                citation.source_type == "private_sample"
+                ReportService._is_private_citation(citation.source_type)
                 for message in selected_messages
                 for citation in message.citations
             )

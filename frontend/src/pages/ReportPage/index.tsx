@@ -1,5 +1,6 @@
 import {
     CopyOutlined,
+    DownloadOutlined,
     FileTextOutlined,
     ReloadOutlined,
     SaveOutlined,
@@ -29,7 +30,10 @@ import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { getSession } from "../../services/sessions";
 import {
     createReport,
+    createReportExports,
+    downloadReportFile,
     getReport,
+    listReportExports,
     listSessionCarbonResults,
     listSessionReports,
     updateReport,
@@ -38,6 +42,8 @@ import type { SessionDetail, SessionMessage } from "../../types/session";
 import type {
     ReportCitation,
     ReportDetail,
+    ReportExportFormat,
+    ReportFileSummary,
     ReportSourceSummary,
     ReportSummary,
     ReportType,
@@ -62,6 +68,7 @@ const sourceTypeLabelMap = {
     public_policy: "公共政策",
     public_policy_demo: "演示样例",
     private_sample: "知识条目",
+    private_upload: "上传文件",
     carbon_factor: "排放因子",
 } as const;
 
@@ -69,6 +76,7 @@ const sourceTypeColorMap = {
     public_policy: "blue",
     public_policy_demo: "orange",
     private_sample: "magenta",
+    private_upload: "cyan",
     carbon_factor: "gold",
 } as const;
 
@@ -76,6 +84,7 @@ const emptyReportSourceSummary: ReportSourceSummary = {
     public_policy_count: 0,
     public_policy_demo_count: 0,
     private_sample_count: 0,
+    private_upload_count: 0,
     carbon_factor_count: 0,
     total_citation_count: 0,
 };
@@ -99,6 +108,9 @@ export function ReportPage() {
     const [loadingReport, setLoadingReport] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [exportingFormat, setExportingFormat] = useState<ReportExportFormat | "all" | null>(null);
+    const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
+    const [exportFiles, setExportFiles] = useState<ReportFileSummary[]>([]);
     const [transportError, setTransportError] = useState<string | null>(null);
 
     const selectableMessages = useMemo(
@@ -123,6 +135,7 @@ export function ReportPage() {
             setCarbonResults([]);
             setSelectedReportId(null);
             setActiveReport(null);
+            setExportFiles([]);
             return;
         }
         void loadSessionWorkspace(activeSessionId);
@@ -147,6 +160,7 @@ export function ReportPage() {
         setTransportError(null);
         setSelectedReportId(null);
         setActiveReport(null);
+        setExportFiles([]);
         try {
             const [detail, reportList, carbonList] = await Promise.all([
                 getSession(sessionId),
@@ -174,8 +188,12 @@ export function ReportPage() {
         setLoadingReport(true);
         setTransportError(null);
         try {
-            const detail = await getReport(reportId);
+            const [detail, exportsResponse] = await Promise.all([
+                getReport(reportId),
+                listReportExports(reportId),
+            ]);
             setActiveReport(detail);
+            setExportFiles(exportsResponse.files);
             setReportType(detail.report_type);
             setTitle(detail.title);
             setEditorContent(detail.content);
@@ -244,6 +262,52 @@ export function ReportPage() {
             setTransportError(extractDetailMessage(error) ?? "当前无法保存报告，请稍后重试。");
         } finally {
             setSaving(false);
+        }
+    }
+
+    async function handleExport(formats: ReportExportFormat[], label: ReportExportFormat | "all") {
+        if (!activeReport) {
+            return;
+        }
+        setExportingFormat(label);
+        setTransportError(null);
+        try {
+            await createReportExports(activeReport.report_id, {
+                formats,
+                template_id: "default",
+                include_citations: true,
+                include_source_snippets: true,
+                include_carbon_trace: true,
+                force_regenerate: false,
+            });
+            const refreshed = await listReportExports(activeReport.report_id);
+            setExportFiles(refreshed.files);
+            message.success("导出文件已生成。");
+        } catch (error) {
+            setTransportError(extractDetailMessage(error) ?? "当前无法导出报告文件，请稍后重试。");
+        } finally {
+            setExportingFormat(null);
+        }
+    }
+
+    async function handleDownloadExport(file: ReportFileSummary) {
+        setDownloadingFileId(file.file_id);
+        setTransportError(null);
+        try {
+            const { blob, filename } = await downloadReportFile(file);
+            const objectUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = objectUrl;
+            link.download = filename;
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
+        } catch (error) {
+            setTransportError(extractDetailMessage(error) ?? "当前无法下载导出文件，请稍后重试。");
+        } finally {
+            setDownloadingFileId(null);
         }
     }
 
@@ -418,6 +482,30 @@ export function ReportPage() {
                             >
                                 保存编辑
                             </Button>
+                            <Button
+                                icon={<DownloadOutlined />}
+                                disabled={!activeReport}
+                                loading={exportingFormat === "docx"}
+                                onClick={() => void handleExport(["docx"], "docx")}
+                            >
+                                导出 Word
+                            </Button>
+                            <Button
+                                icon={<DownloadOutlined />}
+                                disabled={!activeReport}
+                                loading={exportingFormat === "pdf"}
+                                onClick={() => void handleExport(["pdf"], "pdf")}
+                            >
+                                导出 PDF
+                            </Button>
+                            <Button
+                                icon={<DownloadOutlined />}
+                                disabled={!activeReport}
+                                loading={exportingFormat === "all"}
+                                onClick={() => void handleExport(["docx", "pdf"], "all")}
+                            >
+                                导出全部
+                            </Button>
                         </Space>
                     </div>
                 </Card>
@@ -437,6 +525,22 @@ export function ReportPage() {
                                 <Tag>{formatTimestamp(activeReport.created_at)}</Tag>
                                 <Tag color="blue">更新于 {formatTimestamp(activeReport.updated_at)}</Tag>
                             </Space>
+                            {exportFiles.length ? (
+                                <Space size={8} wrap>
+                                    <Typography.Text type="secondary">已导出：</Typography.Text>
+                                    {exportFiles.map((file) => (
+                                        <Button
+                                            key={file.file_id}
+                                            size="small"
+                                            icon={<DownloadOutlined />}
+                                            loading={downloadingFileId === file.file_id}
+                                            onClick={() => void handleDownloadExport(file)}
+                                        >
+                                            下载 {file.format === "docx" ? "Word" : "PDF"}
+                                        </Button>
+                                    ))}
+                                </Space>
+                            ) : null}
 
                             <Segmented<PreviewMode>
                                 value={previewMode}
@@ -665,6 +769,7 @@ function groupReportCitations(citations: ReportCitation[]) {
         public_policy: citations.filter((item) => item.source_type === "public_policy"),
         public_policy_demo: citations.filter((item) => item.source_type === "public_policy_demo"),
         private_sample: citations.filter((item) => item.source_type === "private_sample"),
+        private_upload: citations.filter((item) => item.source_type === "private_upload"),
         carbon_factor: citations.filter((item) => item.source_type === "carbon_factor"),
     };
 }
@@ -688,5 +793,11 @@ function extractDetailMessage(value: unknown): string | null {
         return null;
     }
     const candidate = value as { detail?: unknown };
-    return typeof candidate.detail === "string" ? candidate.detail : null;
+    if (typeof candidate.detail !== "string") {
+        return null;
+    }
+    if (candidate.detail.includes("validation error") || candidate.detail.includes("literal_error")) {
+        return "当前报告引用来源暂时无法识别，请刷新会话后重试；如果仍失败，请重新生成一次问答依据。";
+    }
+    return candidate.detail;
 }

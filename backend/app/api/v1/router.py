@@ -11,6 +11,7 @@ from app.api.v1.endpoints.kb import router as kb_router
 from app.api.v1.endpoints.memory import router as memory_router
 from app.api.v1.endpoints.private_samples import router as private_samples_router
 from app.api.v1.endpoints.rag import router as rag_router
+from app.api.v1.endpoints.report_exports import router as report_exports_router
 from app.api.v1.endpoints.reports import router as reports_router
 from app.api.v1.endpoints.me import router as me_router
 from app.api.v1.endpoints.sessions import router as sessions_router
@@ -30,6 +31,7 @@ router.include_router(memory_router, tags=["memory"])
 router.include_router(me_router, tags=["me"])
 router.include_router(private_samples_router, tags=["private-samples"])
 router.include_router(rag_router, tags=["rag"])
+router.include_router(report_exports_router, tags=["report-exports"])
 router.include_router(reports_router, tags=["reports"])
 router.include_router(sessions_router, tags=["sessions"])
 router.include_router(settings_router, tags=["settings"])
