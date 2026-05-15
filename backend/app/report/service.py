@@ -154,6 +154,66 @@ class ReportService:
         )
         return created
 
+    def create_conversation_draft_report(
+        self,
+        *,
+        owner_user_id: str,
+        session_id: str,
+        report_type: str = "mixed_analysis",
+        title: str | None = None,
+        request_text: str | None = None,
+        validation_warning: str | None = None,
+    ) -> ReportDetail:
+        """Create a downloadable report draft even when strict citation gates are not met.
+
+        Chat-triggered file generation should produce an artifact immediately. The strict
+        `create_report` path remains the formal, citation-controlled route; this method is
+        an explicit draft fallback so the UI can return a DOCX/PDF link instead of only an
+        explanation.
+        """
+
+        session = self.session_service.get_session(owner_user_id=owner_user_id, session_id=session_id)
+        if session is None:
+            raise KeyError(session_id)
+
+        selected_messages = self._pick_draft_source_messages(session.messages)
+        citations = self.composer.collect_message_citations(selected_messages)
+        source_summary = self.composer.build_source_summary(citations)
+        timestamp = utcnow()
+        report_title = title or f"对话即时报告 - {session.title}"
+        report = StoredReport(
+            report_id=f"report-{uuid4().hex[:12]}",
+            session_id=session_id,
+            report_type=report_type,
+            title=report_title,
+            content=self._build_conversation_draft_markdown(
+                title=report_title,
+                session=session,
+                request_text=request_text,
+                selected_messages=selected_messages,
+                citations=citations,
+                validation_warning=validation_warning,
+            ),
+            output_format="markdown",
+            citations=citations,
+            source_summary=source_summary,
+            sources=self._build_sources(selected_messages, None),
+            trace_id=f"report-trace-draft-{uuid4().hex[:12]}",
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+        created = self.storage.create_report(owner_user_id=owner_user_id, report=report)
+        self.session_service.record_system_message(
+            owner_user_id=owner_user_id,
+            session_id=session_id,
+            content=(
+                f"已生成即时报告草稿：{created.title}\n"
+                f"报告类型：{created.report_type}\n"
+                f"report_id：{created.report_id}"
+            ),
+        )
+        return created
+
     def get_report(self, *, owner_user_id: str, report_id: str) -> ReportDetail | None:
         return self.storage.get_report(owner_user_id=owner_user_id, report_id=report_id)
 
@@ -342,6 +402,103 @@ class ReportService:
 
         return sources
 
+    @staticmethod
+    def _pick_draft_source_messages(messages: list[SessionMessage]) -> list[SessionMessage]:
+        useful_messages = [
+            message
+            for message in messages
+            if message.role == "assistant"
+            and message.content.strip()
+            and message.status != "failed"
+            and not _is_placeholder_message(message.content)
+        ]
+        return useful_messages[-6:]
+
+    @staticmethod
+    def _build_conversation_draft_markdown(
+        *,
+        title: str,
+        session: SessionDetail,
+        request_text: str | None,
+        selected_messages: list[SessionMessage],
+        citations: list,
+        validation_warning: str | None,
+    ) -> str:
+        lines: list[str] = [
+            f"# {title}",
+            "",
+            "> 本文件由聊天页即时生成，可先下载使用；若需要正式合规版，请补齐政策/知识库 citation 后重新导出。",
+            "",
+            "## 生成说明",
+            f"- 会话：{session.title}",
+            f"- 生成时间：{utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        ]
+        if request_text:
+            lines.append(f"- 用户指令：{_one_line(request_text, limit=180)}")
+        if validation_warning:
+            lines.append(f"- 正式报告校验未满足：{validation_warning}")
+        lines.extend(
+            [
+                "",
+                "## 报告正文",
+            ]
+        )
+
+        if selected_messages:
+            for index, message in enumerate(selected_messages, start=1):
+                lines.extend(
+                    [
+                        f"### 会话要点 {index}",
+                        _trim_block(message.content, limit=1600),
+                        "",
+                    ]
+                )
+        else:
+            lines.extend(
+                [
+                    "当前会话还没有可用于正式整理的助手回复。请把需要整理的材料继续发到聊天中，或在生成正式报告前先完成一次带依据的问答。",
+                    "",
+                ]
+            )
+
+        lines.extend(
+            [
+                "## 后续补充建议",
+                "- 若要生成正式政策报告，请先让问答命中公共政策 citation。",
+                "- 若要生成企业资料分析报告，请先上传文件并确认回答中出现 private_upload citation。",
+                "- 若要生成碳核算报告，请先完成碳核算结果并确认使用了碳因子依据。",
+                "",
+                "## 参考依据",
+            ]
+        )
+        if citations:
+            for citation in citations:
+                lines.append(f"- [{citation.source_type}] {citation.title}：{citation.snippet}")
+        else:
+            lines.append("- 暂无正式 citation。本报告为即时草稿，不应作为最终可审计报告。")
+
+        return "\n".join(lines).strip() + "\n"
+
 
 def get_report_service() -> ReportService:
     return ReportService()
+
+
+def _is_placeholder_message(content: str) -> bool:
+    normalized = content.strip()
+    return normalized in {
+        "正在准备回答...",
+        "正在为这条问题创建回答位...",
+        "正在结合上下文组织回答...",
+    }
+
+
+def _one_line(content: str, *, limit: int) -> str:
+    return _trim_block(" ".join(content.split()), limit=limit)
+
+
+def _trim_block(content: str, *, limit: int) -> str:
+    normalized = content.strip()
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[:limit].rstrip()}……"

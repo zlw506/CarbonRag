@@ -80,6 +80,7 @@ class ReportFileGenerateTool(BaseTool):
                 report_type=report_type,
             )
 
+        warnings: list[str] = []
         try:
             report = self.report_service.create_report(
                 owner_user_id=owner_user_id,
@@ -98,14 +99,33 @@ class ReportFileGenerateTool(BaseTool):
                 ),
             )
         except ReportValidationError as exc:
-            return _error_result(
-                trace_id=trace_id,
-                message=str(exc),
-                error_stage="source_validation",
-                question=question,
-                formats=formats,
-                report_type=report_type,
-            )
+            try:
+                report = self.report_service.create_conversation_draft_report(
+                    owner_user_id=owner_user_id,
+                    session_id=session_id,
+                    report_type=report_type,
+                    title=f"{title}（即时草稿）",
+                    request_text=question,
+                    validation_warning=str(exc),
+                )
+                export_response = self.export_service.create_exports(
+                    owner_user_id=owner_user_id,
+                    report_id=report.report_id,
+                    payload=CreateReportExportRequest(
+                        formats=formats,
+                        force_regenerate=True,
+                    ),
+                )
+                warnings.append(f"正式报告校验未满足（{exc}），已先生成可下载即时草稿。")
+            except Exception as fallback_exc:  # pragma: no cover - defensive fallback boundary
+                return _error_result(
+                    trace_id=trace_id,
+                    message=f"{exc}; fallback draft failed: {fallback_exc}",
+                    error_stage="source_validation",
+                    question=question,
+                    formats=formats,
+                    report_type=report_type,
+                )
         except ReportProviderFailure as exc:
             return _error_result(
                 trace_id=trace_id,
@@ -151,7 +171,7 @@ class ReportFileGenerateTool(BaseTool):
                 "files": files,
                 "download_urls": [item["download_url"] for item in files],
                 "content_preview": report.content[:800],
-                "warnings": [],
+                "warnings": warnings,
             },
             metadata={"trace_id": trace_id, "file_count": len(files)},
         )
