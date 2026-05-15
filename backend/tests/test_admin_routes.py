@@ -295,6 +295,36 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     assert sources_response.status_code == 200
     assert any(item["source_id"] == "gov-cn-policy-library" for item in sources_response.json())
 
+    import_response = client.post("/api/v1/admin/policy-crawler/sources/recommended/import")
+    assert import_response.status_code == 200
+    assert import_response.json()["imported_count"] >= 12
+    assert import_response.json()["enabled_count"] <= 5
+
+    create_response = client.post(
+        "/api/v1/admin/policy-crawler/sources",
+        json={
+            "source_id": "custom-gov-source",
+            "title": "自定义中国政府网源",
+            "source_url": "https://www.gov.cn/zhengce/custom.html",
+            "source_label": "中国政府网",
+            "source_category": "国家政策",
+            "topic_tags": ["双碳"],
+            "required_keywords": ["碳"],
+            "optional_keywords": ["碳达峰"],
+            "parser_profile": "gov_policy_html",
+            "max_depth": 1,
+            "max_pages": 5,
+            "review_required": True,
+        },
+    )
+    assert create_response.status_code == 200
+    assert create_response.json()["is_enabled"] is False
+    assert create_response.json()["source_category"] == "国家政策"
+
+    dry_run_response = client.post("/api/v1/admin/policy-crawler/sources/custom-gov-source/dry-run")
+    assert dry_run_response.status_code == 200
+    assert dry_run_response.json()["source_id"] == "custom-gov-source"
+
     run_response = client.post("/api/v1/admin/policy-crawler/sources/gov-cn-policy-library/run")
     assert run_response.status_code == 200
     assert run_response.json()["status"] == "succeeded"
@@ -308,6 +338,7 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     assert candidate["metadata"]["seed_url"] == "https://www.gov.cn/zhengce/"
     assert candidate["metadata"]["policy_review_required"] is True
     assert candidate["metadata"]["matched_policy_keywords"]
+    assert candidate["candidate_quality_score"] is not None
     assert candidate["knowledge_item_id"] is None
 
     def fake_publish_to_rag(candidate_id: str, reviewed_by_user_id: str | None):

@@ -15,8 +15,11 @@ from app.admin.schemas import (
     KnowledgeRefreshScope,
     PolicyCrawlerCandidateStatus,
     PolicyCrawlerCandidateSummary,
+    PolicyCrawlerDryRunSummary,
+    PolicyCrawlerRecommendedImportSummary,
     PolicyCrawlerRunSummary,
     PolicyCrawlerSourceSummary,
+    PolicyCrawlerSourceUpsertRequest,
     PolicyCrawlerStatusSummary,
     PolicyShowcaseChunkSummary,
     PolicyShowcaseRetrievalHit,
@@ -345,6 +348,45 @@ class AdminService:
             for source in scheduler.list_sources()
         ]
 
+    def create_policy_crawler_source(self, payload: PolicyCrawlerSourceUpsertRequest) -> PolicyCrawlerSourceSummary:
+        scheduler = get_policy_crawler_scheduler()
+        source = scheduler.upsert_source(self._policy_crawler_source_payload(payload, force_disabled=True))
+        return PolicyCrawlerSourceSummary.model_validate(source.model_dump(mode="python"))
+
+    def update_policy_crawler_source(
+        self,
+        *,
+        source_id: str,
+        payload: PolicyCrawlerSourceUpsertRequest,
+    ) -> PolicyCrawlerSourceSummary:
+        scheduler = get_policy_crawler_scheduler()
+        existing = scheduler.store.get_source(source_id)
+        if existing is None:
+            raise KeyError(source_id)
+        source = scheduler.upsert_source(self._policy_crawler_source_payload(payload, source_id=source_id))
+        return PolicyCrawlerSourceSummary.model_validate(source.model_dump(mode="python"))
+
+    def delete_policy_crawler_source(self, *, source_id: str) -> dict[str, str]:
+        scheduler = get_policy_crawler_scheduler()
+        if not scheduler.delete_source(source_id):
+            raise KeyError(source_id)
+        return {"status": "deleted", "source_id": source_id}
+
+    def import_recommended_policy_crawler_sources(self) -> PolicyCrawlerRecommendedImportSummary:
+        scheduler = get_policy_crawler_scheduler()
+        sources = scheduler.import_recommended_sources()
+        summaries = [PolicyCrawlerSourceSummary.model_validate(source.model_dump(mode="python")) for source in sources]
+        return PolicyCrawlerRecommendedImportSummary(
+            imported_count=len(summaries),
+            enabled_count=sum(1 for source in summaries if source.is_enabled),
+            sources=summaries,
+        )
+
+    def dry_run_policy_crawler_source(self, *, source_id: str) -> PolicyCrawlerDryRunSummary:
+        scheduler = get_policy_crawler_scheduler()
+        result = scheduler.dry_run_source(source_id=source_id)
+        return PolicyCrawlerDryRunSummary.model_validate(result.model_dump(mode="python"))
+
     def run_policy_crawler_source(
         self,
         *,
@@ -396,6 +438,46 @@ class AdminService:
         )
         self._clear_retrieval_caches("public_policy")
         return PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
+
+    @staticmethod
+    def _policy_crawler_source_payload(
+        payload: PolicyCrawlerSourceUpsertRequest,
+        *,
+        source_id: str | None = None,
+        force_disabled: bool = False,
+    ) -> dict:
+        metadata = {
+            **payload.metadata,
+            "source_category": payload.source_category,
+            "region": payload.region,
+            "priority": payload.priority,
+            "topic_tags": payload.topic_tags,
+            "start_urls": payload.start_urls,
+            "extra_start_urls": payload.extra_start_urls,
+            "include_patterns": payload.include_patterns,
+            "exclude_patterns": payload.exclude_patterns,
+            "required_keywords": payload.required_keywords,
+            "optional_keywords": payload.optional_keywords,
+            "crawl_mode": payload.crawl_mode,
+            "parser_profile": payload.parser_profile,
+            "max_depth": payload.max_depth,
+            "max_pages": payload.max_pages,
+            "download_delay_seconds": payload.download_delay_seconds,
+            "schedule_enabled": payload.schedule_enabled,
+            "review_required": payload.review_required,
+            "target_rag_kb_id": payload.target_rag_kb_id,
+            "custom_source": True,
+        }
+        return {
+            "source_id": source_id or payload.source_id,
+            "title": payload.title,
+            "source_url": payload.source_url,
+            "source_label": payload.source_label,
+            "allowed_domain": payload.allowed_domain,
+            "is_enabled": False if force_disabled else payload.is_enabled,
+            "schedule_interval_seconds": payload.schedule_interval_seconds,
+            "metadata": {key: value for key, value in metadata.items() if value not in (None, [], {})},
+        }
 
     def publish_policy_crawler_candidate_to_rag(
         self,

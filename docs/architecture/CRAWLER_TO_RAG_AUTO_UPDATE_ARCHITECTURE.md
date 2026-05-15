@@ -52,3 +52,13 @@ RAG_POLICY_LIVE_CRAWLER_AUTO_PUBLISH=false
 ## 验收
 
 最小真实验收是：`gov-cn-policy-library` 手动运行后产生至少一个 candidate，管理员发布到 RAG，quick pipeline 完成，`/rag/search` 对“碳达峰”命中该 KB 文档，AskPage 选择该 KB 后可以引用。
+
+## V1.7.2 Source Registry 加固
+
+V1.7.2 在上述链路前增加“源治理层”：
+
+- 推荐官方源库：国家政策、标准与因子、北京地方源三组，默认只启用少量稳定源。
+- 管理员自定义源：新增后默认停用，必须先 dry-run 预览候选。
+- dry-run：只返回 HTTP/robots、候选链接、清洗预览、质量分和目标 KB，不写入候选表、不发布 RAG。
+- 质量评分：candidate metadata 写入 `candidate_quality_score` 与 `quality_breakdown`，低于 60 分不得进入 RAG。
+- 发布验证：`publish-to-rag` 后展示 `rag_kb_id/rag_doc_id/indexed_chunk_count/search_smoke/error_stage`。

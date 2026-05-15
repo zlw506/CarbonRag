@@ -121,6 +121,35 @@ class PolicyCrawlerStatus(BaseModel):
     safe_limits: dict[str, Any] = Field(default_factory=dict)
 
 
+class PolicyCrawlerDryRunCandidate(BaseModel):
+    url: str
+    title: str | None = None
+    content_type: str = "text/html"
+    http_status: int | None = None
+    matched_keywords: list[str] = Field(default_factory=list)
+    skip_reason: str | None = None
+    candidate_quality_score: int = 0
+    quality_breakdown: dict[str, int] = Field(default_factory=dict)
+    cleaned_markdown_preview: str = ""
+    estimated_chunk_count: int = 0
+    target_rag_kb_id: str | None = None
+    canonical_url: str | None = None
+
+
+class PolicyCrawlerDryRunResult(BaseModel):
+    source_id: str
+    status: PolicyCrawlRunStatus
+    provider_name: str | None = None
+    start_urls: list[str] = Field(default_factory=list)
+    robots_obey: bool = True
+    candidate_count: int = 0
+    skipped_count: int = 0
+    target_rag_kb_id: str | None = None
+    candidates: list[PolicyCrawlerDryRunCandidate] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 LEGACY_MOJIBAKE_POLICY_CRAWL_SOURCES: tuple[dict[str, Any], ...] = (
     {
         "source_id": "gov-cn-policy-library",
@@ -258,6 +287,7 @@ DEFAULT_POLICY_CRAWL_SOURCES = (
         "source_url": "https://fgw.beijing.gov.cn/fgwzwgk/2024zcwj/",
         "source_label": "北京市发展和改革委员会",
         "allowed_domain": "fgw.beijing.gov.cn",
+        "is_enabled": False,
         "metadata": {
             "scope": "local_policy",
             "region": "北京",
@@ -268,6 +298,171 @@ DEFAULT_POLICY_CRAWL_SOURCES = (
             ],
         },
     },
+)
+
+
+def _recommended_source(
+    *,
+    source_id: str,
+    title: str,
+    source_url: str,
+    source_label: str,
+    allowed_domain: str,
+    source_category: str,
+    region: str = "全国",
+    parser_profile: str = "generic_html",
+    priority: int = 50,
+    is_enabled: bool = False,
+    topic_tags: list[str] | None = None,
+    extra_start_urls: list[str] | None = None,
+    required_keywords: list[str] | None = None,
+    optional_keywords: list[str] | None = None,
+    risk_level: str = "medium",
+    recommendation_reason: str = "双碳政策、标准或因子相关权威源。",
+) -> dict[str, Any]:
+    return {
+        "source_id": source_id,
+        "title": title,
+        "source_url": source_url,
+        "source_label": source_label,
+        "allowed_domain": allowed_domain,
+        "is_enabled": is_enabled,
+        "metadata": {
+            "scope": "policy_source_registry",
+            "source_category": source_category,
+            "region": region,
+            "priority": priority,
+            "topic_tags": topic_tags or ["双碳", "碳达峰", "碳中和"],
+            "parser_profile": parser_profile,
+            "extra_start_urls": extra_start_urls or [],
+            "required_keywords": required_keywords or ["碳", "节能", "绿色"],
+            "optional_keywords": optional_keywords or ["碳达峰", "碳中和", "碳核算", "绿色制造", "排放因子"],
+            "review_required": True,
+            "target_rag_kb_id": "official-policy-auto-update",
+            "risk_level": risk_level,
+            "recommendation_reason": recommendation_reason,
+            "is_recommended": True,
+            "default_enabled": is_enabled,
+        },
+    }
+
+
+RECOMMENDED_POLICY_CRAWL_SOURCES: tuple[dict[str, Any], ...] = (
+    *(
+        {
+            **source,
+            "metadata": {
+                **(source.get("metadata") or {}),
+                "source_category": "国家政策" if source["allowed_domain"] not in {"beijing.gov.cn", "fgw.beijing.gov.cn"} else "北京地方源",
+                "region": (source.get("metadata") or {}).get("region", "全国"),
+                "priority": 90 if source.get("is_enabled", True) else 60,
+                "topic_tags": ["双碳", "碳达峰", "碳中和"],
+                "parser_profile": (source.get("metadata") or {}).get("discovery_mode", "generic_html"),
+                "review_required": True,
+                "target_rag_kb_id": "official-policy-auto-update",
+                "risk_level": "low" if source.get("is_enabled", True) else "medium",
+                "recommendation_reason": "V1.7.x 默认稳定官方源，适合手动抓取后发布到 RAG KB。",
+                "is_recommended": True,
+                "default_enabled": bool(source.get("is_enabled", True)),
+            },
+        }
+        for source in DEFAULT_POLICY_CRAWL_SOURCES
+    ),
+    _recommended_source(
+        source_id="mof-green-procurement-policy",
+        title="财政部绿色采购与财政支持政策",
+        source_url="https://www.mof.gov.cn/zhengwuxinxi/zhengcefabu/",
+        source_label="财政部",
+        allowed_domain="mof.gov.cn",
+        source_category="国家政策",
+        parser_profile="gov_policy_html",
+        priority=45,
+        topic_tags=["绿色采购", "财政支持", "节能降碳"],
+    ),
+    _recommended_source(
+        source_id="nea-energy-green-transition",
+        title="国家能源局绿色低碳能源转型",
+        source_url="https://www.nea.gov.cn/zwgk/",
+        source_label="国家能源局",
+        allowed_domain="nea.gov.cn",
+        source_category="国家政策",
+        parser_profile="gov_policy_html",
+        priority=45,
+        topic_tags=["能源转型", "可再生能源", "双碳"],
+    ),
+    _recommended_source(
+        source_id="openstd-carbon-standards",
+        title="国家标准全文公开系统：温室气体核算标准",
+        source_url="https://openstd.samr.gov.cn/",
+        source_label="国家标准全文公开系统",
+        allowed_domain="openstd.samr.gov.cn",
+        source_category="标准与因子",
+        parser_profile="openstd_standard",
+        priority=55,
+        topic_tags=["国家标准", "温室气体", "碳核算"],
+        required_keywords=["温室气体", "核算", "报告"],
+        risk_level="medium",
+    ),
+    _recommended_source(
+        source_id="std-samr-carbon-standards",
+        title="全国标准信息公共服务平台：双碳标准",
+        source_url="https://std.samr.gov.cn/",
+        source_label="全国标准信息公共服务平台",
+        allowed_domain="std.samr.gov.cn",
+        source_category="标准与因子",
+        parser_profile="openstd_standard",
+        priority=50,
+        topic_tags=["标准", "碳排放", "节能"],
+    ),
+    _recommended_source(
+        source_id="ncsc-emission-factor-database",
+        title="国家温室气体排放因子数据库",
+        source_url="https://data.ncsc.org.cn/factories/index",
+        source_label="国家应对气候变化战略研究和国际合作中心",
+        allowed_domain="data.ncsc.org.cn",
+        source_category="标准与因子",
+        parser_profile="generic_html",
+        priority=70,
+        topic_tags=["排放因子", "温室气体", "碳核算"],
+        required_keywords=["排放因子", "温室气体"],
+        risk_level="medium",
+    ),
+    _recommended_source(
+        source_id="beijing-mee-climate-policy",
+        title="北京市生态环境局气候与碳市场政策",
+        source_url="https://sthjj.beijing.gov.cn/",
+        source_label="北京市生态环境局",
+        allowed_domain="sthjj.beijing.gov.cn",
+        source_category="北京地方源",
+        region="北京",
+        parser_profile="gov_policy_html",
+        priority=45,
+        topic_tags=["北京", "生态环境", "碳市场"],
+    ),
+    _recommended_source(
+        source_id="beijing-jxj-green-industry",
+        title="北京市经济和信息化局绿色制造政策",
+        source_url="https://jxj.beijing.gov.cn/",
+        source_label="北京市经济和信息化局",
+        allowed_domain="jxj.beijing.gov.cn",
+        source_category="北京地方源",
+        region="北京",
+        parser_profile="gov_policy_html",
+        priority=40,
+        topic_tags=["北京", "绿色制造", "工业节能"],
+    ),
+    _recommended_source(
+        source_id="beijing-zjw-building-energy",
+        title="北京市住房城乡建设委建筑节能政策",
+        source_url="https://zjw.beijing.gov.cn/",
+        source_label="北京市住房和城乡建设委员会",
+        allowed_domain="zjw.beijing.gov.cn",
+        source_category="北京地方源",
+        region="北京",
+        parser_profile="gov_policy_html",
+        priority=40,
+        topic_tags=["北京", "建筑节能", "绿色建筑"],
+    ),
 )
 
 
@@ -363,6 +558,13 @@ class PolicyCrawlerStore:
     def list_sources(self) -> list[PolicyCrawlerSource]:
         rows = self._select("SELECT * FROM policy_crawl_sources ORDER BY source_seq ASC", [])
         return [self._row_to_source(row) for row in rows]
+
+    def delete_source(self, source_id: str) -> bool:
+        existing = self.get_source(source_id)
+        if existing is None:
+            return False
+        self._execute("DELETE FROM policy_crawl_sources WHERE source_id = {p}", [source_id])
+        return True
 
     def create_run(
         self,
@@ -858,6 +1060,100 @@ class PolicyCrawlerScheduler:
         finally:
             self._run_lock.release()
 
+    def upsert_source(self, payload: dict[str, Any]) -> PolicyCrawlerSource:
+        return self.store.upsert_source(payload)
+
+    def delete_source(self, source_id: str) -> bool:
+        return self.store.delete_source(source_id)
+
+    def import_recommended_sources(self) -> list[PolicyCrawlerSource]:
+        return self.store.seed_default_sources(RECOMMENDED_POLICY_CRAWL_SOURCES)
+
+    def dry_run_source(self, *, source_id: str, max_candidates: int = 5) -> PolicyCrawlerDryRunResult:
+        self.store.seed_default_sources()
+        source = self.store.get_source(source_id)
+        if source is None:
+            raise KeyError(source_id)
+        if not is_allowed_policy_url(source.source_url, allowed_domains=DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS):
+            raise ValueError(f"policy crawl source is outside official allowlist: {source.source_url}")
+        descriptor = self.provider.describe()
+        start_urls = _source_start_urls(source)
+        request = PolicyCrawlRequest(
+            start_urls=start_urls,
+            allowed_domains=[source.allowed_domain],
+            max_depth=min(int(source.metadata.get("max_depth") or self.settings.rag_policy_live_crawler_max_depth), 2),
+            max_pages=min(int(source.metadata.get("max_pages") or self.settings.rag_policy_live_crawler_max_pages), 10),
+            obey_robots=True,
+            download_delay_seconds=self.settings.rag_policy_live_crawler_download_delay_seconds,
+            concurrent_requests_per_domain=1,
+            timeout_seconds=self.settings.rag_policy_live_crawler_timeout_seconds,
+            user_agent=self.settings.rag_policy_live_crawler_user_agent,
+            metadata={
+                "source_id": source.source_id,
+                "trigger_type": "dry_run",
+                "source_label": source.source_label,
+                "topic_filter": "dual_carbon_policy_or_standard",
+            },
+        )
+        result = self.provider.crawl(request)
+        candidates: list[PolicyCrawlerDryRunCandidate] = []
+        skipped_count = 0
+        if result.status == "succeeded":
+            for document in result.documents:
+                if len(candidates) >= max(1, min(max_candidates, 10)):
+                    break
+                skip_reason = None
+                if not is_allowed_policy_url(document.url, allowed_domains=DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS):
+                    skip_reason = "outside_official_allowlist"
+                matched_keywords = _matched_policy_topic_keywords(document)
+                if not matched_keywords and skip_reason is None:
+                    skip_reason = "topic_keywords_not_matched"
+                if skip_reason:
+                    skipped_count += 1
+                cleaned = _clean_candidate_text(document)
+                quality = _candidate_quality(
+                    document=document,
+                    source=source,
+                    matched_keywords=matched_keywords,
+                    skip_reason=skip_reason,
+                    markdown_available=bool(cleaned.strip()),
+                )
+                candidates.append(
+                    PolicyCrawlerDryRunCandidate(
+                        url=document.url,
+                        title=document.title,
+                        content_type=document.content_type,
+                        http_status=document.metadata.get("status") or document.metadata.get("http_status"),
+                        matched_keywords=matched_keywords,
+                        skip_reason=skip_reason,
+                        candidate_quality_score=int(quality["candidate_quality_score"]),
+                        quality_breakdown=quality["quality_breakdown"],
+                        cleaned_markdown_preview=_candidate_markdown(document=document, cleaned_text=cleaned)[:3000],
+                        estimated_chunk_count=_estimate_chunk_count(cleaned),
+                        target_rag_kb_id=_metadata_string(source.metadata, "target_rag_kb_id")
+                        or "official-policy-auto-update",
+                        canonical_url=str(document.metadata.get("response_url") or document.url),
+                    )
+                )
+        return PolicyCrawlerDryRunResult(
+            source_id=source.source_id,
+            status=result.status,  # type: ignore[arg-type]
+            provider_name=descriptor.name,
+            start_urls=start_urls,
+            robots_obey=True,
+            candidate_count=len(candidates),
+            skipped_count=skipped_count,
+            target_rag_kb_id=_metadata_string(source.metadata, "target_rag_kb_id") or "official-policy-auto-update",
+            candidates=candidates,
+            errors=result.errors,
+            metadata={
+                **result.metadata,
+                "provider": descriptor.model_dump(),
+                "dry_run": True,
+                "safe_limits": self._safe_limits(),
+            },
+        )
+
     def list_sources(self) -> list[PolicyCrawlerSource]:
         self.store.seed_default_sources()
         return self.store.list_sources()
@@ -1080,6 +1376,12 @@ class PolicyCrawlerScheduler:
                 document=document,
                 provider_name=descriptor.name,
             )
+            quality_metadata = _candidate_quality(
+                document=document,
+                source=source,
+                matched_keywords=matched_keywords,
+                markdown_available=bool(artifact_metadata.get("markdown_storage_path")),
+            )
             candidate = self.store.upsert_candidate(
                 run_id=run.run_id,
                 source_id=source.source_id,
@@ -1087,6 +1389,7 @@ class PolicyCrawlerScheduler:
                 storage_path=str(storage_path),
                 metadata={
                     **artifact_metadata,
+                    **quality_metadata,
                     "source_title": source.title,
                     "source_label": source.source_label,
                     "allowed_domain": source.allowed_domain,
@@ -1283,6 +1586,50 @@ def _matched_policy_topic_keywords(document: CrawledDocument) -> list[str]:
     if any(token in haystack for token in ("carbon", "emission", "green", "energy saving")):
         return ["english-carbon-topic"]
     return []
+
+
+def _candidate_quality(
+    *,
+    document: CrawledDocument,
+    source: PolicyCrawlerSource,
+    matched_keywords: list[str],
+    skip_reason: str | None = None,
+    markdown_available: bool = True,
+) -> dict[str, Any]:
+    host = _host(document.url)
+    title = (document.title or "").strip()
+    cleaned_text = _clean_candidate_text(document)
+    preview = _readable_preview(cleaned_text)
+    title_policy_terms = ("政策", "通知", "公告", "方案", "意见", "规划", "办法", "标准", "指南", "因子", "核算")
+    has_source_or_date = bool(document.source_name or document.fetched_at or re.search(r"20\d{2}[-年/]\d{1,2}", preview))
+    duplicate_ok = skip_reason not in {"duplicate_content_hash", "unchanged"}
+    noise_ratio_ok = bool(preview) and len(preview) >= 120 and len(set(preview[:800])) >= 20
+    length = _candidate_content_length(document)
+    breakdown = {
+        "official_domain": 20 if (host == source.allowed_domain or host.endswith(f".{source.allowed_domain}")) else 0,
+        "title_relevance": 15 if any(term in title for term in title_policy_terms) else (8 if title else 0),
+        "dual_carbon_keywords": min(15, len(matched_keywords) * 4) if matched_keywords else 0,
+        "content_length": 10 if length >= 800 else (6 if length >= 300 else 2 if length else 0),
+        "noise_control": 10 if noise_ratio_ok else 3,
+        "date_or_source": 10 if has_source_or_date else 3,
+        "dedupe": 10 if duplicate_ok else 0,
+        "markdown": 10 if markdown_available and bool(cleaned_text.strip()) else 0,
+    }
+    score = max(0, min(100, int(sum(breakdown.values()))))
+    return {
+        "candidate_quality_score": score,
+        "quality_breakdown": breakdown,
+        "matched_keywords": matched_keywords,
+        "skip_reason": skip_reason,
+        "duplicate_reason": "duplicate_content_hash" if skip_reason == "duplicate_content_hash" else None,
+    }
+
+
+def _estimate_chunk_count(text: str, *, chunk_size: int = 900) -> int:
+    cleaned = _readable_preview(text)
+    if not cleaned:
+        return 0
+    return max(1, (len(cleaned) + chunk_size - 1) // chunk_size)
 
 
 def _host(url: str) -> str:

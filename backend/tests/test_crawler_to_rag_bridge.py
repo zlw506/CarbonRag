@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.knowledge.policy_ingestion import CrawledDocument, FakeCrawlerProvider
 from app.knowledge.policy_live_crawler import PolicyCrawlerScheduler, PolicyCrawlerStore
 from app.rag.kb.crawler_bridge import publish_crawled_candidate_to_rag_kb
@@ -74,6 +76,25 @@ def test_crawler_search_after_publish(monkeypatch, tmp_path) -> None:
     refreshed = scheduler.store.get_candidate(candidate.candidate_id)
     assert refreshed is not None
     assert refreshed.metadata["rag_search_smoke_passed"] is True
+
+
+def test_low_quality_candidate_cannot_publish_to_rag(monkeypatch, tmp_path) -> None:
+    scheduler = _seed_scheduler_with_candidate(tmp_path)
+    candidate = scheduler.list_candidates()[0]
+    scheduler.store.update_candidate_review(
+        candidate_id=candidate.candidate_id,
+        status="pending_review",
+        reviewed_by_user_id=None,
+        metadata={"candidate_quality_score": 42},
+    )
+    monkeypatch.setattr("app.rag.kb.crawler_bridge.get_policy_crawler_scheduler", lambda: scheduler)
+
+    with pytest.raises(ValueError, match="below 60"):
+        publish_crawled_candidate_to_rag_kb(
+            candidate_id=candidate.candidate_id,
+            reviewed_by_user_id=None,
+            rag_service=_FakeRagService(),
+        )
 
 
 def test_policy_crawler_local_scrapy_smoke(tmp_path) -> None:

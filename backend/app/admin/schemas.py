@@ -169,6 +169,99 @@ class PolicyCrawlerSourceSummary(BaseModel):
     next_run_at: datetime | None = None
     last_error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    source_category: str | None = None
+    region: str | None = None
+    priority: int | None = None
+    topic_tags: list[str] = Field(default_factory=list)
+    parser_profile: str | None = None
+    review_required: bool | None = None
+    target_rag_kb_id: str | None = None
+    recommendation_reason: str | None = None
+    risk_level: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def derive_registry_fields(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        metadata = value.get("metadata") if isinstance(value.get("metadata"), dict) else {}
+        value.setdefault("source_category", metadata.get("source_category") or metadata.get("scope"))
+        value.setdefault("region", metadata.get("region"))
+        value.setdefault("priority", metadata.get("priority"))
+        raw_tags = metadata.get("topic_tags")
+        value.setdefault("topic_tags", raw_tags if isinstance(raw_tags, list) else [])
+        value.setdefault("parser_profile", metadata.get("parser_profile") or metadata.get("discovery_mode"))
+        value.setdefault("review_required", metadata.get("review_required"))
+        value.setdefault("target_rag_kb_id", metadata.get("target_rag_kb_id"))
+        value.setdefault("recommendation_reason", metadata.get("recommendation_reason"))
+        value.setdefault("risk_level", metadata.get("risk_level"))
+        return value
+
+
+class PolicyCrawlerSourceUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=3, max_length=96)
+    title: str = Field(min_length=2, max_length=240)
+    source_url: str = Field(min_length=8, max_length=1000)
+    source_label: str = Field(min_length=2, max_length=120)
+    allowed_domain: str | None = Field(default=None, max_length=160)
+    is_enabled: bool = False
+    schedule_interval_seconds: int | None = Field(default=None, ge=60, le=2_592_000)
+    source_category: str | None = Field(default=None, max_length=80)
+    region: str | None = Field(default=None, max_length=80)
+    priority: int = Field(default=50, ge=0, le=100)
+    topic_tags: list[str] = Field(default_factory=list)
+    start_urls: list[str] = Field(default_factory=list)
+    extra_start_urls: list[str] = Field(default_factory=list)
+    include_patterns: list[str] = Field(default_factory=list)
+    exclude_patterns: list[str] = Field(default_factory=list)
+    required_keywords: list[str] = Field(default_factory=list)
+    optional_keywords: list[str] = Field(default_factory=list)
+    crawl_mode: str = "listing"
+    parser_profile: str = "generic_html"
+    max_depth: int = Field(default=1, ge=0, le=5)
+    max_pages: int = Field(default=20, ge=1, le=100)
+    download_delay_seconds: float = Field(default=1.0, ge=0.0, le=30.0)
+    schedule_enabled: bool = False
+    review_required: bool = True
+    target_rag_kb_id: str | None = Field(default=None, max_length=160)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyCrawlerDryRunCandidateSummary(BaseModel):
+    url: str
+    title: str | None = None
+    content_type: str
+    http_status: int | None = None
+    matched_keywords: list[str] = Field(default_factory=list)
+    skip_reason: str | None = None
+    candidate_quality_score: int = 0
+    quality_breakdown: dict[str, int] = Field(default_factory=dict)
+    cleaned_markdown_preview: str = ""
+    estimated_chunk_count: int = 0
+    target_rag_kb_id: str | None = None
+    canonical_url: str | None = None
+
+
+class PolicyCrawlerDryRunSummary(BaseModel):
+    source_id: str
+    status: str
+    provider_name: str | None = None
+    start_urls: list[str] = Field(default_factory=list)
+    robots_obey: bool = True
+    candidate_count: int = 0
+    skipped_count: int = 0
+    target_rag_kb_id: str | None = None
+    candidates: list[PolicyCrawlerDryRunCandidateSummary] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyCrawlerRecommendedImportSummary(BaseModel):
+    imported_count: int
+    enabled_count: int
+    sources: list[PolicyCrawlerSourceSummary] = Field(default_factory=list)
 
 
 class PolicyCrawlerRunSummary(BaseModel):
@@ -210,6 +303,11 @@ class PolicyCrawlerCandidateSummary(BaseModel):
     rag_indexed_chunk_count: int | None = None
     rag_search_smoke_passed: bool | None = None
     rag_error_stage: str | None = None
+    rag_error_detail: str | None = None
+    candidate_quality_score: int | None = None
+    quality_breakdown: dict[str, Any] = Field(default_factory=dict)
+    matched_keywords: list[str] = Field(default_factory=list)
+    skip_reason: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -223,6 +321,12 @@ class PolicyCrawlerCandidateSummary(BaseModel):
         value.setdefault("rag_indexed_chunk_count", metadata.get("rag_indexed_chunk_count") or metadata.get("indexed_chunk_count"))
         value.setdefault("rag_search_smoke_passed", metadata.get("rag_search_smoke_passed"))
         value.setdefault("rag_error_stage", metadata.get("rag_error_stage") or metadata.get("error_stage"))
+        value.setdefault("rag_error_detail", metadata.get("rag_error_detail") or metadata.get("error_detail"))
+        value.setdefault("candidate_quality_score", metadata.get("candidate_quality_score"))
+        value.setdefault("quality_breakdown", metadata.get("quality_breakdown") or {})
+        raw_keywords = metadata.get("matched_keywords") or metadata.get("matched_policy_keywords")
+        value.setdefault("matched_keywords", raw_keywords if isinstance(raw_keywords, list) else [])
+        value.setdefault("skip_reason", metadata.get("skip_reason"))
         return value
 
 

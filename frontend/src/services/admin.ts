@@ -9,8 +9,11 @@ import type {
     KnowledgeRefreshTask,
     PolicyCrawlerCandidateStatus,
     PolicyCrawlerCandidateSummary,
+    PolicyCrawlerDryRunSummary,
+    PolicyCrawlerRecommendedImportSummary,
     PolicyCrawlerRunSummary,
     PolicyCrawlerSourceSummary,
+    PolicyCrawlerSourceUpsertRequest,
     PolicyCrawlerStatusSummary,
     PolicyShowcaseChunkSummary,
     PolicyShowcaseRetrievalPreview,
@@ -92,6 +95,42 @@ export async function getPolicyCrawlerStatus() {
 
 export async function listPolicyCrawlerSources() {
     const response = await httpClient.get<PolicyCrawlerSourceSummary[]>("/v1/admin/policy-crawler/sources");
+    return response.data;
+}
+
+export async function createPolicyCrawlerSource(payload: PolicyCrawlerSourceUpsertRequest) {
+    const response = await httpClient.post<PolicyCrawlerSourceSummary>("/v1/admin/policy-crawler/sources", payload);
+    return response.data;
+}
+
+export async function updatePolicyCrawlerSource(sourceId: string, payload: PolicyCrawlerSourceUpsertRequest) {
+    const response = await httpClient.patch<PolicyCrawlerSourceSummary>(
+        `/v1/admin/policy-crawler/sources/${sourceId}`,
+        payload,
+    );
+    return response.data;
+}
+
+export async function deletePolicyCrawlerSource(sourceId: string) {
+    const response = await httpClient.delete<{ status: string; source_id: string }>(
+        `/v1/admin/policy-crawler/sources/${sourceId}`,
+    );
+    return response.data;
+}
+
+export async function importRecommendedPolicyCrawlerSources() {
+    const response = await httpClient.post<PolicyCrawlerRecommendedImportSummary>(
+        "/v1/admin/policy-crawler/sources/recommended/import",
+        {},
+    );
+    return response.data;
+}
+
+export async function dryRunPolicyCrawlerSource(sourceId: string) {
+    const response = await httpClient.post<PolicyCrawlerDryRunSummary>(
+        `/v1/admin/policy-crawler/sources/${sourceId}/dry-run`,
+        {},
+    );
     return response.data;
 }
 

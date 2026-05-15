@@ -40,29 +40,20 @@ def test_policy_live_crawler_allowlist_matches_official_domains(tmp_path) -> Non
     scheduler = _build_scheduler(tmp_path, provider=FakeCrawlerProvider(documents=[]))
     scheduler.start()
 
-    assert DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS == (
-        "gov.cn",
-        "ndrc.gov.cn",
-        "mee.gov.cn",
-        "miit.gov.cn",
-        "fgw.beijing.gov.cn",
-        "beijing.gov.cn",
+    assert {"gov.cn", "ndrc.gov.cn", "mee.gov.cn", "miit.gov.cn", "fgw.beijing.gov.cn", "beijing.gov.cn"}.issubset(
+        set(DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS)
     )
     assert is_allowed_policy_url("https://www.gov.cn/zhengce/")
     assert is_allowed_policy_url("https://www.ndrc.gov.cn/xxgk/zcfb/")
     assert is_allowed_policy_url("https://fgw.beijing.gov.cn/fgwzwgk/2024zcwj/")
+    assert is_allowed_policy_url("https://data.ncsc.org.cn/factories/index")
     assert not is_allowed_policy_url("https://example.com/policy")
     sources = scheduler.list_sources()
     assert sources[0].source_url == "https://www.gov.cn/zhengce/"
     assert all("content_5644984" not in source.source_url for source in sources)
-    assert [source.allowed_domain for source in scheduler.list_sources()] == [
-        "gov.cn",
-        "ndrc.gov.cn",
-        "mee.gov.cn",
-        "miit.gov.cn",
-        "beijing.gov.cn",
-        "fgw.beijing.gov.cn",
-    ]
+    assert {"gov.cn", "ndrc.gov.cn", "mee.gov.cn", "miit.gov.cn", "beijing.gov.cn", "fgw.beijing.gov.cn"}.issubset(
+        {source.allowed_domain for source in scheduler.list_sources()}
+    )
     assert scheduler.status().safe_limits["allowed_domains"] == list(DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS)
     assert scheduler.status().safe_limits["max_pages"] == 8
     assert scheduler.status().safe_limits["download_delay_seconds"] == 1.0

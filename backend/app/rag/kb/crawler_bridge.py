@@ -25,6 +25,9 @@ def publish_crawled_candidate_to_rag_kb(
         raise KeyError(candidate_id)
     if candidate.status == "rejected":
         raise ValueError("rejected candidates cannot be published to RAG")
+    quality_score = candidate.metadata.get("candidate_quality_score")
+    if quality_score is not None and int(quality_score) < 60:
+        raise ValueError(f"candidate quality score {quality_score} is below 60; review manually before RAG publish")
     if candidate.metadata.get("change_type") == "unchanged" and not candidate.metadata.get("rag_doc_id"):
         raise ValueError("unchanged duplicate candidate has no new RAG document to publish")
 

@@ -12,8 +12,11 @@ from app.admin.schemas import (
     KnowledgeRefreshTask,
     PolicyCrawlerCandidateStatus,
     PolicyCrawlerCandidateSummary,
+    PolicyCrawlerDryRunSummary,
+    PolicyCrawlerRecommendedImportSummary,
     PolicyCrawlerRunSummary,
     PolicyCrawlerSourceSummary,
+    PolicyCrawlerSourceUpsertRequest,
     PolicyCrawlerStatusSummary,
     PolicyShowcaseChunkSummary,
     PolicyShowcaseRetrievalPreview,
@@ -205,6 +208,70 @@ def list_admin_policy_crawler_sources(
 ) -> list[PolicyCrawlerSourceSummary]:
     del current_user
     return get_admin_service().list_policy_crawler_sources()
+
+
+@router.post("/policy-crawler/sources", response_model=PolicyCrawlerSourceSummary)
+def create_admin_policy_crawler_source(
+    payload: PolicyCrawlerSourceUpsertRequest,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerSourceSummary:
+    del current_user
+    try:
+        return get_admin_service().create_policy_crawler_source(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/policy-crawler/sources/recommended/import", response_model=PolicyCrawlerRecommendedImportSummary)
+def import_admin_recommended_policy_crawler_sources(
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerRecommendedImportSummary:
+    del current_user
+    try:
+        return get_admin_service().import_recommended_policy_crawler_sources()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/policy-crawler/sources/{source_id}", response_model=PolicyCrawlerSourceSummary)
+def update_admin_policy_crawler_source(
+    source_id: str,
+    payload: PolicyCrawlerSourceUpsertRequest,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerSourceSummary:
+    del current_user
+    try:
+        return get_admin_service().update_policy_crawler_source(source_id=source_id, payload=payload)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy crawler source not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/policy-crawler/sources/{source_id}")
+def delete_admin_policy_crawler_source(
+    source_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> dict[str, str]:
+    del current_user
+    try:
+        return get_admin_service().delete_policy_crawler_source(source_id=source_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy crawler source not found.")
+
+
+@router.post("/policy-crawler/sources/{source_id}/dry-run", response_model=PolicyCrawlerDryRunSummary)
+def dry_run_admin_policy_crawler_source(
+    source_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerDryRunSummary:
+    del current_user
+    try:
+        return get_admin_service().dry_run_policy_crawler_source(source_id=source_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy crawler source not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/policy-crawler/sources/{source_id}/run", response_model=PolicyCrawlerRunSummary)

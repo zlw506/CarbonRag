@@ -161,6 +161,79 @@ export interface PolicyCrawlerSourceSummary {
     next_run_at: string | null;
     last_error: string | null;
     metadata: Record<string, unknown>;
+    source_category?: string | null;
+    region?: string | null;
+    priority?: number | null;
+    topic_tags?: string[];
+    parser_profile?: string | null;
+    review_required?: boolean | null;
+    target_rag_kb_id?: string | null;
+    recommendation_reason?: string | null;
+    risk_level?: string | null;
+}
+
+export interface PolicyCrawlerSourceUpsertRequest {
+    source_id: string;
+    title: string;
+    source_url: string;
+    source_label: string;
+    allowed_domain?: string | null;
+    is_enabled?: boolean;
+    schedule_interval_seconds?: number | null;
+    source_category?: string | null;
+    region?: string | null;
+    priority?: number;
+    topic_tags?: string[];
+    start_urls?: string[];
+    extra_start_urls?: string[];
+    include_patterns?: string[];
+    exclude_patterns?: string[];
+    required_keywords?: string[];
+    optional_keywords?: string[];
+    crawl_mode?: string;
+    parser_profile?: string;
+    max_depth?: number;
+    max_pages?: number;
+    download_delay_seconds?: number;
+    schedule_enabled?: boolean;
+    review_required?: boolean;
+    target_rag_kb_id?: string | null;
+    metadata?: Record<string, unknown>;
+}
+
+export interface PolicyCrawlerDryRunCandidateSummary {
+    url: string;
+    title: string | null;
+    content_type: string;
+    http_status: number | null;
+    matched_keywords: string[];
+    skip_reason: string | null;
+    candidate_quality_score: number;
+    quality_breakdown: Record<string, number>;
+    cleaned_markdown_preview: string;
+    estimated_chunk_count: number;
+    target_rag_kb_id: string | null;
+    canonical_url: string | null;
+}
+
+export interface PolicyCrawlerDryRunSummary {
+    source_id: string;
+    status: string;
+    provider_name: string | null;
+    start_urls: string[];
+    robots_obey: boolean;
+    candidate_count: number;
+    skipped_count: number;
+    target_rag_kb_id: string | null;
+    candidates: PolicyCrawlerDryRunCandidateSummary[];
+    errors: string[];
+    metadata: Record<string, unknown>;
+}
+
+export interface PolicyCrawlerRecommendedImportSummary {
+    imported_count: number;
+    enabled_count: number;
+    sources: PolicyCrawlerSourceSummary[];
 }
 
 export interface PolicyCrawlerRunSummary {
@@ -202,6 +275,11 @@ export interface PolicyCrawlerCandidateSummary {
     rag_indexed_chunk_count: number | null;
     rag_search_smoke_passed: boolean | null;
     rag_error_stage: string | null;
+    rag_error_detail?: string | null;
+    candidate_quality_score?: number | null;
+    quality_breakdown?: Record<string, unknown>;
+    matched_keywords?: string[];
+    skip_reason?: string | null;
 }
 
 export interface PolicyCrawlerStatusSummary {

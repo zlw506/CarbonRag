@@ -4,6 +4,7 @@ import {
     DeleteOutlined,
     EyeOutlined,
     MessageOutlined,
+    PlusOutlined,
     ReloadOutlined,
     SyncOutlined,
     TeamOutlined,
@@ -14,6 +15,7 @@ import {
     Card,
     Descriptions,
     Empty,
+    Form,
     Input,
     List,
     Modal,
@@ -34,6 +36,8 @@ import { useAuth } from "../../app/AuthContext";
 import { FilePreviewDrawer } from "../../components/FilePreviewDrawer";
 import {
     deleteAdminUsers,
+    createPolicyCrawlerSource,
+    dryRunPolicyCrawlerSource,
     getAdminFeedbackOverview,
     getAdminSystemStatus,
     getPolicyCrawlerStatus,
@@ -45,6 +49,7 @@ import {
     listPolicyCrawlerSources,
     listPolicyShowcaseChunks,
     listPolicyShowcaseSources,
+    importRecommendedPolicyCrawlerSources,
     publishPolicyCrawlerCandidate,
     publishPolicyCrawlerCandidateToRag,
     rejectPolicyCrawlerCandidate,
@@ -66,8 +71,10 @@ import type {
     AdminSystemStatus,
     AdminUserSummary,
     PolicyCrawlerCandidateSummary,
+    PolicyCrawlerDryRunSummary,
     PolicyCrawlerRunSummary,
     PolicyCrawlerSourceSummary,
+    PolicyCrawlerSourceUpsertRequest,
     PolicyCrawlerStatusSummary,
     PolicyShowcaseSourceSummary,
     PolicyShowcaseStatus,
@@ -250,6 +257,12 @@ export function AdminPlaceholderPage() {
     const [deletingUsers, setDeletingUsers] = useState(false);
     const [userSearchQuery, setUserSearchQuery] = useState("");
     const [userTablePage, setUserTablePage] = useState(1);
+    const [sourceModalOpen, setSourceModalOpen] = useState(false);
+    const [sourceForm] = Form.useForm<PolicyCrawlerSourceUpsertRequest>();
+    const [savingCrawlerSource, setSavingCrawlerSource] = useState(false);
+    const [importingRecommendedSources, setImportingRecommendedSources] = useState(false);
+    const [dryRunSourceId, setDryRunSourceId] = useState<string | null>(null);
+    const [dryRunResult, setDryRunResult] = useState<PolicyCrawlerDryRunSummary | null>(null);
 
     const filteredUsers = useMemo(() => {
         const query = userSearchQuery.trim().toLowerCase();
@@ -798,6 +811,60 @@ export function AdminPlaceholderPage() {
         }
     }
 
+    async function handleImportRecommendedCrawlerSources() {
+        setImportingRecommendedSources(true);
+        setErrorMessage(null);
+        try {
+            const result = await importRecommendedPolicyCrawlerSources();
+            message.success(`已导入/刷新 ${result.imported_count} 个推荐源，默认启用 ${result.enabled_count} 个。`);
+            await fetchPolicyCrawlerWorkspace();
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "导入推荐双碳源失败。");
+        } finally {
+            setImportingRecommendedSources(false);
+        }
+    }
+
+    async function handleCreateCrawlerSource(values: PolicyCrawlerSourceUpsertRequest) {
+        setSavingCrawlerSource(true);
+        setErrorMessage(null);
+        try {
+            await createPolicyCrawlerSource({
+                ...values,
+                is_enabled: false,
+                topic_tags: splitListInput(values.topic_tags as unknown as string | string[] | undefined),
+                required_keywords: splitListInput(values.required_keywords as unknown as string | string[] | undefined),
+                optional_keywords: splitListInput(values.optional_keywords as unknown as string | string[] | undefined),
+                extra_start_urls: splitListInput(values.extra_start_urls as unknown as string | string[] | undefined),
+                max_depth: Number(values.max_depth ?? 1),
+                max_pages: Number(values.max_pages ?? 10),
+                priority: Number(values.priority ?? 50),
+            });
+            message.success("自定义官方源已保存为停用状态，请先试抓预览再启用。");
+            setSourceModalOpen(false);
+            sourceForm.resetFields();
+            await fetchPolicyCrawlerWorkspace();
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "保存自定义官方源失败。");
+        } finally {
+            setSavingCrawlerSource(false);
+        }
+    }
+
+    async function handleDryRunPolicyCrawler(sourceId: string) {
+        setDryRunSourceId(sourceId);
+        setErrorMessage(null);
+        try {
+            const result = await dryRunPolicyCrawlerSource(sourceId);
+            setDryRunResult(result);
+            message.success(`试抓完成：候选 ${result.candidate_count} 条，跳过 ${result.skipped_count} 条。`);
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "试抓预览失败。");
+        } finally {
+            setDryRunSourceId(null);
+        }
+    }
+
     async function handleRunPolicyCrawler(sourceId: string) {
         setRunningCrawlerSourceId(sourceId);
         setErrorMessage(null);
@@ -1200,12 +1267,12 @@ export function AdminPlaceholderPage() {
                         },
                         {
                             key: "crawler",
-                            label: "实时爬虫",
+                            label: "自动更新源",
                             children: (
                                 <div className="admin-grid admin-grid--tab">
                     <Card
                         className="admin-panel-card admin-grid__table-card admin-grid__wide-card"
-                        title="实时政策爬虫"
+                        title="双碳政策自动更新源"
                         extra={
                             <Space size={8} wrap>
                                 <Tag color={policyCrawlerStatus?.crawler_backend === "scrapyd" ? "purple" : "blue"}>
@@ -1224,9 +1291,40 @@ export function AdminPlaceholderPage() {
                             <Alert
                                 showIcon
                                 type="warning"
-                                message="官方白名单自动更新知识库"
-                                description="实时政策爬虫只访问 gov.cn、ndrc.gov.cn、mee.gov.cn、miit.gov.cn、fgw.beijing.gov.cn、beijing.gov.cn 六类官方白名单域名；V1.7.0 默认只手动抓取和人工发布，命中的政策候选需要点击“发布到 RAG”后才进入 RAG-Pro 知识库 quick pipeline。"
+                                message="官方源库 + 人工审核 + RAG 入库"
+                                description="自动更新源只允许官方白名单域名；V1.7.2 默认仍关闭定时抓取和自动发布。管理员需要先试抓预览，确认候选质量，再发布到 RAG-Pro 知识库 quick pipeline。"
                             />
+                            <Space size={8} wrap>
+                                <Button
+                                    type="primary"
+                                    icon={<CloudServerOutlined />}
+                                    loading={importingRecommendedSources}
+                                    onClick={() => void handleImportRecommendedCrawlerSources()}
+                                >
+                                    一键导入推荐双碳源
+                                </Button>
+                                <Button
+                                    icon={<PlusOutlined />}
+                                    onClick={() => {
+                                        sourceForm.setFieldsValue({
+                                            source_id: "",
+                                            title: "",
+                                            source_url: "",
+                                            source_label: "",
+                                            is_enabled: false,
+                                            source_category: "国家政策",
+                                            priority: 50,
+                                            parser_profile: "generic_html",
+                                            max_depth: 1,
+                                            max_pages: 10,
+                                            review_required: true,
+                                        });
+                                        setSourceModalOpen(true);
+                                    }}
+                                >
+                                    新增官方源
+                                </Button>
+                            </Space>
                             <Alert
                                 showIcon
                                 type={policyCrawlerStatus?.provider_available ? "success" : "info"}
@@ -1385,6 +1483,9 @@ export function AdminPlaceholderPage() {
                                                     {latestRun?.metadata.fallback_reason ? (
                                                         <Tag color="gold">{formatCrawlerFallbackLabel(latestRun.metadata.fallback_reason)}</Tag>
                                                     ) : null}
+                                                    {source.source_category ? <Tag color="cyan">{source.source_category}</Tag> : null}
+                                                    {source.parser_profile ? <Tag>{source.parser_profile}</Tag> : null}
+                                                    {source.risk_level ? <Tag color={source.risk_level === "low" ? "green" : "gold"}>{source.risk_level}</Tag> : null}
                                                 </Space>
                                                 {source.last_error || latestRun?.error_detail ? (
                                                     <Typography.Paragraph type="danger" ellipsis={{ rows: 2 }}>
@@ -1396,6 +1497,13 @@ export function AdminPlaceholderPage() {
                                                     </Typography.Text>
                                                 )}
                                                 <Space size={8} wrap>
+                                                    <Button
+                                                        icon={<EyeOutlined />}
+                                                        loading={dryRunSourceId === source.source_id}
+                                                        onClick={() => void handleDryRunPolicyCrawler(source.source_id)}
+                                                    >
+                                                        试抓预览
+                                                    </Button>
                                                     <Tooltip title={disabledReason ?? "先运行 Local Scrapy；若 Scrapy 超时或空结果，自动转 urllib 快速发现。命中的政策文件会进入候选审核，不自动发布。"}>
                                                         <Button
                                                             type="primary"
@@ -1417,6 +1525,63 @@ export function AdminPlaceholderPage() {
                                 })}
                             </div>
 
+                            {dryRunResult ? (
+                                <Card
+                                    size="small"
+                                    title={`试抓预览：${dryRunResult.source_id}`}
+                                    extra={
+                                        <Space size={8} wrap>
+                                            <Tag color={dryRunResult.status === "succeeded" ? "green" : "orange"}>
+                                                {crawlerRunStatusLabelMap[dryRunResult.status] ?? dryRunResult.status}
+                                            </Tag>
+                                            <Tag>候选 {dryRunResult.candidate_count}</Tag>
+                                            <Tag>跳过 {dryRunResult.skipped_count}</Tag>
+                                        </Space>
+                                    }
+                                >
+                                    <List
+                                        size="small"
+                                        dataSource={dryRunResult.candidates.slice(0, 5)}
+                                        locale={{ emptyText: "本次试抓没有候选。" }}
+                                        renderItem={(item) => (
+                                            <List.Item>
+                                                <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                                    <Space size={8} wrap>
+                                                        <Typography.Text strong>{item.title || item.url}</Typography.Text>
+                                                        <Tag color={item.candidate_quality_score >= 60 ? "green" : "orange"}>
+                                                            质量 {item.candidate_quality_score}
+                                                        </Tag>
+                                                        {item.skip_reason ? <Tag color="gold">{item.skip_reason}</Tag> : null}
+                                                        <Tag>{item.estimated_chunk_count} 片段预估</Tag>
+                                                    </Space>
+                                                    <Typography.Link href={item.url} target="_blank" rel="noreferrer">
+                                                        {item.url}
+                                                    </Typography.Link>
+                                                    <Typography.Paragraph ellipsis={{ rows: 3 }}>
+                                                        {item.cleaned_markdown_preview}
+                                                    </Typography.Paragraph>
+                                                    <Space size={6} wrap>
+                                                        {item.matched_keywords.map((keyword) => (
+                                                            <Tag key={keyword} color="blue">
+                                                                {keyword}
+                                                            </Tag>
+                                                        ))}
+                                                    </Space>
+                                                </Space>
+                                            </List.Item>
+                                        )}
+                                    />
+                                    {dryRunResult.errors.length > 0 ? (
+                                        <Alert
+                                            showIcon
+                                            type="warning"
+                                            message="试抓错误"
+                                            description={dryRunResult.errors.join("；")}
+                                        />
+                                    ) : null}
+                                </Card>
+                            ) : null}
+
                             <List
                                 className="admin-compact-list"
                                 size="small"
@@ -1424,7 +1589,12 @@ export function AdminPlaceholderPage() {
                                 dataSource={policyCrawlerCandidates.slice(0, 8)}
                                 locale={{ emptyText: "暂无记录。抓取成功后会显示政策文件、来源、摘要、匹配关键词和 RAG 发布状态。" }}
                                 renderItem={(candidate) => {
-                                    const matchedKeywords = metadataStringList(candidate.metadata.matched_policy_keywords);
+                                    const matchedKeywords =
+                                        candidate.matched_keywords?.length
+                                            ? candidate.matched_keywords
+                                            : metadataStringList(candidate.metadata.matched_policy_keywords);
+                                    const qualityScore = candidate.candidate_quality_score;
+                                    const qualityBlocked = typeof qualityScore === "number" && qualityScore < 60;
                                     return (
                                     <List.Item
                                         actions={[
@@ -1448,7 +1618,7 @@ export function AdminPlaceholderPage() {
                                                 type="primary"
                                                 size="small"
                                                 loading={reviewingCandidateId === candidate.candidate_id}
-                                                disabled={candidate.status === "rejected"}
+                                                disabled={candidate.status === "rejected" || qualityBlocked}
                                                 onClick={() => void handlePublishPolicyCandidateToRag(candidate.candidate_id)}
                                             >
                                                 发布到 RAG
@@ -1484,6 +1654,10 @@ export function AdminPlaceholderPage() {
                                                     {candidateStatusLabelMap[candidate.status] ?? candidate.status}
                                                 </Tag>
                                                 <Tag>{candidate.content_type}</Tag>
+                                                {typeof qualityScore === "number" ? (
+                                                    <Tag color={qualityScore >= 60 ? "green" : "orange"}>质量 {qualityScore}</Tag>
+                                                ) : null}
+                                                {candidate.skip_reason ? <Tag color="gold">{candidate.skip_reason}</Tag> : null}
                                                 {candidateQualityTags(candidate).map((tag) => (
                                                     <Tag key={`${candidate.candidate_id}-${tag.label}`} color={tag.color}>
                                                         {tag.label}
@@ -1903,6 +2077,79 @@ export function AdminPlaceholderPage() {
                     </div>
                 ) : null}
             </Modal>
+
+            <Modal
+                title="新增官方自动更新源"
+                open={sourceModalOpen}
+                okText="保存为待试抓源"
+                confirmLoading={savingCrawlerSource}
+                onOk={() => sourceForm.submit()}
+                onCancel={() => {
+                    if (savingCrawlerSource) {
+                        return;
+                    }
+                    setSourceModalOpen(false);
+                }}
+                width={760}
+            >
+                <Alert
+                    showIcon
+                    type="info"
+                    message="新增源会先保存为停用状态"
+                    description="请先点击“试抓预览”确认候选质量，再启用并运行。普通用户不能新增或运行爬虫源。"
+                    style={{ marginBottom: 16 }}
+                />
+                <Form
+                    form={sourceForm}
+                    layout="vertical"
+                    onFinish={(values) => void handleCreateCrawlerSource(values)}
+                >
+                    <Form.Item name="source_id" label="Source ID" rules={[{ required: true, message: "请输入 source_id" }]}>
+                        <Input placeholder="例如 ndrc-carbon-custom" />
+                    </Form.Item>
+                    <Form.Item name="title" label="源名称" rules={[{ required: true, message: "请输入源名称" }]}>
+                        <Input placeholder="例如 国家发改委节能降碳通知" />
+                    </Form.Item>
+                    <Form.Item name="source_url" label="入口 URL" rules={[{ required: true, message: "请输入官方 URL" }]}>
+                        <Input placeholder="https://www.ndrc.gov.cn/..." />
+                    </Form.Item>
+                    <Form.Item name="source_label" label="来源机构" rules={[{ required: true, message: "请输入来源机构" }]}>
+                        <Input placeholder="国家发展改革委" />
+                    </Form.Item>
+                    <Form.Item name="allowed_domain" label="允许域名">
+                        <Input placeholder="留空则自动使用入口 URL 域名" />
+                    </Form.Item>
+                    <Form.Item name="source_category" label="分类">
+                        <Input placeholder="国家政策 / 地方政策 / 标准 / 因子 / 项目申报 / 技术指南" />
+                    </Form.Item>
+                    <Form.Item name="topic_tags" label="主题标签（逗号或换行分隔）">
+                        <Input.TextArea rows={2} placeholder="双碳，碳达峰，碳核算" />
+                    </Form.Item>
+                    <Form.Item name="required_keywords" label="必须关键词（逗号或换行分隔）">
+                        <Input.TextArea rows={2} placeholder="碳，节能，绿色" />
+                    </Form.Item>
+                    <Form.Item name="optional_keywords" label="可选关键词（逗号或换行分隔）">
+                        <Input.TextArea rows={2} placeholder="碳达峰，碳中和，排放因子" />
+                    </Form.Item>
+                    <Form.Item name="extra_start_urls" label="额外入口 URL（逗号或换行分隔）">
+                        <Input.TextArea rows={2} placeholder="可填搜索页、栏目页等官方链接" />
+                    </Form.Item>
+                    <Space size={12} wrap>
+                        <Form.Item name="parser_profile" label="解析配置">
+                            <Input placeholder="generic_html" style={{ width: 180 }} />
+                        </Form.Item>
+                        <Form.Item name="max_depth" label="最大深度">
+                            <Input type="number" style={{ width: 120 }} />
+                        </Form.Item>
+                        <Form.Item name="max_pages" label="最大页数">
+                            <Input type="number" style={{ width: 120 }} />
+                        </Form.Item>
+                        <Form.Item name="priority" label="优先级">
+                            <Input type="number" style={{ width: 120 }} />
+                        </Form.Item>
+                    </Space>
+                </Form>
+            </Modal>
             <FilePreviewDrawer
                 open={Boolean(filePreviewTarget)}
                 target={filePreviewTarget}
@@ -2124,6 +2371,19 @@ function metadataStringList(value: unknown): string[] {
     }
     return single
         .split(/[、,，]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function splitListInput(value: string | string[] | undefined): string[] {
+    if (Array.isArray(value)) {
+        return value.map(String).map((item) => item.trim()).filter(Boolean);
+    }
+    if (!value) {
+        return [];
+    }
+    return String(value)
+        .split(/[\n,，;；、]+/)
         .map((item) => item.trim())
         .filter(Boolean);
 }

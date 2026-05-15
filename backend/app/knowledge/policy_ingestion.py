@@ -33,6 +33,14 @@ DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS: tuple[str, ...] = (
     "miit.gov.cn",
     "fgw.beijing.gov.cn",
     "beijing.gov.cn",
+    "mof.gov.cn",
+    "nea.gov.cn",
+    "openstd.samr.gov.cn",
+    "std.samr.gov.cn",
+    "data.ncsc.org.cn",
+    "sthjj.beijing.gov.cn",
+    "jxj.beijing.gov.cn",
+    "zjw.beijing.gov.cn",
 )
 
 LOCAL_SCRAPY_SUBPROCESS_TIMEOUT_CAP_SECONDS = 18.0

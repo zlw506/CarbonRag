@@ -24,3 +24,10 @@
 ## CarbonRag V1.7.0 选择
 
 现阶段 CarbonRag 已有 `policy_live_crawler`、Scrapy/Scrapyd provider、Admin policy-crawler endpoints、RAG-Pro KB pipeline。最高价值不是重写爬虫，而是新增 `publish-to-rag` bridge，让候选政策进入 `官方政策自动更新库` 并执行 quick pipeline。
+
+## V1.7.2 迁移重点
+
+- 从 Crawl4AI 继续吸收“cleaned text + LLM-ready markdown + content hash”的产物约定。
+- 从 Crawlab 继续吸收“source / run / result / log / schedule”治理语言，但不接它的运行时。
+- CarbonRag 当前只新增 Source Registry、dry-run、candidate quality score 和 RAG publish quality gate。
+- 自动定时和自动发布仍然关闭，避免噪声页面污染共享 RAG KB。
