@@ -81,3 +81,4 @@ class AskResponse(BaseModel):
     source_summary: AskSourceSummary
     trace_id: str
     retrieval_trace: dict | None = None
+    generated_reports: list[dict] = Field(default_factory=list)

@@ -42,6 +42,28 @@ export interface AskSourceSummary {
     total_citation_count: number;
 }
 
+export interface GeneratedReportFile {
+    file_id: string;
+    format: "docx" | "pdf" | string;
+    filename: string;
+    download_url: string;
+    content_type?: string;
+    file_size_bytes?: number;
+    checksum_sha256?: string;
+    created_at?: string;
+}
+
+export interface GeneratedReportSummary {
+    status: "success" | "error" | string;
+    report_id?: string | null;
+    report_type?: string | null;
+    title?: string | null;
+    files?: GeneratedReportFile[];
+    download_urls?: string[];
+    error_stage?: string | null;
+    error_message?: string | null;
+}
+
 export interface AskRequest {
     question: string;
     knowledge_scope: KnowledgeScope;
@@ -63,6 +85,7 @@ export interface AskResponse {
     source_summary: AskSourceSummary;
     trace_id: string;
     retrieval_trace?: Record<string, unknown> | null;
+    generated_reports?: GeneratedReportSummary[];
 }
 
 export interface AskStreamMessageStartEvent {

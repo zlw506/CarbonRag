@@ -1,4 +1,4 @@
-import type { AskCitation, AskRequest, AskResponse, AskSourceSummary, KnowledgeScope, MessageStatus } from "./ask";
+import type { AskCitation, AskRequest, AskResponse, AskSourceSummary, GeneratedReportSummary, KnowledgeScope, MessageStatus } from "./ask";
 
 export interface UploadedFile {
     file_id: string;
@@ -75,6 +75,7 @@ export interface SessionMessage {
     citations: AskCitation[];
     source_summary?: AskSourceSummary | null;
     retrieval_trace?: Record<string, unknown> | null;
+    generated_reports?: GeneratedReportSummary[];
 }
 
 export interface SessionDetail extends SessionSummary {

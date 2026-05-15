@@ -1842,6 +1842,52 @@ body {
     font-size: 12px;
 }
 
+.chat-generated-reports {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: min(100%, 680px);
+    margin-top: 2px;
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--cr-primary) 24%, var(--cr-border));
+    border-radius: 18px;
+    background:
+        linear-gradient(135deg, color-mix(in srgb, var(--cr-primary) 9%, transparent), transparent 68%),
+        color-mix(in srgb, var(--cr-surface-elevated) 86%, transparent);
+}
+
+.chat-generated-reports__header {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--cr-text-primary);
+}
+
+.chat-generated-reports__list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.chat-generated-report-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--cr-border) 72%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--cr-surface-muted) 66%, transparent);
+}
+
+.chat-generated-report-card__main {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+}
+
 .chat-message__thinking-inline {
     display: inline-flex;
     align-items: center;

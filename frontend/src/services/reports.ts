@@ -88,7 +88,7 @@ function parseContentDispositionFilename(contentDisposition: string | undefined)
     return asciiMatch?.[1]?.trim() || null;
 }
 
-export async function downloadReportFile(file: ReportFileSummary) {
+export async function downloadReportFile(file: Pick<ReportFileSummary, "download_url" | "filename">) {
     const response = await httpClient.get<Blob>(normalizeDownloadUrl(file.download_url), {
         responseType: "blob",
     });

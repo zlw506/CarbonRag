@@ -34,6 +34,7 @@ interface StreamAccumulatedState {
     citations: SessionAskResponse["citations"];
     source_summary: SessionAskResponse["source_summary"] | undefined;
     retrieval_trace: SessionAskResponse["retrieval_trace"] | undefined;
+    generated_reports: NonNullable<SessionAskResponse["generated_reports"]>;
     trace_id: string;
     mode: SessionAskResponse["mode"];
     status: SessionAskResponse["status"];
@@ -158,6 +159,7 @@ export async function submitSessionAskStreamRequest(
         citations: [],
         source_summary: undefined,
         retrieval_trace: undefined,
+        generated_reports: [],
         trace_id: "",
         mode: "ask",
         status: "ok",
@@ -400,6 +402,7 @@ export async function submitSessionAskStreamRequest(
                 total_citation_count: 0,
             },
         trace_id: state.trace_id,
+        generated_reports: state.generated_reports,
     };
 }
 
@@ -604,6 +607,7 @@ function applyStreamEvent(
             state.citations = metadata.citations ?? state.citations;
             state.source_summary = metadata.source_summary ?? state.source_summary;
             state.retrieval_trace = metadata.retrieval_trace ?? state.retrieval_trace;
+            state.generated_reports = metadata.generated_reports ?? extractGeneratedReportsFromTrace(metadata.retrieval_trace) ?? state.generated_reports;
             state.status = metadata.status ?? state.status;
             state.provider_ref = metadata.provider_ref ?? state.provider_ref;
             if (typeof metadata.answer === "string" && metadata.answer) {
@@ -624,6 +628,7 @@ function applyStreamEvent(
             state.citations = doneEvent.citations ?? state.citations;
             state.source_summary = doneEvent.source_summary ?? state.source_summary;
             state.retrieval_trace = doneEvent.retrieval_trace ?? state.retrieval_trace;
+            state.generated_reports = doneEvent.generated_reports ?? extractGeneratedReportsFromTrace(doneEvent.retrieval_trace) ?? state.generated_reports;
             state.status = doneEvent.status ?? state.status;
             state.provider_ref = doneEvent.provider_ref ?? state.provider_ref;
             if (typeof doneEvent.answer === "string" && doneEvent.answer) {
@@ -669,8 +674,17 @@ function buildAskResponseFromStreamState(state: StreamAccumulatedState): Session
                 total_citation_count: 0,
             },
         retrieval_trace: state.retrieval_trace ?? null,
+        generated_reports: state.generated_reports,
         trace_id: state.trace_id,
     };
+}
+
+function extractGeneratedReportsFromTrace(retrievalTrace: SessionAskResponse["retrieval_trace"] | undefined) {
+    if (!retrievalTrace || typeof retrievalTrace !== "object") {
+        return undefined;
+    }
+    const candidate = (retrievalTrace as { generated_reports?: unknown }).generated_reports;
+    return Array.isArray(candidate) ? (candidate as NonNullable<SessionAskResponse["generated_reports"]>) : undefined;
 }
 
 function normalizeMemoryState(

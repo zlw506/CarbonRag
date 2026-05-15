@@ -1,6 +1,7 @@
 import {
     BranchesOutlined,
     CopyOutlined,
+    DownloadOutlined,
     EditOutlined,
     FileTextOutlined,
     LinkOutlined,
@@ -47,6 +48,7 @@ import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { uploadSessionFile } from "../../services/files";
 import { listKnowledgeBases } from "../../services/kb";
 import { listAttachableKnowledgeItems, replaceAttachedKnowledgeItems } from "../../services/knowledge";
+import { downloadReportFile } from "../../services/reports";
 import {
     createSession as createSessionRequest,
     getSession,
@@ -62,6 +64,8 @@ import type {
     AskStreamMetadataEvent,
     AskStreamMessageStartEvent,
     AskStreamStatusEvent,
+    GeneratedReportFile,
+    GeneratedReportSummary,
     KnowledgeScope,
 } from "../../types/ask";
 import type { KnowledgeItem } from "../../types/knowledge";
@@ -88,6 +92,7 @@ interface ChatMessageView extends SessionMessage {
     thinking_content?: string | null;
     status_note?: string | null;
     client_attachments?: SessionAttachment[];
+    generated_reports?: GeneratedReportSummary[];
 }
 
 interface ChatDraft {
@@ -417,6 +422,7 @@ export function AskPage() {
                 status: "connecting",
                 citations: [],
                 retrieval_trace: null,
+                generated_reports: [],
                 client_state: "connecting",
                 thinking_content: "",
                 status_note: "正在连接模型…",
@@ -1231,6 +1237,79 @@ function MessageAttachmentStrip({ attachments, onOpenPreview }: { attachments: S
     );
 }
 
+function GeneratedReportCards({ reports }: { reports: GeneratedReportSummary[] }) {
+    const files = dedupeGeneratedReportFiles(
+        reports.flatMap((report) => (report.files ?? []).map((file) => ({ ...file, reportTitle: report.title ?? "生成的报告" }))),
+    );
+    const errors = reports
+        .filter((report) => report.status !== "success" && report.error_message)
+        .map((report) => report.error_message as string);
+
+    async function handleDownload(file: GeneratedReportFile) {
+        try {
+            const { blob, filename } = await downloadReportFile(file);
+            const objectUrl = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = objectUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(objectUrl);
+        } catch {
+            antdMessage.error("下载失败，请确认后端服务和登录状态正常。");
+        }
+    }
+
+    if (!files.length && !errors.length) {
+        return null;
+    }
+
+    return (
+        <div className="chat-generated-reports">
+            {files.length ? (
+                <>
+                    <div className="chat-generated-reports__header">
+                        <FileTextOutlined />
+                        <Typography.Text strong>已生成可下载文件</Typography.Text>
+                    </div>
+                    <div className="chat-generated-reports__list">
+                        {files.map((file) => (
+                            <div className="chat-generated-report-card" key={file.file_id || file.download_url}>
+                                <div className="chat-generated-report-card__main">
+                                    <Typography.Text strong ellipsis={{ tooltip: file.filename }}>
+                                        {file.filename}
+                                    </Typography.Text>
+                                    <Space size={6} wrap>
+                                        <Tag color={file.format === "pdf" ? "volcano" : "blue"}>{String(file.format || "file").toUpperCase()}</Tag>
+                                        {file.file_size_bytes ? <Typography.Text type="secondary">{formatBytes(file.file_size_bytes)}</Typography.Text> : null}
+                                    </Space>
+                                </div>
+                                <Button
+                                    type="primary"
+                                    size="small"
+                                    icon={<DownloadOutlined />}
+                                    onClick={() => void handleDownload(file)}
+                                >
+                                    下载
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            ) : null}
+            {errors.length ? (
+                <Alert
+                    type="warning"
+                    showIcon
+                    message="报告文件未生成"
+                    description={errors.join("；")}
+                />
+            ) : null}
+        </div>
+    );
+}
+
 function MessageBubble({
     message,
     sessionId,
@@ -1256,6 +1335,7 @@ function MessageBubble({
     const activityActive = preparingActive || thinkingActive;
     const shouldShowThinking = isAssistant && (activityActive || hasRealThinkingContent);
     const messageContent = resolveMessageContent(message, isAssistant);
+    const generatedReports = isAssistant ? extractGeneratedReports(message) : [];
     const thinkingStartedAtRef = useRef(Date.now());
     const [thinkingElapsedSeconds, setThinkingElapsedSeconds] = useState(0);
     const [finalThinkingElapsedSeconds, setFinalThinkingElapsedSeconds] = useState<number | null>(null);
@@ -1346,6 +1426,7 @@ function MessageBubble({
                     <div className={isAssistant ? "chat-message__content chat-message__content--assistant" : "chat-message__content"}>
                         {renderMessageContent(message, isAssistant)}
                     </div>
+                    {isAssistant && generatedReports.length ? <GeneratedReportCards reports={generatedReports} /> : null}
                     {!isAssistant && !isSystem ? <MessageAttachmentStrip attachments={message.client_attachments ?? []} onOpenPreview={onOpenFilePreview} /> : null}
                     {!isAssistant && !isSystem ? (
                         <div className="chat-message__quick-actions chat-message__quick-actions--user">
@@ -2104,6 +2185,48 @@ function readTraceNumber(trace: Record<string, unknown>, key: string) {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function extractGeneratedReports(message: ChatMessageView): GeneratedReportSummary[] {
+    if (message.generated_reports?.length) {
+        return message.generated_reports;
+    }
+    return extractGeneratedReportsFromTrace(message.retrieval_trace) ?? [];
+}
+
+function extractGeneratedReportsFromTrace(retrievalTrace?: Record<string, unknown> | null): GeneratedReportSummary[] | undefined {
+    if (!retrievalTrace || typeof retrievalTrace !== "object") {
+        return undefined;
+    }
+    const candidate = retrievalTrace.generated_reports;
+    return Array.isArray(candidate) ? (candidate as GeneratedReportSummary[]) : undefined;
+}
+
+function dedupeGeneratedReportFiles<T extends GeneratedReportFile>(files: T[]): T[] {
+    const seen = new Set<string>();
+    const deduped: T[] = [];
+    for (const file of files) {
+        const key = file.file_id || file.download_url || file.filename;
+        if (!key || seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+        deduped.push(file);
+    }
+    return deduped;
+}
+
+function formatBytes(value: number) {
+    if (!Number.isFinite(value) || value <= 0) {
+        return "";
+    }
+    if (value < 1024) {
+        return `${value} B`;
+    }
+    if (value < 1024 * 1024) {
+        return `${(value / 1024).toFixed(1)} KB`;
+    }
+    return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function isRagRetrievalMode(value: string | null): value is RagRetrievalMode {
     return value === "dense" || value === "sparse" || value === "hybrid" || value === "hybrid_rerank";
 }
@@ -2338,13 +2461,15 @@ function updateStreamDraft(current: ChatDraft | null, updater: (draft: ChatDraft
 }
 
 function mergeStreamMetadata(message: ChatMessageView, event: AskStreamMetadataEvent) {
+    const nextRetrievalTrace = event.retrieval_trace ?? message.retrieval_trace ?? null;
     return {
         ...message,
         message_id: event.assistant_message_id ?? message.message_id,
         trace_id: event.trace_id ?? message.trace_id ?? null,
         citations: event.citations ?? message.citations,
         source_summary: event.source_summary ?? message.source_summary ?? null,
-        retrieval_trace: event.retrieval_trace ?? message.retrieval_trace ?? null,
+        retrieval_trace: nextRetrievalTrace,
+        generated_reports: event.generated_reports ?? extractGeneratedReportsFromTrace(nextRetrievalTrace) ?? message.generated_reports ?? [],
         thinking_content:
             typeof event.thinking_content === "string"
                 ? event.thinking_content

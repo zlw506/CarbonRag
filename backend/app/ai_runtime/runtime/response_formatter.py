@@ -67,6 +67,43 @@ def _extract_generated_reports(tool_results: list[ToolResult]) -> list[dict]:
     return reports
 
 
+def _append_generated_report_downloads(answer: str, generated_reports: list[dict]) -> str:
+    download_lines: list[str] = []
+    error_lines: list[str] = []
+    for report in generated_reports:
+        if report.get("status") != "success":
+            error_message = report.get("error_message")
+            if error_message:
+                error_lines.append(f"- 报告文件生成失败：{error_message}")
+            continue
+
+        title = str(report.get("title") or "生成的报告")
+        files = report.get("files") if isinstance(report.get("files"), list) else []
+        for file in files:
+            if not isinstance(file, dict):
+                continue
+            download_url = str(file.get("download_url") or "").strip()
+            filename = str(file.get("filename") or "报告文件").strip()
+            file_format = str(file.get("format") or "").upper() or "文件"
+            if not download_url:
+                continue
+            if download_url in answer:
+                continue
+            download_lines.append(f"- [{file_format} 下载：{filename}]({download_url})（{title}）")
+
+    if not download_lines and not error_lines:
+        return answer
+
+    blocks: list[str] = []
+    if download_lines:
+        blocks.append("### 已生成文件\n" + "\n".join(download_lines))
+    if error_lines:
+        blocks.append("### 文件生成提示\n" + "\n".join(error_lines))
+    separator = "\n\n" if answer.strip() else ""
+    rendered_blocks = "\n\n".join(blocks)
+    return f"{answer.rstrip()}{separator}{rendered_blocks}"
+
+
 def _build_source_summary(*, knowledge_scope: str, citations: list[dict]) -> dict:
     public_policy_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy")
     public_policy_demo_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy_demo")
@@ -105,6 +142,7 @@ def format_runtime_result(
     source_summary = _build_source_summary(knowledge_scope=knowledge_scope, citations=citations)
     retrieval_traces = _extract_retrieval_traces(tool_results)
     generated_reports = _extract_generated_reports(tool_results)
+    answer = _append_generated_report_downloads(answer, generated_reports)
     latest_retrieval_trace = dict(retrieval_traces[-1]) if retrieval_traces else None
     if latest_retrieval_trace is None and generated_reports:
         latest_retrieval_trace = {"tool": "report_file_generate"}
