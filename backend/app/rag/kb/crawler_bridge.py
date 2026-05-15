@@ -28,9 +28,7 @@ def publish_crawled_candidate_to_rag_kb(
     quality_score = candidate.metadata.get("candidate_quality_score")
     if quality_score is not None and int(quality_score) < 60:
         raise ValueError(f"candidate quality score {quality_score} is below 60; review manually before RAG publish")
-    if candidate.metadata.get("change_type") == "unchanged" and not candidate.metadata.get("rag_doc_id"):
-        raise ValueError("unchanged duplicate candidate has no new RAG document to publish")
-
+    _validate_candidate_artifacts(candidate)
     service = rag_service or get_rag_spine_service()
     owner_user_id = reviewed_by_user_id or SYSTEM_POLICY_CRAWLER_USER_ID
     kb = _ensure_official_policy_kb(service=service, owner_user_id=owner_user_id)
@@ -46,6 +44,23 @@ def publish_crawled_candidate_to_rag_kb(
             doc_id=doc.doc_id,
             pipeline_mode="quick",
         )
+        failed_stage = _pipeline_failed_stage(result)
+        if failed_stage:
+            scheduler.store.update_candidate_review(
+                candidate_id=candidate.candidate_id,
+                status="pending_review",
+                reviewed_by_user_id=reviewed_by_user_id,
+                review_note=_review_note_for_result(result),
+                knowledge_item_id=candidate.knowledge_item_id,
+                metadata=_rag_metadata(
+                    candidate=candidate,
+                    kb=kb,
+                    result=result,
+                    failed_stage=failed_stage,
+                    error_detail=result.error_message or failed_stage,
+                ),
+            )
+            raise ValueError(f"candidate RAG publish failed at {failed_stage}")
         scheduler.store.update_candidate_review(
             candidate_id=candidate.candidate_id,
             status="published",
@@ -56,9 +71,11 @@ def publish_crawled_candidate_to_rag_kb(
         )
         return result
     except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, ValueError) and str(exc).startswith("candidate RAG publish failed at "):
+            raise
         scheduler.store.update_candidate_review(
             candidate_id=candidate.candidate_id,
-            status="published",
+            status="pending_review",
             reviewed_by_user_id=reviewed_by_user_id,
             review_note=f"Published to RAG KB, but quick pipeline failed: {exc}",
             knowledge_item_id=candidate.knowledge_item_id,
@@ -106,6 +123,36 @@ def _candidate_document_payload(candidate: PolicyCrawlerCandidate) -> RagDocumen
         file_path=file_path,
         chunk_method="recursive",
     )
+
+
+def _validate_candidate_artifacts(candidate: PolicyCrawlerCandidate) -> None:
+    metadata = candidate.metadata
+    markdown_path = _existing_path(metadata.get("markdown_storage_path"))
+    cleaned_path = _existing_path(metadata.get("cleaned_storage_path"))
+    if not markdown_path or not cleaned_path:
+        raise ValueError("empty_extraction: markdown or cleaned artifact is missing")
+    markdown_size = int(metadata.get("markdown_size") or Path(markdown_path).stat().st_size)
+    cleaned_size = int(metadata.get("cleaned_size") or Path(cleaned_path).stat().st_size)
+    estimated_chunk_count = int(metadata.get("estimated_chunk_count") or 0)
+    extraction_quality_score = int(metadata.get("extraction_quality_score") or metadata.get("candidate_quality_score") or 0)
+    if markdown_size < 800 or cleaned_size < 800:
+        raise ValueError("empty_extraction: markdown and cleaned text must both be at least 800 bytes")
+    if estimated_chunk_count <= 0:
+        raise ValueError("zero_chunks: candidate has no estimated chunks")
+    if extraction_quality_score < 60:
+        raise ValueError(f"empty_extraction: extraction quality score {extraction_quality_score} is below 60")
+
+
+def _pipeline_failed_stage(result: RagPipelineResult) -> str | None:
+    if result.failed_stage:
+        return result.failed_stage
+    if result.chunk_count <= 0:
+        return "zero_chunks"
+    if result.indexed_chunk_count <= 0:
+        return "index_failed"
+    if result.search_smoke_passed is False:
+        return "search_smoke_failed"
+    return None
 
 
 def _existing_path(value: object) -> str | None:

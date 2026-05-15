@@ -17,6 +17,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from app.core.config import Settings, get_settings
+from app.knowledge.extractors.gov_cn_policy import extract_gov_cn_policy_html, is_gov_cn_policy_url
 from app.knowledge.policy_ingestion import (
     DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS,
     LOCAL_SCRAPY_SUBPROCESS_TIMEOUT_CAP_SECONDS,
@@ -717,8 +718,8 @@ class PolicyCrawlerStore:
             "crawler_backend": document.metadata.get("provider_name") or document.metadata.get("crawler_backend"),
             "robots_obey": document.metadata.get("robots_obey", True),
             "duration_ms": document.metadata.get("duration_ms"),
-            "error_stage": document.metadata.get("error_stage"),
-            "error_detail": document.metadata.get("error_detail"),
+            "error_stage": (metadata or {}).get("error_stage") or document.metadata.get("error_stage"),
+            "error_detail": (metadata or {}).get("error_detail") or document.metadata.get("error_detail"),
         }
         metadata_json = json.dumps(merged_metadata, ensure_ascii=False)
         if existing is None:
@@ -1110,13 +1111,34 @@ class PolicyCrawlerScheduler:
                     skip_reason = "topic_keywords_not_matched"
                 if skip_reason:
                     skipped_count += 1
-                cleaned = _clean_candidate_text(document)
+                normalized_type = document.content_type.split(";", 1)[0].strip().lower()
+                if normalized_type in {"text/html", "application/xhtml+xml"} and is_gov_cn_policy_url(document.url):
+                    extracted = extract_gov_cn_policy_html(document.content, document.url)
+                    cleaned = extracted.cleaned_text
+                    markdown_preview = extracted.markdown
+                    artifact_metadata = {
+                        "cleaned_size": len(cleaned.encode("utf-8")),
+                        "markdown_size": len(markdown_preview.encode("utf-8")),
+                        "estimated_chunk_count": _estimate_chunk_count(cleaned),
+                        "body_char_count": extracted.body_char_count,
+                        "error_stage": "extract_empty_text" if len(cleaned.strip()) < 800 else None,
+                    }
+                else:
+                    cleaned = _clean_candidate_text(document)
+                    markdown_preview = _candidate_markdown(document=document, cleaned_text=cleaned)
+                    artifact_metadata = {
+                        "cleaned_size": len(cleaned.encode("utf-8")),
+                        "markdown_size": len(markdown_preview.encode("utf-8")),
+                        "estimated_chunk_count": _estimate_chunk_count(cleaned),
+                        "error_stage": "extract_empty_text" if len(cleaned.strip()) < 800 else None,
+                    }
                 quality = _candidate_quality(
                     document=document,
                     source=source,
                     matched_keywords=matched_keywords,
                     skip_reason=skip_reason,
                     markdown_available=bool(cleaned.strip()),
+                    artifact_metadata=artifact_metadata,
                 )
                 candidates.append(
                     PolicyCrawlerDryRunCandidate(
@@ -1128,7 +1150,7 @@ class PolicyCrawlerScheduler:
                         skip_reason=skip_reason,
                         candidate_quality_score=int(quality["candidate_quality_score"]),
                         quality_breakdown=quality["quality_breakdown"],
-                        cleaned_markdown_preview=_candidate_markdown(document=document, cleaned_text=cleaned)[:3000],
+                        cleaned_markdown_preview=markdown_preview[:3000],
                         estimated_chunk_count=_estimate_chunk_count(cleaned),
                         target_rag_kb_id=_metadata_string(source.metadata, "target_rag_kb_id")
                         or "official-policy-auto-update",
@@ -1381,6 +1403,7 @@ class PolicyCrawlerScheduler:
                 source=source,
                 matched_keywords=matched_keywords,
                 markdown_available=bool(artifact_metadata.get("markdown_storage_path")),
+                artifact_metadata=artifact_metadata,
             )
             candidate = self.store.upsert_candidate(
                 run_id=run.run_id,
@@ -1471,24 +1494,97 @@ class PolicyCrawlerScheduler:
         document: CrawledDocument,
         provider_name: str,
     ) -> tuple[Path, dict[str, Any]]:
-        raw_path = self._write_candidate_document(source=source, document=document)
+        legacy_raw_path = self._write_candidate_document(source=source, document=document)
         content_hash = document.content_hash or hash_content(document.content)
         candidate_id = _candidate_id_for(source_id=source.source_id, url=document.url, content_hash=content_hash)
         artifact_dir = Path(self.settings.public_data_dir) / "policy_crawl_artifacts" / run_id / candidate_id
         artifact_dir.mkdir(parents=True, exist_ok=True)
-        cleaned_text = _clean_candidate_text(document)
+        normalized_type = document.content_type.split(";", 1)[0].strip().lower()
+        raw_path = artifact_dir / ("raw.html" if normalized_type in {"text/html", "application/xhtml+xml"} else f"raw{_suffix_for_content_type(document.content_type)}")
+        raw_path.write_bytes(_document_content_bytes(document))
+        extraction_metadata: dict[str, Any] = {
+            "parser_profile_used": source.metadata.get("parser_profile") or "generic_html",
+            "legacy_raw_storage_path": str(legacy_raw_path),
+        }
+        if normalized_type in {"text/html", "application/xhtml+xml"} and is_gov_cn_policy_url(document.url):
+            extracted = extract_gov_cn_policy_html(document.content, document.url)
+            cleaned_text = extracted.cleaned_text
+            markdown_text = extracted.markdown
+            extraction_metadata.update(
+                {
+                    "extracted_title": extracted.title,
+                    "document_no": extracted.document_no,
+                    "issuer": extracted.issuer,
+                    "published_date": extracted.published_date,
+                    "source": extracted.source,
+                    "body_char_count": extracted.body_char_count,
+                    "main_selector_used": extracted.main_selector_used,
+                    "removed_noise_blocks": extracted.removed_noise_blocks,
+                    "extraction_warnings": extracted.extraction_warnings,
+                    "parser_profile_used": "gov_cn_policy_html",
+                }
+            )
+        else:
+            cleaned_text = _clean_candidate_text(document)
+            markdown_text = _candidate_markdown(document=document, cleaned_text=cleaned_text)
+            extraction_metadata.update(
+                {
+                    "body_char_count": len(re.sub(r"\s+", "", cleaned_text)),
+                    "main_selector_used": "generic_html_text",
+                    "removed_noise_blocks": None,
+                    "extraction_warnings": [],
+                }
+            )
         cleaned_path = artifact_dir / "cleaned.txt"
         markdown_path = artifact_dir / "document.md"
+        extraction_path = artifact_dir / "extraction.json"
         cleaned_path.write_text(cleaned_text, encoding="utf-8")
-        markdown_path.write_text(_candidate_markdown(document=document, cleaned_text=cleaned_text), encoding="utf-8")
+        markdown_path.write_text(markdown_text, encoding="utf-8")
+        cleaned_size = cleaned_path.stat().st_size
+        markdown_size = markdown_path.stat().st_size
+        estimated_chunk_count = _estimate_chunk_count(cleaned_text)
+        artifact_errors: list[str] = []
+        error_stage = None
+        error_detail = None
+        if len(cleaned_text.strip()) < 800:
+            error_stage = "extract_empty_text"
+            error_detail = "cleaned.txt is shorter than 800 characters"
+            artifact_errors.append(error_stage)
+        if len(markdown_text.strip()) < 800:
+            error_stage = error_stage or "extract_empty_markdown"
+            error_detail = error_detail or "document.md is shorter than 800 characters"
+            artifact_errors.append("extract_empty_markdown")
+        extraction_payload = {
+            **extraction_metadata,
+            "url": document.url,
+            "content_hash": content_hash,
+            "raw_size": raw_path.stat().st_size,
+            "cleaned_size": cleaned_size,
+            "markdown_size": markdown_size,
+            "estimated_chunk_count": estimated_chunk_count,
+            "artifact_errors": artifact_errors,
+            "error_stage": error_stage,
+            "error_detail": error_detail,
+        }
+        extraction_path.write_text(json.dumps(extraction_payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return raw_path, {
             "raw_storage_path": str(raw_path),
             "cleaned_storage_path": str(cleaned_path),
             "markdown_storage_path": str(markdown_path),
+            "extraction_storage_path": str(extraction_path),
+            "raw_size": raw_path.stat().st_size,
+            "cleaned_size": cleaned_size,
+            "markdown_size": markdown_size,
+            "estimated_chunk_count": estimated_chunk_count,
+            "artifact_errors": artifact_errors,
+            "extraction_quality_score": None,
+            "topic_relevance_score": None,
+            "topic_class": None,
+            **extraction_metadata,
             "crawler_backend": self.settings.rag_policy_crawler_backend,
             "crawler_provider": provider_name,
-            "error_stage": None,
-            "error_detail": None,
+            "error_stage": error_stage,
+            "error_detail": error_detail,
         }
 
     def _safe_limits(self) -> dict[str, Any]:
@@ -1595,7 +1691,9 @@ def _candidate_quality(
     matched_keywords: list[str],
     skip_reason: str | None = None,
     markdown_available: bool = True,
+    artifact_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    artifact_metadata = artifact_metadata or {}
     host = _host(document.url)
     title = (document.title or "").strip()
     cleaned_text = _clean_candidate_text(document)
@@ -1605,20 +1703,40 @@ def _candidate_quality(
     duplicate_ok = skip_reason not in {"duplicate_content_hash", "unchanged"}
     noise_ratio_ok = bool(preview) and len(preview) >= 120 and len(set(preview[:800])) >= 20
     length = _candidate_content_length(document)
-    breakdown = {
+    cleaned_size = int(artifact_metadata.get("cleaned_size") or len(cleaned_text.encode("utf-8")))
+    markdown_size = int(artifact_metadata.get("markdown_size") or (len(cleaned_text.encode("utf-8")) if markdown_available else 0))
+    estimated_chunk_count = int(artifact_metadata.get("estimated_chunk_count") or _estimate_chunk_count(cleaned_text))
+    extraction_breakdown = {
         "official_domain": 20 if (host == source.allowed_domain or host.endswith(f".{source.allowed_domain}")) else 0,
-        "title_relevance": 15 if any(term in title for term in title_policy_terms) else (8 if title else 0),
-        "dual_carbon_keywords": min(15, len(matched_keywords) * 4) if matched_keywords else 0,
-        "content_length": 10 if length >= 800 else (6 if length >= 300 else 2 if length else 0),
+        "title": 12 if title else 0,
+        "document_metadata": 12 if (artifact_metadata.get("document_no") or artifact_metadata.get("published_date") or has_source_or_date) else 4,
+        "content_length": 16 if cleaned_size >= 2400 else (10 if cleaned_size >= 800 else 2 if cleaned_size else 0),
         "noise_control": 10 if noise_ratio_ok else 3,
-        "date_or_source": 10 if has_source_or_date else 3,
         "dedupe": 10 if duplicate_ok else 0,
-        "markdown": 10 if markdown_available and bool(cleaned_text.strip()) else 0,
+        "markdown": 15 if markdown_available and markdown_size >= 800 else (5 if markdown_available and markdown_size else 0),
+        "chunkable": 5 if estimated_chunk_count > 0 else 0,
     }
-    score = max(0, min(100, int(sum(breakdown.values()))))
+    direct_terms = ("双碳", "碳达峰", "碳中和", "碳排放", "碳核算", "节能降碳", "温室气体", "排放因子")
+    title_direct = any(term in title for term in direct_terms)
+    keyword_density = min(35, len(matched_keywords) * 5)
+    topic_score = keyword_density + (35 if title_direct else 0)
+    if not title_direct and matched_keywords:
+        topic_score = min(topic_score, 55)
+    topic_score = max(0, min(100, int(topic_score)))
+    topic_class = "core_dual_carbon_policy" if topic_score >= 70 else "indirect_low_carbon_related" if topic_score >= 20 else "low_relevance"
+    extraction_score = max(0, min(100, int(sum(extraction_breakdown.values()))))
+    if artifact_metadata.get("error_stage") in {"extract_empty_text", "extract_empty_markdown"} or cleaned_size < 800 or markdown_size < 800:
+        extraction_score = min(extraction_score, 40)
+    score = max(0, min(100, min(extraction_score, 60 + topic_score // 2)))
     return {
         "candidate_quality_score": score,
-        "quality_breakdown": breakdown,
+        "quality_breakdown": {
+            **extraction_breakdown,
+            "topic_relevance": topic_score,
+        },
+        "extraction_quality_score": extraction_score,
+        "topic_relevance_score": topic_score,
+        "topic_class": topic_class,
         "matched_keywords": matched_keywords,
         "skip_reason": skip_reason,
         "duplicate_reason": "duplicate_content_hash" if skip_reason == "duplicate_content_hash" else None,

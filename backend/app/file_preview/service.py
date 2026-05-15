@@ -342,15 +342,20 @@ class FilePreviewService:
         if not isinstance(path_value, str) or not path_value.strip():
             return None
         candidate = Path(path_value)
-        resolved = (candidate if candidate.is_absolute() else REPO_ROOT / candidate).resolve()
         roots = {
             resolve_repo_path(get_settings().upload_dir).resolve(),
             resolve_repo_path(get_settings().public_data_dir).resolve(),
             (REPO_ROOT / "backend" / "data").resolve(),
             (REPO_ROOT / "data").resolve(),
         }
-        if any(self._is_relative_to(resolved, root) for root in roots):
-            return resolved
+        candidates = [candidate] if candidate.is_absolute() else [REPO_ROOT / candidate, REPO_ROOT / "backend" / candidate, Path.cwd() / candidate]
+        resolved_candidates = [item.resolve() for item in candidates]
+        for resolved in resolved_candidates:
+            if resolved.exists() and any(self._is_relative_to(resolved, root) for root in roots):
+                return resolved
+        for resolved in resolved_candidates:
+            if any(self._is_relative_to(resolved, root) for root in roots):
+                return resolved
         return None
 
     @staticmethod

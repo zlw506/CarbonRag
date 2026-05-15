@@ -97,6 +97,51 @@ def test_low_quality_candidate_cannot_publish_to_rag(monkeypatch, tmp_path) -> N
         )
 
 
+def test_publish_to_rag_requires_non_empty_markdown(monkeypatch, tmp_path) -> None:
+    scheduler = _seed_scheduler_with_candidate(tmp_path)
+    candidate = scheduler.list_candidates()[0]
+    scheduler.store.update_candidate_review(
+        candidate_id=candidate.candidate_id,
+        status="pending_review",
+        reviewed_by_user_id=None,
+        metadata={
+            "candidate_quality_score": 90,
+            "extraction_quality_score": 90,
+            "markdown_size": 20,
+            "cleaned_size": 20,
+            "estimated_chunk_count": 1,
+        },
+    )
+    monkeypatch.setattr("app.rag.kb.crawler_bridge.get_policy_crawler_scheduler", lambda: scheduler)
+
+    with pytest.raises(ValueError, match="empty_extraction"):
+        publish_crawled_candidate_to_rag_kb(
+            candidate_id=candidate.candidate_id,
+            reviewed_by_user_id=None,
+            rag_service=_FakeRagService(),
+        )
+
+
+def test_publish_to_rag_requires_indexed_chunks(monkeypatch, tmp_path) -> None:
+    scheduler = _seed_scheduler_with_candidate(tmp_path)
+    candidate = scheduler.list_candidates()[0]
+    fake_service = _FakeRagService(indexed_chunk_count=0, chunk_count=3, search_smoke_passed=True)
+    monkeypatch.setattr("app.rag.kb.crawler_bridge.get_policy_crawler_scheduler", lambda: scheduler)
+
+    with pytest.raises(ValueError, match="index_failed"):
+        publish_crawled_candidate_to_rag_kb(
+            candidate_id=candidate.candidate_id,
+            reviewed_by_user_id=None,
+            rag_service=fake_service,
+        )
+
+    refreshed = scheduler.store.get_candidate(candidate.candidate_id)
+    assert refreshed is not None
+    assert refreshed.status == "pending_review"
+    assert refreshed.metadata["rag_pipeline_status"] == "failed"
+    assert refreshed.metadata["rag_error_stage"] == "index_failed"
+
+
 def test_policy_crawler_local_scrapy_smoke(tmp_path) -> None:
     fixture = Path(__file__).parent / "fixtures" / "crawler" / "gov_cn_policy_fixture.html"
     document = CrawledDocument(
@@ -118,10 +163,11 @@ def test_policy_crawler_local_scrapy_smoke(tmp_path) -> None:
 
 
 def _seed_scheduler_with_candidate(tmp_path) -> PolicyCrawlerScheduler:
+    body = "本文件要求推进碳达峰和碳中和，完善节能降碳、碳排放核算、温室气体管理和绿色低碳服务体系。" * 35
     document = CrawledDocument(
         url="https://www.gov.cn/zhengce/rag-publish-policy.html",
         title="国务院碳达峰政策测试文件",
-        content="<html><body><h1>碳达峰政策</h1><p>本文件要求推进碳达峰和碳中和。</p></body></html>",
+        content=f"<html><body><h1>碳达峰政策</h1><p>{body}</p></body></html>",
         content_type="text/html",
         source_name="中国政府网",
     )
@@ -146,8 +192,11 @@ def _build_scheduler(tmp_path, *, provider) -> PolicyCrawlerScheduler:
 
 
 class _FakeRagService:
-    def __init__(self) -> None:
+    def __init__(self, *, indexed_chunk_count: int = 3, chunk_count: int = 3, search_smoke_passed: bool = True) -> None:
         now = datetime.now(timezone.utc)
+        self.indexed_chunk_count = indexed_chunk_count
+        self.chunk_count = chunk_count
+        self.search_smoke_passed = search_smoke_passed
         self.kb = KnowledgeBase(
             kb_id="kb-policy-auto",
             owner_user_id="admin-1",
@@ -188,9 +237,9 @@ class _FakeRagService:
             parse_status="parsed",
             chunk_status="chunked",
             index_status="indexed",
-            chunk_count=3,
-            indexed_chunk_count=3,
+            chunk_count=self.chunk_count,
+            indexed_chunk_count=self.indexed_chunk_count,
             vector_runtime="memory_dev",
             degraded=False,
-            search_smoke_passed=True,
+            search_smoke_passed=self.search_smoke_passed,
         )

@@ -8,6 +8,7 @@ import type {
     DeleteAdminUsersResponse,
     KnowledgeRefreshTask,
     PolicyCrawlerCandidateStatus,
+    PolicyCrawlerCandidateArtifactsSummary,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
     PolicyCrawlerRecommendedImportSummary,
@@ -24,6 +25,8 @@ import type {
     UpdateAdminUserRequest,
     ResetPasswordResponse,
 } from "../types/admin";
+
+const crawlerRequestConfig = { timeout: 120000 };
 
 export async function listAdminUsers() {
     const response = await httpClient.get<AdminUserSummary[]>("/v1/admin/users");
@@ -130,12 +133,17 @@ export async function dryRunPolicyCrawlerSource(sourceId: string) {
     const response = await httpClient.post<PolicyCrawlerDryRunSummary>(
         `/v1/admin/policy-crawler/sources/${sourceId}/dry-run`,
         {},
+        crawlerRequestConfig,
     );
     return response.data;
 }
 
 export async function runPolicyCrawlerSource(sourceId: string) {
-    const response = await httpClient.post<PolicyCrawlerRunSummary>(`/v1/admin/policy-crawler/sources/${sourceId}/run`, {});
+    const response = await httpClient.post<PolicyCrawlerRunSummary>(
+        `/v1/admin/policy-crawler/sources/${sourceId}/run`,
+        {},
+        crawlerRequestConfig,
+    );
     return response.data;
 }
 
@@ -176,6 +184,15 @@ export async function publishPolicyCrawlerCandidateToRag(candidateId: string) {
     const response = await httpClient.post<PolicyCrawlerCandidateSummary>(
         `/v1/admin/policy-crawler/candidates/${candidateId}/publish-to-rag`,
         {},
+        crawlerRequestConfig,
+    );
+    return response.data;
+}
+
+export async function getPolicyCrawlerCandidateArtifacts(candidateId: string) {
+    const response = await httpClient.get<PolicyCrawlerCandidateArtifactsSummary>(
+        `/v1/admin/policy-crawler/candidates/${candidateId}/artifacts`,
+        crawlerRequestConfig,
     );
     return response.data;
 }

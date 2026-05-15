@@ -1594,7 +1594,14 @@ export function AdminPlaceholderPage() {
                                             ? candidate.matched_keywords
                                             : metadataStringList(candidate.metadata.matched_policy_keywords);
                                     const qualityScore = candidate.candidate_quality_score;
-                                    const qualityBlocked = typeof qualityScore === "number" && qualityScore < 60;
+                                    const extractionScore = candidate.extraction_quality_score;
+                                    const artifactBlocked =
+                                        (typeof extractionScore === "number" && extractionScore < 60) ||
+                                        Number(candidate.markdown_size ?? candidate.metadata.markdown_size ?? 0) < 800 ||
+                                        Number(candidate.cleaned_size ?? candidate.metadata.cleaned_size ?? 0) < 800 ||
+                                        (candidate.artifact_errors?.length ?? 0) > 0;
+                                    const isDuplicate = candidate.skip_reason === "duplicate_content_hash" || candidate.metadata.change_type === "unchanged";
+                                    const publishLabel = isDuplicate && !candidate.rag_doc_id ? "重新入库" : "发布到 RAG";
                                     return (
                                     <List.Item
                                         actions={[
@@ -1618,10 +1625,10 @@ export function AdminPlaceholderPage() {
                                                 type="primary"
                                                 size="small"
                                                 loading={reviewingCandidateId === candidate.candidate_id}
-                                                disabled={candidate.status === "rejected" || qualityBlocked}
+                                                disabled={candidate.status === "rejected" || artifactBlocked}
                                                 onClick={() => void handlePublishPolicyCandidateToRag(candidate.candidate_id)}
                                             >
-                                                发布到 RAG
+                                                {publishLabel}
                                             </Button>,
                                             <Button
                                                 key="publish-legacy"
@@ -1657,7 +1664,16 @@ export function AdminPlaceholderPage() {
                                                 {typeof qualityScore === "number" ? (
                                                     <Tag color={qualityScore >= 60 ? "green" : "orange"}>质量 {qualityScore}</Tag>
                                                 ) : null}
-                                                {candidate.skip_reason ? <Tag color="gold">{candidate.skip_reason}</Tag> : null}
+                                                {typeof extractionScore === "number" ? (
+                                                    <Tag color={extractionScore >= 60 ? "green" : "red"}>抽取 {extractionScore}</Tag>
+                                                ) : null}
+                                                {typeof candidate.topic_relevance_score === "number" ? (
+                                                    <Tag color={candidate.topic_relevance_score >= 70 ? "green" : "blue"}>
+                                                        主题 {candidate.topic_relevance_score}
+                                                    </Tag>
+                                                ) : null}
+                                                {candidate.topic_class ? <Tag>{formatTopicClass(candidate.topic_class)}</Tag> : null}
+                                                {isDuplicate ? <Tag color="gold">重复内容</Tag> : candidate.skip_reason ? <Tag color="gold">{candidate.skip_reason}</Tag> : null}
                                                 {candidateQualityTags(candidate).map((tag) => (
                                                     <Tag key={`${candidate.candidate_id}-${tag.label}`} color={tag.color}>
                                                         {tag.label}
@@ -1684,6 +1700,14 @@ export function AdminPlaceholderPage() {
                                                 </Descriptions.Item>
                                                 <Descriptions.Item label="内容大小">
                                                     {formatBytes(candidate.metadata.candidate_content_length)}
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="抽取产物">
+                                                    Markdown {formatBytes(candidate.markdown_size ?? candidate.metadata.markdown_size)} / 纯文本{" "}
+                                                    {formatBytes(candidate.cleaned_size ?? candidate.metadata.cleaned_size)} / 预计{" "}
+                                                    {formatMetadataText(
+                                                        candidate.estimated_chunk_count ?? candidate.metadata.estimated_chunk_count,
+                                                    ) || "0"}{" "}
+                                                    片段
                                                 </Descriptions.Item>
                                                 <Descriptions.Item label="发现地址" span={2}>
                                                     <Typography.Text ellipsis>
@@ -1732,6 +1756,11 @@ export function AdminPlaceholderPage() {
                                                         <Typography.Text type="danger">
                                                             {candidate.rag_error_stage}: {formatMetadataText(candidate.metadata.rag_error_detail) || "未记录"}
                                                         </Typography.Text>
+                                                    </Descriptions.Item>
+                                                ) : null}
+                                                {candidate.artifact_errors?.length ? (
+                                                    <Descriptions.Item label="抽取问题" span={3}>
+                                                        <Typography.Text type="danger">{candidate.artifact_errors.join("；")}</Typography.Text>
                                                     </Descriptions.Item>
                                                 ) : null}
                                             </Descriptions>
@@ -2450,6 +2479,19 @@ function candidateQualityTags(candidate: PolicyCrawlerCandidateSummary) {
         tags.push({ label: "索引失败", color: "red" });
     }
     return tags;
+}
+
+function formatTopicClass(value: string): string {
+    if (value === "core_dual_carbon_policy") {
+        return "核心双碳";
+    }
+    if (value === "indirect_low_carbon_related") {
+        return "间接低碳相关";
+    }
+    if (value === "low_relevance") {
+        return "低相关";
+    }
+    return value;
 }
 
 function extractDetailMessage(value: unknown): string | null {

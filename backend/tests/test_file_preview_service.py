@@ -138,6 +138,67 @@ def test_crawler_candidate_preview_is_admin_only(monkeypatch: pytest.MonkeyPatch
     assert preview.raw_available is True
 
 
+def test_crawler_candidate_preview_resolves_backend_relative_artifacts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    backend_root = repo_root / "backend"
+    artifact_dir = backend_root / "data" / "public" / "policy_crawl_artifacts" / "run-001" / "cand-001"
+    artifact_dir.mkdir(parents=True)
+    markdown_file = artifact_dir / "document.md"
+    cleaned_file = artifact_dir / "cleaned.txt"
+    raw_file = artifact_dir / "raw.html"
+    markdown_file.write_text("# 国务院关于推进服务业扩能提质的意见\n\n正文 Markdown", encoding="utf-8")
+    cleaned_file.write_text("国务院关于推进服务业扩能提质的意见 正文纯文本", encoding="utf-8")
+    raw_file.write_text("<html>raw</html>", encoding="utf-8")
+
+    settings = SimpleNamespace(upload_dir="./data/outputs/uploads", public_data_dir="./data/public")
+    monkeypatch.setattr("app.file_preview.service.REPO_ROOT", repo_root)
+    monkeypatch.setattr("app.file_preview.service.get_settings", lambda: settings)
+    monkeypatch.setattr("app.file_preview.service.resolve_repo_path", lambda value: repo_root / value)
+
+    class FakeCandidate:
+        candidate_id = "cand-001"
+        run_id = "run-001"
+        source_id = "gov-cn-policy-library"
+        url = "https://www.gov.cn/zhengce/content/202604/content_7066483.htm"
+        title = "国务院关于推进服务业扩能提质的意见"
+        content_type = "text/html"
+        content_hash = "hash-001"
+        source_name = "gov.cn"
+        fetched_at = datetime.now(timezone.utc)
+        storage_path = "data/public/policy_crawl_artifacts/run-001/cand-001/raw.html"
+        status = "pending_review"
+        metadata = {
+            "markdown_storage_path": "data/public/policy_crawl_artifacts/run-001/cand-001/document.md",
+            "cleaned_storage_path": "data/public/policy_crawl_artifacts/run-001/cand-001/cleaned.txt",
+            "raw_storage_path": "data/public/policy_crawl_artifacts/run-001/cand-001/raw.html",
+        }
+
+        def model_dump(self, mode: str = "python") -> dict:  # noqa: ARG002
+            return {
+                "candidate_id": self.candidate_id,
+                "run_id": self.run_id,
+                "source_id": self.source_id,
+                "url": self.url,
+                "title": self.title,
+                "content_type": self.content_type,
+                "content_hash": self.content_hash,
+                "source_name": self.source_name,
+                "fetched_at": self.fetched_at,
+                "storage_path": self.storage_path,
+                "status": self.status,
+                "metadata": self.metadata,
+            }
+
+    scheduler = SimpleNamespace(store=SimpleNamespace(get_candidate=lambda candidate_id: FakeCandidate()))
+    monkeypatch.setattr("app.file_preview.service.get_policy_crawler_scheduler", lambda: scheduler)
+
+    preview = FilePreviewService().preview(source_type="crawler_candidate", source_id="cand-001", current_user=_user("admin"))
+
+    assert "正文 Markdown" in (preview.markdown or "")
+    assert "正文纯文本" in (preview.text or "")
+    assert preview.raw_available is True
+
+
 def test_raw_preview_rejects_unregistered_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _patch_preview_roots(monkeypatch, tmp_path)
     outside_file = tmp_path.parent / "outside.txt"

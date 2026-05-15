@@ -339,7 +339,17 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     assert candidate["metadata"]["policy_review_required"] is True
     assert candidate["metadata"]["matched_policy_keywords"]
     assert candidate["candidate_quality_score"] is not None
+    assert candidate["extraction_quality_score"] is not None
     assert candidate["knowledge_item_id"] is None
+
+    artifacts_response = client.get(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/artifacts")
+    assert artifacts_response.status_code == 200
+    artifacts = artifacts_response.json()
+    assert artifacts["candidate_id"] == candidate["candidate_id"]
+    assert artifacts["markdown_exists"] is True
+    assert artifacts["cleaned_exists"] is True
+    assert artifacts["markdown_preview"]
+    assert artifacts["cleaned_text_preview"]
 
     def fake_publish_to_rag(candidate_id: str, reviewed_by_user_id: str | None):
         scheduler.store.update_candidate_review(

@@ -305,6 +305,13 @@ class PolicyCrawlerCandidateSummary(BaseModel):
     rag_error_stage: str | None = None
     rag_error_detail: str | None = None
     candidate_quality_score: int | None = None
+    extraction_quality_score: int | None = None
+    topic_relevance_score: int | None = None
+    topic_class: str | None = None
+    artifact_errors: list[str] = Field(default_factory=list)
+    cleaned_size: int | None = None
+    markdown_size: int | None = None
+    estimated_chunk_count: int | None = None
     quality_breakdown: dict[str, Any] = Field(default_factory=dict)
     matched_keywords: list[str] = Field(default_factory=list)
     skip_reason: str | None = None
@@ -323,11 +330,37 @@ class PolicyCrawlerCandidateSummary(BaseModel):
         value.setdefault("rag_error_stage", metadata.get("rag_error_stage") or metadata.get("error_stage"))
         value.setdefault("rag_error_detail", metadata.get("rag_error_detail") or metadata.get("error_detail"))
         value.setdefault("candidate_quality_score", metadata.get("candidate_quality_score"))
+        value.setdefault("extraction_quality_score", metadata.get("extraction_quality_score"))
+        value.setdefault("topic_relevance_score", metadata.get("topic_relevance_score"))
+        value.setdefault("topic_class", metadata.get("topic_class"))
+        value.setdefault("artifact_errors", metadata.get("artifact_errors") if isinstance(metadata.get("artifact_errors"), list) else [])
+        value.setdefault("cleaned_size", metadata.get("cleaned_size"))
+        value.setdefault("markdown_size", metadata.get("markdown_size"))
+        value.setdefault("estimated_chunk_count", metadata.get("estimated_chunk_count"))
         value.setdefault("quality_breakdown", metadata.get("quality_breakdown") or {})
         raw_keywords = metadata.get("matched_keywords") or metadata.get("matched_policy_keywords")
         value.setdefault("matched_keywords", raw_keywords if isinstance(raw_keywords, list) else [])
         value.setdefault("skip_reason", metadata.get("skip_reason"))
         return value
+
+
+class PolicyCrawlerCandidateArtifactsSummary(BaseModel):
+    candidate_id: str
+    raw_exists: bool
+    cleaned_exists: bool
+    markdown_exists: bool
+    raw_size: int = 0
+    cleaned_size: int = 0
+    markdown_size: int = 0
+    markdown_preview: str = ""
+    cleaned_text_preview: str = ""
+    raw_excerpt: str = ""
+    estimated_chunk_count: int = 0
+    artifact_errors: list[str] = Field(default_factory=list)
+    extraction_quality_score: int | None = None
+    topic_relevance_score: int | None = None
+    topic_class: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class PolicyCrawlerStatusSummary(BaseModel):

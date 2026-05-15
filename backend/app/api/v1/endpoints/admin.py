@@ -11,6 +11,7 @@ from app.admin.schemas import (
     DeleteAdminUsersResponse,
     KnowledgeRefreshTask,
     PolicyCrawlerCandidateStatus,
+    PolicyCrawlerCandidateArtifactsSummary,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
     PolicyCrawlerRecommendedImportSummary,
@@ -316,6 +317,18 @@ def list_admin_policy_crawler_candidates(
 ) -> list[PolicyCrawlerCandidateSummary]:
     del current_user
     return get_admin_service().list_policy_crawler_candidates(status=status, source_id=source_id, limit=limit)
+
+
+@router.get("/policy-crawler/candidates/{candidate_id}/artifacts", response_model=PolicyCrawlerCandidateArtifactsSummary)
+def get_admin_policy_crawler_candidate_artifacts(
+    candidate_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerCandidateArtifactsSummary:
+    del current_user
+    try:
+        return get_admin_service().get_policy_crawler_candidate_artifacts(candidate_id=candidate_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy crawler candidate not found.")
 
 
 @router.post("/policy-crawler/candidates/{candidate_id}/publish", response_model=PolicyCrawlerCandidateSummary)

@@ -14,6 +14,7 @@ from app.admin.schemas import (
     KnowledgeRefreshStatus,
     KnowledgeRefreshScope,
     PolicyCrawlerCandidateStatus,
+    PolicyCrawlerCandidateArtifactsSummary,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
     PolicyCrawlerRecommendedImportSummary,
@@ -425,6 +426,37 @@ class AdminService:
             for candidate in scheduler.list_candidates(status=status, source_id=source_id, limit=limit)
         ]
 
+    def get_policy_crawler_candidate_artifacts(self, *, candidate_id: str) -> PolicyCrawlerCandidateArtifactsSummary:
+        scheduler = get_policy_crawler_scheduler()
+        candidate = scheduler.store.get_candidate(candidate_id)
+        if candidate is None:
+            raise KeyError(candidate_id)
+        metadata = dict(candidate.metadata)
+        raw_path = self._safe_artifact_path(metadata.get("raw_storage_path") or candidate.storage_path)
+        cleaned_path = self._safe_artifact_path(metadata.get("cleaned_storage_path"))
+        markdown_path = self._safe_artifact_path(metadata.get("markdown_storage_path"))
+        raw_text = self._read_text_excerpt(raw_path, limit=4000)
+        cleaned_text = self._read_text_excerpt(cleaned_path, limit=12000)
+        markdown_text = self._read_text_excerpt(markdown_path, limit=12000)
+        return PolicyCrawlerCandidateArtifactsSummary(
+            candidate_id=candidate_id,
+            raw_exists=bool(raw_path and raw_path.exists()),
+            cleaned_exists=bool(cleaned_path and cleaned_path.exists()),
+            markdown_exists=bool(markdown_path and markdown_path.exists()),
+            raw_size=self._file_size(raw_path),
+            cleaned_size=self._file_size(cleaned_path),
+            markdown_size=self._file_size(markdown_path),
+            markdown_preview=markdown_text,
+            cleaned_text_preview=cleaned_text,
+            raw_excerpt=raw_text,
+            estimated_chunk_count=int(metadata.get("estimated_chunk_count") or 0),
+            artifact_errors=metadata.get("artifact_errors") if isinstance(metadata.get("artifact_errors"), list) else [],
+            extraction_quality_score=metadata.get("extraction_quality_score"),
+            topic_relevance_score=metadata.get("topic_relevance_score"),
+            topic_class=metadata.get("topic_class"),
+            metadata=metadata,
+        )
+
     def publish_policy_crawler_candidate(
         self,
         *,
@@ -438,6 +470,29 @@ class AdminService:
         )
         self._clear_retrieval_caches("public_policy")
         return PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
+
+    @staticmethod
+    def _safe_artifact_path(value: object) -> Path | None:
+        if not isinstance(value, str) or not value:
+            return None
+        return Path(value)
+
+    @staticmethod
+    def _file_size(path: Path | None) -> int:
+        try:
+            return path.stat().st_size if path and path.exists() and path.is_file() else 0
+        except OSError:
+            return 0
+
+    @staticmethod
+    def _read_text_excerpt(path: Path | None, *, limit: int) -> str:
+        if path is None or not path.exists() or not path.is_file():
+            return ""
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+        return text[:limit]
 
     @staticmethod
     def _policy_crawler_source_payload(

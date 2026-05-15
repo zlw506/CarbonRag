@@ -277,9 +277,35 @@ export interface PolicyCrawlerCandidateSummary {
     rag_error_stage: string | null;
     rag_error_detail?: string | null;
     candidate_quality_score?: number | null;
+    extraction_quality_score?: number | null;
+    topic_relevance_score?: number | null;
+    topic_class?: string | null;
+    artifact_errors?: string[];
+    cleaned_size?: number | null;
+    markdown_size?: number | null;
+    estimated_chunk_count?: number | null;
     quality_breakdown?: Record<string, unknown>;
     matched_keywords?: string[];
     skip_reason?: string | null;
+}
+
+export interface PolicyCrawlerCandidateArtifactsSummary {
+    candidate_id: string;
+    raw_exists: boolean;
+    cleaned_exists: boolean;
+    markdown_exists: boolean;
+    raw_size: number;
+    cleaned_size: number;
+    markdown_size: number;
+    markdown_preview: string;
+    cleaned_text_preview: string;
+    raw_excerpt: string;
+    estimated_chunk_count: number;
+    artifact_errors: string[];
+    extraction_quality_score: number | null;
+    topic_relevance_score: number | null;
+    topic_class: string | null;
+    metadata: Record<string, unknown>;
 }
 
 export interface PolicyCrawlerStatusSummary {
